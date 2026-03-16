@@ -35,25 +35,23 @@ app:
           description: Archive, delete, mark read/unread, move, label — appears in selecting state
           events: [archive-selected, delete-selected]
       states:
-        values: [browsing, selecting]
-        transitions:
-          - on: select-email
-            from: browsing
-            action: navigate(ThreadView)
-          - on: check-email
-            from: browsing
-            to: selecting
-          - on: check-email
-            from: selecting
-          - on: archive-selected
-            from: selecting
-            to: browsing
-          - on: delete-selected
-            from: selecting
-            to: browsing
-          - on: Escape
-            from: selecting
-            to: browsing
+        - on: select-email
+          from: browsing
+          action: navigate(ThreadView)
+        - on: check-email
+          from: browsing
+          to: selecting
+        - on: check-email
+          from: selecting
+        - on: archive-selected
+          from: selecting
+          to: browsing
+        - on: delete-selected
+          from: selecting
+          to: browsing
+        - on: Escape
+          from: selecting
+          to: browsing
 
     - name: ThreadView
       description: Full conversation view with chronological messages and inline reply
@@ -64,23 +62,19 @@ app:
           description: Rich text reply editor embedded at the bottom of the thread
           events: [start-reply, send-reply, discard-reply]
           states:
-            values: [collapsed, expanded]
-            transitions:
-              - on: start-reply
-                from: collapsed
-                to: expanded
-              - on: send-reply
-                from: expanded
-                to: collapsed
-                action: emit(reply-sent)
-              - on: discard-reply
-                from: expanded
-                to: collapsed
+            - on: start-reply
+              from: collapsed
+              to: expanded
+            - on: send-reply
+              from: expanded
+              to: collapsed
+              action: emit(reply-sent)
+            - on: discard-reply
+              from: expanded
+              to: collapsed
       states:
-        values: [reading]
-        transitions:
-          - on: reply-sent
-            from: reading
+        - on: reply-sent
+          from: reading
 
     - name: Settings
       description: Account and app configuration
@@ -102,11 +96,9 @@ app:
           description: Filtered email threads matching the search query
           events: [select-result]
       states:
-        values: [browsing]
-        transitions:
-          - on: select-result
-            from: browsing
-            action: navigate(ThreadView)
+        - on: select-result
+          from: browsing
+          action: navigate(ThreadView)
 
     - name: LabelView
       description: Emails filtered by a user-created or system label
@@ -116,11 +108,9 @@ app:
           description: Thread list scoped to the selected label
           events: [select-email]
       states:
-        values: [browsing]
-        transitions:
-          - on: select-email
-            from: browsing
-            action: navigate(ThreadView)
+        - on: select-email
+          from: browsing
+          action: navigate(ThreadView)
 
   flows:
     - name: EmailFromInbox

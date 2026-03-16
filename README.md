@@ -32,7 +32,7 @@ app:
 
 ### States — layered state machines
 
-State machines live at the layer they belong to. Events bubble up: Sub-Region → Region → Screen → App.
+State machines live at the layer they belong to. Events bubble up: Sub-Region → Region → Screen → App. Valid states are inferred from `from:` and `to:` values in transitions. The first `from:` value is the initial state.
 
 ```yaml
 screens:
@@ -43,17 +43,15 @@ screens:
 
     # screen-level state machine
     states:
-      values: [browsing, selecting]
-      transitions:
-        - on: select-email          # event from EmailList (bubbled up)
-          from: browsing
-          action: navigate(ThreadView)
-        - on: check-email
-          from: browsing
-          to: selecting
-        - on: Escape                # ambient event (keyboard)
-          from: selecting
-          to: browsing
+      - on: select-email          # event from EmailList (bubbled up)
+        from: browsing
+        action: navigate(ThreadView)
+      - on: check-email
+        from: browsing
+        to: selecting
+      - on: Escape                # ambient event (keyboard)
+        from: selecting
+        to: browsing
 
   - name: ThreadView
     regions:
@@ -62,22 +60,18 @@ screens:
 
         # region-level state machine (sub-machine)
         states:
-          values: [collapsed, expanded]
-          transitions:
-            - on: start-reply       # consumed here, doesn't bubble
-              from: collapsed
-              to: expanded
-            - on: send-reply
-              from: expanded
-              to: collapsed
-              action: emit(reply-sent)   # handle locally AND send reply-sent to parent
+          - on: start-reply       # consumed here, doesn't bubble
+            from: collapsed
+            to: expanded
+          - on: send-reply
+            from: expanded
+            to: collapsed
+            action: emit(reply-sent)   # handle locally AND send reply-sent to parent
 
     # screen-level state machine
     states:
-      values: [reading]
-      transitions:
-        - on: reply-sent            # emitted from ReplyComposer
-          from: reading
+      - on: reply-sent            # emitted from ReplyComposer
+        from: reading
 ```
 
 **Event bubbling**: Region emits event → Region's state machine gets first look → if unhandled, bubbles to Screen → if unhandled, bubbles to App. Handled = consumed. With nested regions, the chain deepens: Sub-Region → Region → Screen → App.
@@ -186,11 +180,10 @@ app:
        states? }]
   flows: [{ name, description?, on?, sequence, state_carries? }]
 
-states:               # can appear at app, screen, or region level
-  values: [state-names]
-  transitions:
-    [{ on, from?, to?, action? }]
+states:               # can appear at app, screen, or region level — list of transitions
+  [{ on, from?, to?, action? }]
               # on: may reference ambient events (keyboard shortcuts, system events) without a Region declaring them
+              # valid states inferred from from/to values; first from is initial state
 ```
 
 Multi-app: `app:` accepts a list of apps. Cross-app: `contains:` on Region.
