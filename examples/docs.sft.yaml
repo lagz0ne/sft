@@ -1,0 +1,168 @@
+app:
+  name: CollabDocs
+  description: Collaborative document editor — real-time editing, sharing, offline sync, and workspace management
+
+  regions:
+    - name: TopBar
+      description: Logo, document title (editable inline), share button, and user avatar menu
+    - name: MobileNav
+      description: Hamburger menu for responsive sidebar toggle on small viewports
+      tags: [responsive, mobile]
+    - name: CommandPalette
+      description: Cmd+K search and action palette — available from any screen
+      tags: [overlay]
+    - name: ToastStack
+      description: Auto-dismissing snackbar notifications — save confirmation, share success, error alerts
+      tags: [toast, overlay]
+      events: [dismiss-toast, undo-action]
+    - name: OfflineBanner
+      description: Connection status indicator — shows sync state and reconnect progress
+      tags: [offline]
+    - name: OnboardingTour
+      description: Step-by-step welcome overlay guiding new users through key features
+      tags: [overlay, onboarding, first-visit]
+      events: [next-step, skip-tour, finish-tour]
+      states:
+        - on: next-step
+          from: active
+          to: active
+        - on: skip-tour
+          from: active
+          to: dismissed
+        - on: finish-tour
+          from: active
+          to: dismissed
+
+  screens:
+    - name: Login
+      description: Authentication screen — email/password, SSO, and MFA verification
+      regions:
+        - name: LoginForm
+          description: Email and password fields with SSO provider buttons
+          events: [submit-login, start-sso]
+        - name: MFAChallenge
+          description: TOTP or SMS code entry after primary authentication succeeds
+          tags: [mfa-required]
+          events: [submit-mfa, resend-code]
+        - name: ForgotPassword
+          description: Password reset flow — enter email, receive link
+          tags: [overlay]
+          events: [request-reset, cancel-reset]
+      states:
+        - on: submit-login
+          from: credentials
+          to: verifying
+        - on: submit-mfa
+          from: mfa
+          to: verifying
+        - on: start-sso
+          from: credentials
+          to: verifying
+
+    - name: Workspace
+      description: Document list with folders, recent activity, and workspace settings
+      regions:
+        - name: Sidebar
+          description: Folder tree, favorites, shared-with-me, and trash — collapsible on mobile
+          tags: [responsive]
+        - name: DocumentGrid
+          description: Document cards with title, last-edited, collaborator avatars
+          events: [select-document, context-menu-document]
+        - name: ContextMenu
+          description: Right-click menu — rename, duplicate, move, share, delete
+          tags: [overlay, context-menu]
+          events: [rename-doc, duplicate-doc, delete-doc, share-doc]
+        - name: GettingStarted
+          description: Welcome card for new users with template suggestions and import options
+          tags: [onboarding, first-visit]
+      states:
+        - on: select-document
+          from: browsing
+          action: navigate(Editor)
+        - on: context-menu-document
+          from: browsing
+          to: context-open
+        - on: rename-doc
+          from: context-open
+          to: browsing
+        - on: duplicate-doc
+          from: context-open
+          to: browsing
+        - on: delete-doc
+          from: context-open
+          to: browsing
+        - on: share-doc
+          from: context-open
+          to: browsing
+        - on: Escape
+          from: context-open
+          to: browsing
+
+    - name: Editor
+      description: Full document editor with real-time collaboration, commenting, and version history
+      tags: [per-document]
+      regions:
+        - name: EditorToolbar
+          description: Formatting, insert, undo/redo buttons, and responsive overflow menu
+          events: [undo, redo, insert-block]
+        - name: DocumentCanvas
+          description: Block-based content area with optimistic saves — edits apply instantly, sync in background
+          tags: [optimistic-update]
+          events: [edit-content, save-triggered]
+        - name: CollaboratorCursors
+          description: Real-time cursor positions and selections of other users
+          tags: [has-collaborators]
+        - name: SyncIndicator
+          description: Shows saving / saved / offline-queued / sync-conflict status
+          tags: [offline]
+          events: [retry-sync, resolve-conflict]
+          states:
+            - on: edit-content
+              from: synced
+              to: saving
+            - on: save-triggered
+              from: saving
+              to: synced
+            - on: retry-sync
+              from: conflict
+              to: saving
+            - on: resolve-conflict
+              from: conflict
+              to: synced
+        - name: CommentThread
+          description: Inline discussion anchored to a text selection
+          tags: [overlay]
+          events: [add-comment, resolve-thread]
+        - name: VersionHistory
+          description: Timeline of document versions with diff preview and rollback
+          tags: [overlay]
+          events: [select-version, rollback-version]
+      states:
+        - on: undo
+          from: editing
+        - on: redo
+          from: editing
+        - on: rollback-version
+          from: editing
+
+  flows:
+    - name: LoginToWorkspace
+      description: Authenticate and land in the workspace — includes MFA if required
+      on: submit-login
+      sequence: "Login → verifying → Workspace"
+
+    - name: EditWithUndo
+      description: Edit a document, undo a mistake via toolbar or Cmd+Z, redo if needed
+      sequence: "Editor → edit-content → undo → redo"
+
+    - name: OfflineSync
+      description: Edit while offline, reconnect, and resolve any sync conflicts
+      sequence: "Editor{queued edits} → reconnect → SyncIndicator → resolve-conflict → Editor{synced}"
+
+    - name: ContextMenuAction
+      description: Right-click a document card and perform an action
+      sequence: "Workspace → context-menu-document → ContextMenu activates → rename-doc → Workspace"
+
+    - name: OnboardToEditor
+      description: New user completes tour then opens first document
+      sequence: "OnboardingTour activates → finish-tour → Workspace → Editor"
