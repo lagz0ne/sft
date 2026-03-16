@@ -1,0 +1,118 @@
+app:
+  name: Linear
+  description: Issue tracking and project management — list, board, and cycle views with global shortcuts
+
+  regions:
+    - name: MainSidebar
+      description: Workspace navigation — teams, projects, views, cycles
+    - name: CommandPalette
+      description: Cmd+K search and action palette — available from any screen
+      tags: [overlay]
+    - name: NotificationCenter
+      description: Activity feed for mentions, assignments, and status changes
+      tags: [overlay]
+    - name: CreateIssueModal
+      description: Quick issue creation triggered by C key from any screen
+      tags: [overlay]
+      events: [submit-issue]
+
+  screens:
+    - name: MyIssues
+      description: Personal issue queue with filtering and bulk selection
+      regions:
+        - name: IssueList
+          description: Filterable list of issues assigned to or created by the user
+          events: [select-issue, shift-select-issue]
+        - name: FilterBar
+          description: Status, priority, label, and assignee filters
+        - name: BulkActionBar
+          description: Archive, label, assign, change status — appears in selecting state
+          events: [bulk-action]
+      states:
+        values: [browsing, selecting]
+        transitions:
+          - on: select-issue
+            from: browsing
+            action: navigate(IssueDetail)
+          - on: shift-select-issue
+            from: browsing
+            to: selecting
+          - on: shift-select-issue
+            from: selecting
+          - on: bulk-action
+            from: selecting
+            to: browsing
+          - on: Escape
+            from: selecting
+            to: browsing
+
+    - name: IssueDetail
+      description: Full issue view with description, activity, properties, and sub-issues
+      tags: [per-issue]
+      regions:
+        - name: IssueHeader
+          description: Title, status badge, priority indicator, and quick actions
+        - name: DescriptionEditor
+          description: Rich text editor for issue description — supports markdown, mentions, slash commands
+          events: [edit-description, save-description]
+          states:
+            values: [viewing, editing]
+            transitions:
+              - on: edit-description
+                from: viewing
+                to: editing
+              - on: save-description
+                from: editing
+                to: viewing
+        - name: ActivityFeed
+          description: Chronological log of comments, status changes, and linked activity
+        - name: PropertiesPanel
+          description: Assignee, status, priority, labels, cycle, project — editable inline
+        - name: SubIssueList
+          description: Child issues linked to this parent issue
+
+    - name: BoardView
+      description: Kanban-style board with drag-and-drop columns by status
+      tags: [per-project]
+      regions:
+        - name: ColumnList
+          description: Status columns (Backlog, Todo, In Progress, Done, Cancelled)
+        - name: IssueCards
+          description: Issue summary cards draggable between columns
+          events: [select-issue, drag-issue]
+
+    - name: CycleView
+      description: Time-boxed iteration view with progress tracking
+      tags: [per-cycle]
+      regions:
+        - name: CycleProgress
+          description: Burndown chart and completion percentage
+        - name: CycleIssueList
+          description: Issues assigned to this cycle
+          events: [select-issue]
+
+    - name: Settings
+      description: Workspace and personal configuration
+      regions:
+        - name: WorkspaceSettings
+          description: General workspace config, integrations, API keys
+          tags: [admin]
+        - name: PersonalSettings
+          description: Notification preferences, theme, default views
+        - name: TeamSettings
+          description: Team-specific workflow, labels, and automation rules
+          tags: [team-admin]
+
+  flows:
+    - name: IssueFromList
+      description: Open an issue from the list and return with scroll position preserved
+      sequence: "MyIssues → IssueDetail → [Back] → MyIssues(H)"
+
+    - name: IssueFromBoard
+      description: Open an issue from the board and return to the same board state
+      sequence: "BoardView → IssueDetail → [Back] → BoardView(H)"
+
+    - name: CreateIssue
+      description: Quick-create an issue from anywhere via keyboard shortcut
+      on: create-issue
+      sequence: "CreateIssueModal activates → fill fields → submit-issue"

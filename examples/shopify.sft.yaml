@@ -1,0 +1,245 @@
+apps:
+  - name: ShopifyAdmin
+    description: Merchant-facing administration — products, orders, analytics, and settings
+
+    regions:
+      - name: MainNav
+        description: Primary navigation — orders, products, customers, analytics, settings
+      - name: SearchBar
+        description: Global search across products, orders, and customers
+      - name: NotificationBell
+        description: Order alerts, app updates, and system notifications
+      - name: GlobalSearch
+        description: Full-screen search overlay with recent searches and suggestions
+        tags: [overlay]
+      - name: StorefrontPreview
+        description: Live preview of the customer-facing storefront — composition boundary
+        contains: ShopifyStorefront
+
+    screens:
+      - name: Dashboard
+        description: Merchant home — sales overview, recent orders, and performance cards
+        regions:
+          - name: SalesOverview
+            description: Revenue, order count, and conversion metrics for selected period
+          - name: OrderActivity
+            description: Recent order feed with status indicators
+            events: [select-order]
+          - name: AnalyticsCards
+            description: Key performance indicators — sessions, returning customers, average order value
+
+      - name: ProductDetail
+        description: Full product editor — info, media, variants, SEO, and inventory
+        tags: [per-product]
+        regions:
+          - name: ProductInfo
+            description: Title, description, vendor, product type, and status
+          - name: MediaGallery
+            description: Product images and video with drag-to-reorder
+          - name: VariantEditor
+            description: Size/color/material variant matrix with per-variant pricing and inventory
+            events: [edit-variant, save-variant, cancel-edit]
+            states:
+              values: [viewing, editing]
+              transitions:
+                - on: edit-variant
+                  from: viewing
+                  to: editing
+                - on: save-variant
+                  from: editing
+                  to: viewing
+                - on: cancel-edit
+                  from: editing
+                  to: viewing
+          - name: SEOPreview
+            description: Search engine listing preview — title, meta description, URL handle
+          - name: InventorySection
+            description: Stock levels across locations with incoming transfer tracking
+
+      - name: OrderDetail
+        description: Single order view — line items, customer, fulfillment, and payment
+        tags: [per-order]
+        regions:
+          - name: OrderHeader
+            description: Order number, date, payment status, and fulfillment status
+          - name: LineItems
+            description: Ordered products with quantity, price, and discount applied
+          - name: CustomerInfo
+            description: Customer name, email, shipping address, and order history link
+          - name: FulfillmentArea
+            description: Fulfillment action group — ship button and confirmation dialog
+            tags: [unfulfilled]
+            regions:
+              - name: FulfillmentActions
+                description: Ship, print label, mark as fulfilled
+                events: [start-fulfillment]
+              - name: FulfillmentConfirmation
+                description: Confirm shipment details — tracking number, carrier, and notify customer
+                tags: [overlay]
+                events: [confirm-fulfillment, cancel-fulfillment]
+            states:
+              values: [idle, confirming]
+              transitions:
+                - on: start-fulfillment
+                  from: idle
+                  to: confirming
+                - on: confirm-fulfillment
+                  from: confirming
+                  to: idle
+                - on: cancel-fulfillment
+                  from: confirming
+                  to: idle
+          - name: RefundPanel
+            description: Process full or partial refund — only available for fulfilled orders
+            tags: [fulfilled, overlay]
+
+      - name: ProductList
+        description: Searchable product catalog with bulk editing support
+        regions:
+          - name: ProductTable
+            description: Product rows with thumbnail, title, status, inventory, and vendor
+            events: [select-product, check-product]
+          - name: FilterBar
+            description: Status, vendor, product type, and tag filters
+          - name: BulkActionBar
+            description: Bulk edit, publish, unpublish — appears in selecting state
+            events: [bulk-edit]
+        states:
+          values: [browsing, selecting]
+          transitions:
+            - on: select-product
+              from: browsing
+              action: navigate(ProductDetail)
+            - on: check-product
+              from: browsing
+              to: selecting
+            - on: check-product
+              from: selecting
+            - on: bulk-edit
+              from: selecting
+              to: browsing
+            - on: Escape
+              from: selecting
+              to: browsing
+
+      - name: Analytics
+        description: Sales, acquisition, and behavior reports with date range selection
+        tags: [per-report]
+        regions:
+          - name: DateRangePicker
+            description: Preset and custom date range selection with comparison period
+          - name: ChartArea
+            description: Visualizations — line charts, bar charts, funnels
+          - name: DataTable
+            description: Tabular breakdown behind the chart with export support
+
+      - name: Settings
+        description: Store configuration — payments, shipping, taxes, and developer access
+        regions:
+          - name: StoreSettings
+            description: Store name, currency, timezone, and legal pages
+          - name: PaymentSettings
+            description: Payment providers, manual payments, and payout schedule
+          - name: ShippingSettings
+            description: Shipping zones, rates, and carrier-calculated shipping
+          - name: DeveloperSettings
+            description: API keys, webhooks, and custom app management
+            tags: [developer-plan]
+
+    flows:
+      - name: Fulfillment
+        description: Ship an order and notify the customer
+        on: start-fulfillment
+        sequence: "OrderDetail → FulfillmentConfirmation → confirm-fulfillment → OrderDetail"
+
+      - name: ProductFromList
+        description: Edit a product and return to the catalog with position preserved
+        sequence: "ProductList → ProductDetail → [Back] → ProductList(H)"
+
+  - name: ShopifyStorefront
+    description: Customer-facing shop — browse products, manage cart, and checkout
+
+    regions:
+      - name: Header
+        description: Logo, navigation menu, account link, and cart icon
+      - name: CartDrawer
+        description: Slide-out cart summary — appears when items are added
+        tags: [overlay, has-items]
+      - name: AnnouncementBar
+        description: Promotional banner for sales, free shipping thresholds, or store updates
+        tags: [has-announcement]
+      - name: Footer
+        description: Links, policies, newsletter signup, and social media
+
+    screens:
+      - name: Home
+        description: Landing page with featured products and collection highlights
+        regions:
+          - name: HeroBanner
+            description: Full-width promotional hero image with CTA
+          - name: FeaturedProducts
+            description: Curated product grid selected by the merchant
+            events: [select-product]
+          - name: CollectionGrid
+            description: Category cards linking to collection pages
+            events: [select-collection]
+
+      - name: ProductPage
+        description: Single product view with images, variants, reviews, and add-to-cart
+        tags: [per-product]
+        regions:
+          - name: ProductImages
+            description: Zoomable product gallery with thumbnail navigation
+          - name: ProductDetails
+            description: Title, price, description, and availability
+          - name: VariantSelector
+            description: Size, color, and material options with stock-aware disabling
+            events: [select-variant]
+          - name: AddToCartButton
+            description: Primary purchase action — triggers CartDrawer on success
+            events: [add-to-cart]
+          - name: ReviewSection
+            description: Customer ratings and written reviews with pagination
+
+      - name: Cart
+        description: Full cart page with line item editing and order summary
+        regions:
+          - name: CartItems
+            description: Line items with quantity adjustment and remove controls
+            events: [update-quantity, remove-item]
+          - name: OrderSummary
+            description: Subtotal, estimated shipping, taxes, and discount codes
+          - name: CheckoutButton
+            description: Proceed to checkout — validates cart contents before navigating
+            events: [start-checkout]
+
+      - name: Checkout
+        description: Multi-step checkout — shipping, payment, and order review
+        regions:
+          - name: ShippingForm
+            description: Shipping address and delivery method selection
+          - name: PaymentForm
+            description: Credit card, shop pay, or alternative payment methods
+            events: [submit-payment]
+          - name: OrderReview
+            description: Final order summary before confirmation
+
+      - name: OrderConfirmation
+        description: Order placed successfully — confirmation number, estimated delivery, and next steps
+        tags: [per-order]
+        regions:
+          - name: ConfirmationSummary
+            description: Order number, items ordered, and total charged
+          - name: DeliveryEstimate
+            description: Estimated shipping date and tracking info when available
+
+    flows:
+      - name: Purchase
+        description: End-to-end buying journey from product discovery to order confirmation
+        sequence: "ProductPage → Cart → Checkout → OrderConfirmation"
+        state_carries: "selected variant → cart items → shipping + payment → order ID"
+
+      - name: AddToCart
+        description: Add a product and see it reflected in the cart drawer
+        on: add-to-cart
+        sequence: "ProductPage → CartDrawer activates"

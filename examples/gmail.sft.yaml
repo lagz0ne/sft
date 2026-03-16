@@ -1,0 +1,137 @@
+app:
+  name: Gmail
+  description: Google's email client — inbox management, threaded reading, search, and composition
+
+  regions:
+    - name: MainNav
+      description: Sidebar with labels, folders, and navigation shortcuts
+    - name: SearchBar
+      description: Global email search with filters and advanced operators
+    - name: ComposeButton
+      description: Persistent action button triggering the compose overlay from any screen
+      events: [start-compose]
+    - name: ChatSidebar
+      description: Google Chat integration panel alongside email
+      tags: [chat-enabled]
+    - name: ComposeWindow
+      description: Email composition form — survives screen transitions as a floating panel
+      tags: [composing, overlay]
+      events: [send-email, discard-draft]
+
+  screens:
+    - name: Inbox
+      description: Primary email list with category tabs and optional reading pane
+      regions:
+        - name: CategoryTabs
+          description: Primary / Social / Promotions / Updates tab filter
+          events: [switch-category]
+        - name: EmailList
+          description: Scrollable thread list supporting individual and bulk interactions
+          events: [select-email, check-email]
+        - name: ReadingPane
+          description: Inline email preview — only exists when preview pane setting is enabled
+          tags: [preview-pane-enabled]
+        - name: BulkActionBar
+          description: Archive, delete, mark read/unread, move, label — appears in selecting state
+          events: [archive-selected, delete-selected]
+      states:
+        values: [browsing, selecting]
+        transitions:
+          - on: select-email
+            from: browsing
+            action: navigate(ThreadView)
+          - on: check-email
+            from: browsing
+            to: selecting
+          - on: check-email
+            from: selecting
+          - on: archive-selected
+            from: selecting
+            to: browsing
+          - on: delete-selected
+            from: selecting
+            to: browsing
+          - on: Escape
+            from: selecting
+            to: browsing
+
+    - name: ThreadView
+      description: Full conversation view with chronological messages and inline reply
+      regions:
+        - name: MessageList
+          description: Chronological message thread with expand/collapse per message
+        - name: ReplyComposer
+          description: Rich text reply editor embedded at the bottom of the thread
+          events: [start-reply, send-reply, discard-reply]
+          states:
+            values: [collapsed, expanded]
+            transitions:
+              - on: start-reply
+                from: collapsed
+                to: expanded
+              - on: send-reply
+                from: expanded
+                to: collapsed
+                action: emit(reply-sent)
+              - on: discard-reply
+                from: expanded
+                to: collapsed
+      states:
+        values: [reading]
+        transitions:
+          - on: reply-sent
+            from: reading
+
+    - name: Settings
+      description: Account and app configuration
+      regions:
+        - name: GeneralSettings
+          description: Language, density, default text style, notifications
+        - name: LabsSettings
+          description: Experimental features opt-in
+          tags: [labs-enabled]
+        - name: AccountSettings
+          description: Connected accounts, POP/IMAP, delegation
+
+    - name: SearchResults
+      description: Email results matching a search query with refinement filters
+      regions:
+        - name: SearchFilters
+          description: Refine by date, sender, has-attachment, label
+        - name: ResultList
+          description: Filtered email threads matching the search query
+          events: [select-result]
+      states:
+        values: [browsing]
+        transitions:
+          - on: select-result
+            from: browsing
+            action: navigate(ThreadView)
+
+    - name: LabelView
+      description: Emails filtered by a user-created or system label
+      tags: [per-label]
+      regions:
+        - name: LabelEmailList
+          description: Thread list scoped to the selected label
+          events: [select-email]
+      states:
+        values: [browsing]
+        transitions:
+          - on: select-email
+            from: browsing
+            action: navigate(ThreadView)
+
+  flows:
+    - name: EmailFromInbox
+      description: Read an email from the inbox and return with scroll position preserved
+      sequence: "Inbox → ThreadView → [Back] → Inbox(H)"
+
+    - name: EmailFromSearch
+      description: Read a search result and return to the same result set
+      sequence: "SearchResults → ThreadView → [Back] → SearchResults(H)"
+
+    - name: ComposeAndSend
+      description: Create and send a new email from anywhere in the app
+      on: start-compose
+      sequence: "ComposeWindow activates → fill → send-email"
