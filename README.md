@@ -111,17 +111,16 @@ flows:
   - name: RefundPayment
     description: Issue a refund with amount and reason confirmation
     on: start-refund
-    sequence: "PaymentDetail → RefundConfirmation → confirm-refund → PaymentDetail"
-    state_carries: "payment ID → refund amount + reason → updated status"
+    sequence: "PaymentDetail{payment ID} → RefundConfirmation{refund amount + reason} → confirm-refund → PaymentDetail{updated status}"
 ```
 
 - **`sequence`** — arrow notation showing the journey path. Authoritative representation.
 - **`(H)`** — history re-entry. Resume prior sub-state (scroll position, selection, tab).
 - **`on:`** — event that triggers the flow. Omit when the flow starts from a screen the user navigates to normally.
-- **`state_carries:`** — what data flows across screen boundaries. Arrows map to transitions between adjacent steps. Include when data other than the entity ID must survive a screen change.
+- **`{data}`** — inline data annotation on a step. Shows what data is available or produced at that step. Use when data other than the entity ID must survive a screen change.
 - **`activates`** — in a sequence, means an independently-triggered overlay becomes visible without screen navigation: `"ComposeWindow activates → fill → send-email"`. State-machine-controlled overlays (confirmation dialogs) are referenced directly: `"PaymentDetail → RefundConfirmation → confirm-refund → PaymentDetail"` — the parent state machine governs visibility.
 
-Sequence elements follow naming conventions: `ScreenName` or `RegionName` (PascalCase), `event-name` (kebab-case), prose action (lowercase, e.g., `fill`, `await resolution`), `[Back]` (bracketed navigation), `RegionName activates` (overlay activation), `ScreenName(H)` (history re-entry).
+Sequence elements follow naming conventions: `ScreenName` or `RegionName` (PascalCase), `event-name` (kebab-case), prose action (lowercase, e.g., `fill`, `await resolution`), `[Back]` (bracketed navigation), `RegionName activates` (overlay activation), `ScreenName(H)` (history re-entry), `Step{data}` (data annotation).
 
 ## Conventions
 
@@ -178,7 +177,7 @@ app:
     [{ name, description, tags?,
        regions: [{ name, description, tags?, events?, regions?, states? }],
        states? }]
-  flows: [{ name, description?, on?, sequence, state_carries? }]
+  flows: [{ name, description?, on?, sequence }]
 
 states:               # can appear at app, screen, or region level — list of transitions
   [{ on, from?, to?, action? }]

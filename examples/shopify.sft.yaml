@@ -230,8 +230,7 @@ app:
     flows:
       - name: Purchase
         description: End-to-end buying journey from product discovery to order confirmation
-        sequence: "ProductPage → Cart → Checkout → OrderConfirmation"
-        state_carries: "selected variant → cart items → shipping + payment → order ID"
+        sequence: "ProductPage{selected variant} → Cart{cart items} → Checkout{shipping + payment} → OrderConfirmation{order ID}"
 
       - name: AddToCart
         description: Add a product and see it reflected in the cart drawer

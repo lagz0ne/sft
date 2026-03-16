@@ -232,8 +232,7 @@ app:
     - name: RefundPayment
       description: Issue a refund with amount and reason confirmation
       on: start-refund
-      sequence: "PaymentDetail → RefundConfirmation → confirm-refund → PaymentDetail"
-      state_carries: "payment ID → refund amount + reason → updated payment status"
+      sequence: "PaymentDetail{payment ID} → RefundConfirmation{refund amount + reason} → confirm-refund → PaymentDetail{updated status}"
 
     - name: RefundFailed
       description: Refund processing fails — user sees error and retries or abandons
@@ -242,13 +241,11 @@ app:
     - name: CancelSubscription
       description: Cancel a subscription with timing choice and revenue impact warning
       on: start-cancel
-      sequence: "SubscriptionDetail → CancelConfirmation → confirm-cancel → SubscriptionDetail"
-      state_carries: "subscription ID → cancellation timing → updated subscription status"
+      sequence: "SubscriptionDetail{subscription ID} → CancelConfirmation{cancellation timing} → confirm-cancel → SubscriptionDetail{updated status}"
 
     - name: DisputeResponse
       description: Collect and submit evidence for a payment dispute before the deadline
-      sequence: "DisputeDetail → upload-evidence → submit-evidence → await resolution"
-      state_carries: "dispute ID + deadline → evidence files → submission confirmation"
+      sequence: "DisputeDetail{dispute ID + deadline} → upload-evidence{evidence files} → submit-evidence → await resolution{submission confirmation}"
 
     - name: PaymentFromList
       description: Inspect a payment and return to the list with position preserved

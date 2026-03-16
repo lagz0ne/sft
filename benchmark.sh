@@ -34,8 +34,8 @@ extract_schema_vocab() {
         # Extract keywords: word followed by : or word inside [] or standalone keywords
         # Strip comments first
         local clean="${line%%#*}"
-        # Match keywords (alphanumeric + underscore) followed by : or ,
-        while [[ "$clean" =~ ([a-z_]+)[,:\?\)] ]]; do
+        # Match keywords (alphanumeric + underscore) followed by : , ? ) or space/}
+        while [[ "$clean" =~ ([a-z_]+)[,:\?\)\ \}] ]]; do
           local kw="${BASH_REMATCH[1]}"
           vocab+=("$kw")
           clean="${clean#*"${BASH_REMATCH[0]}"}"
