@@ -1,0 +1,376 @@
+app:
+  name: BankApp
+  description: Retail banking — accounts, transactions, transfers, cards, loans, and security settings
+
+  regions:
+    - name: BottomNav
+      description: Home, Accounts, Transfer, Cards, More — persistent tab bar
+    - name: SessionTimeout
+      description: Inactivity warning overlay with countdown — extends or logs out
+      tags: [overlay, inactive]
+      events: [extend-session, logout]
+    - name: BiometricPrompt
+      description: Face ID / fingerprint prompt for sensitive actions — transfer, card lock, loan sign
+      tags: [overlay, biometric-enabled]
+      events: [biometric-success, biometric-fail, fallback-pin]
+    - name: PushNotificationBanner
+      description: In-app alert for incoming transfers, fraud alerts, and payment reminders
+      tags: [overlay, toast]
+      events: [tap-notification, dismiss-notification]
+
+  screens:
+    - name: Login
+      description: PIN or biometric entry — locked after 5 failed attempts
+      regions:
+        - name: PINPad
+          description: 6-digit PIN entry with biometric shortcut
+          events: [submit-pin]
+        - name: BiometricLogin
+          description: Face ID / fingerprint as primary auth
+          tags: [biometric-enabled]
+          events: [biometric-success, biometric-fail]
+        - name: LockedAccount
+          description: Account locked after max failed attempts — shows support contact
+          tags: [locked]
+        - name: MaintenanceBanner
+          description: Scheduled downtime notice with estimated restoration time
+          tags: [maintenance-window]
+      states:
+        - on: submit-pin
+          from: entering
+          to: verifying
+        - on: biometric-success
+          from: entering
+          action: navigate(Home)
+        - on: biometric-fail
+          from: entering
+          to: entering
+
+    - name: Home
+      description: Dashboard — aggregated balance, recent activity, and quick actions
+      regions:
+        - name: BalanceCard
+          description: Total balance across all accounts — tap to toggle visible/masked
+          events: [toggle-balance]
+        - name: QuickActions
+          description: Transfer, Pay Bill, Top Up, QR Pay — contextual based on account types
+        - name: RecentTransactions
+          description: Last 5 transactions across all accounts with merchant icons
+          events: [select-transaction]
+        - name: SpendingInsights
+          description: Weekly spending chart by category — only for accounts with 30+ days history
+          tags: [has-history]
+        - name: PendingActions
+          description: Items requiring attention — unsigned loans, incomplete transfers, expiring cards
+          tags: [has-pending]
+          events: [select-pending]
+        - name: FraudAlert
+          description: Urgent banner for suspicious transaction — block card or dismiss
+          tags: [fraud-detected]
+          events: [block-card, dismiss-alert]
+      states:
+        - on: select-transaction
+          from: idle
+          action: navigate(TransactionDetail)
+        - on: select-pending
+          from: idle
+          action: navigate(PendingDetail)
+        - on: block-card
+          from: idle
+
+    - name: AccountList
+      description: All accounts — checking, savings, credit, loan — each with balance and status
+      regions:
+        - name: CheckingAccounts
+          description: Checking accounts with available balance and pending holds
+          tags: [has-checking]
+          events: [select-account]
+        - name: SavingsAccounts
+          description: Savings accounts with interest rate and goal progress
+          tags: [has-savings]
+          events: [select-account]
+        - name: CreditAccounts
+          description: Credit cards with available credit, current balance, and minimum due
+          tags: [has-credit]
+          events: [select-account]
+        - name: LoanAccounts
+          description: Active loans with remaining balance, next payment, and payoff date
+          tags: [has-loans]
+          events: [select-account]
+        - name: ClosedAccounts
+          description: Previously closed accounts — view-only with historical statements
+          tags: [has-closed]
+          events: [select-account]
+        - name: EmptyState
+          description: No accounts — prompt to open first account or contact support
+          tags: [no-accounts]
+      states:
+        - on: select-account
+          from: browsing
+          action: navigate(AccountDetail)
+
+    - name: AccountDetail
+      description: Single account view — balance, transactions, statements, and account-type-specific actions
+      tags: [per-account]
+      regions:
+        - name: AccountHeader
+          description: Account name, number (masked), balance, and status badge
+        - name: TransactionList
+          description: Scrollable transaction history with search and date filter
+          events: [select-transaction, filter-transactions]
+        - name: PendingTransactions
+          description: Authorized but unsettled transactions — amounts may change
+          tags: [has-pending]
+        - name: ScheduledPayments
+          description: Upcoming recurring payments and transfers from this account
+          tags: [has-scheduled]
+          events: [select-scheduled, cancel-scheduled]
+        - name: StatementDownload
+          description: Monthly PDF statements with date range picker
+          events: [download-statement]
+        - name: InterestSummary
+          description: Accrued interest, rate, and projected annual yield
+          tags: [savings]
+        - name: CreditSummary
+          description: Credit limit, utilization percentage, minimum payment, and due date
+          tags: [credit]
+        - name: LoanSummary
+          description: Principal remaining, interest paid, amortization schedule link
+          tags: [loan]
+        - name: OverdraftWarning
+          description: Alert when balance approaches or goes below zero
+          tags: [low-balance]
+        - name: FrozenBanner
+          description: Account frozen — shows reason and steps to resolve
+          tags: [frozen]
+      states:
+        - on: select-transaction
+          from: viewing
+          action: navigate(TransactionDetail)
+        - on: cancel-scheduled
+          from: viewing
+          to: confirming-cancel
+        - on: Escape
+          from: confirming-cancel
+          to: viewing
+
+    - name: TransactionDetail
+      description: Single transaction — amount, merchant, date, category, status, and dispute option
+      tags: [per-transaction]
+      regions:
+        - name: TransactionHeader
+          description: Merchant name/logo, amount, date, and status badge
+        - name: TransactionMeta
+          description: Category, reference number, exchange rate (if foreign), and card used
+        - name: PendingNotice
+          description: Transaction is authorized but not yet settled — final amount may differ
+          tags: [pending]
+        - name: DeclinedNotice
+          description: Transaction was declined — shows reason code and suggested action
+          tags: [declined]
+        - name: DisputeButton
+          description: Open a dispute for unauthorized or incorrect charge
+          tags: [settled, primary]
+          events: [start-dispute]
+        - name: DisputeStatus
+          description: Active dispute — shows status, submitted evidence, and estimated resolution
+          tags: [disputed]
+        - name: RefundSummary
+          description: Refund processed — amount returned and settlement date
+          tags: [refunded]
+        - name: ReceiptImage
+          description: Attached receipt photo or merchant-provided receipt
+          tags: [has-receipt]
+
+    - name: Transfer
+      description: Multi-step money transfer — recipient, amount, review, authenticate, confirm
+      regions:
+        - name: RecipientPicker
+          description: Search saved recipients, enter new account/routing, or scan QR code
+          events: [select-recipient, add-recipient]
+        - name: AmountInput
+          description: Transfer amount with currency, source account selector, and available balance
+          events: [set-amount]
+        - name: TransferReview
+          description: Summary of transfer — from, to, amount, fee, estimated arrival
+          tags: [overlay]
+          events: [confirm-transfer, edit-transfer]
+        - name: AuthChallenge
+          description: OTP or biometric verification before executing transfer
+          tags: [overlay]
+          events: [auth-success, auth-fail]
+        - name: TransferSuccess
+          description: Confirmation with reference number and option to save recipient
+          tags: [completed]
+        - name: TransferFailed
+          description: Error with reason — insufficient funds, daily limit, recipient invalid
+          tags: [error]
+          events: [retry-transfer]
+        - name: DailyLimitWarning
+          description: Warning when transfer amount approaches or exceeds daily limit
+          tags: [near-limit]
+        - name: InsufficientFunds
+          description: Cannot proceed — balance too low, suggests lower amount or different account
+          tags: [insufficient]
+      states:
+        - on: select-recipient
+          from: picking-recipient
+          to: entering-amount
+        - on: set-amount
+          from: entering-amount
+          to: reviewing
+        - on: confirm-transfer
+          from: reviewing
+          to: authenticating
+        - on: edit-transfer
+          from: reviewing
+          to: entering-amount
+        - on: auth-success
+          from: authenticating
+          to: completed
+        - on: auth-fail
+          from: authenticating
+          to: reviewing
+        - on: retry-transfer
+          from: failed
+          to: reviewing
+
+    - name: CardManagement
+      description: Physical and virtual cards — freeze, replace, PIN, limits, and contactless settings
+      tags: [per-card]
+      regions:
+        - name: CardVisual
+          description: Card image with masked number — tap to reveal full number temporarily
+          events: [reveal-number]
+        - name: CardStatus
+          description: Active, frozen, expired, or reported lost/stolen
+        - name: FreezeToggle
+          description: Instant card freeze/unfreeze — blocks all new transactions
+          events: [toggle-freeze]
+        - name: SpendingLimits
+          description: Daily ATM, POS, and online transaction limits — adjustable
+          events: [edit-limits, save-limits]
+          states:
+            - on: edit-limits
+              from: viewing
+              to: editing
+            - on: save-limits
+              from: editing
+              to: viewing
+        - name: PINChange
+          description: Change card PIN — requires current PIN or biometric
+          events: [start-pin-change]
+        - name: ReplacementRequest
+          description: Order replacement for damaged, lost, or stolen card
+          tags: [active]
+          events: [request-replacement]
+        - name: ContactlessSettings
+          description: Toggle contactless payments and set contactless transaction limit
+          tags: [contactless-capable]
+        - name: ExpiredNotice
+          description: Card expired — order renewal or activate replacement
+          tags: [expired]
+        - name: StolenNotice
+          description: Card reported stolen — permanently blocked, replacement in progress
+          tags: [stolen]
+
+    - name: LoanApplication
+      description: Multi-step loan application — eligibility, terms, documents, review, sign
+      regions:
+        - name: EligibilityCheck
+          description: Pre-qualification based on income, credit score, and existing obligations
+          events: [check-eligibility]
+        - name: NotEligible
+          description: Declined with reason — credit score too low, debt-to-income too high
+          tags: [not-eligible]
+        - name: TermsSelector
+          description: Choose loan amount, duration, and repayment frequency — shows monthly payment
+          tags: [eligible]
+          events: [select-terms]
+        - name: DocumentUpload
+          description: Upload income proof, ID, and address verification
+          events: [upload-document, remove-document]
+        - name: ApplicationReview
+          description: Summary of application — personal info, terms, documents, and declarations
+          tags: [overlay]
+          events: [submit-application, edit-application]
+        - name: DigitalSignature
+          description: Legal agreement acceptance with biometric or OTP signature
+          tags: [overlay]
+          events: [sign-agreement, decline-agreement]
+        - name: ApplicationSubmitted
+          description: Confirmation with application ID and expected decision timeline
+          tags: [submitted]
+        - name: ApprovalStatus
+          description: Application under review / approved / rejected with next steps
+          tags: [has-decision]
+      states:
+        - on: check-eligibility
+          from: starting
+          to: checking
+        - on: select-terms
+          from: terms
+          to: documents
+        - on: upload-document
+          from: documents
+        - on: submit-application
+          from: reviewing
+          to: signing
+        - on: sign-agreement
+          from: signing
+          to: submitted
+        - on: decline-agreement
+          from: signing
+          to: reviewing
+        - on: edit-application
+          from: reviewing
+          to: terms
+
+    - name: PendingDetail
+      description: Pending action detail — unsigned loan, incomplete transfer, or expiring card
+      tags: [per-pending]
+      regions:
+        - name: PendingDescription
+          description: What needs attention and why — with deadline if applicable
+        - name: ActionButton
+          description: Resume, complete, or dismiss the pending item
+          tags: [primary]
+          events: [resume-action, dismiss-pending]
+
+    - name: Settings
+      description: Security, notifications, and account preferences
+      regions:
+        - name: SecuritySettings
+          description: Change PIN, manage biometrics, two-factor, trusted devices
+        - name: NotificationPreferences
+          description: Push, SMS, email toggles per event type — transactions, login, marketing
+        - name: PrivacySettings
+          description: Data sharing consent, account visibility, and statement preferences
+
+  flows:
+    - name: TransferMoney
+      description: End-to-end transfer from recipient selection to confirmation
+      on: select-recipient
+      sequence: "Transfer{recipient} → AmountInput{amount + source} → TransferReview → AuthChallenge → TransferSuccess{reference}"
+
+    - name: TransferFailed
+      description: Transfer fails authentication or processing — retry or abandon
+      sequence: "TransferReview → AuthChallenge → auth-fail → TransferReview → retry or abandon"
+
+    - name: FreezeCardFromAlert
+      description: Fraud alert triggers immediate card freeze from any screen
+      on: block-card
+      sequence: "FraudAlert → BiometricPrompt → biometric-success → CardManagement{frozen}"
+
+    - name: ApplyForLoan
+      description: Full loan application from eligibility through digital signature
+      sequence: "LoanApplication → check-eligibility → TermsSelector{terms} → DocumentUpload{docs} → ApplicationReview → DigitalSignature → ApplicationSubmitted{application ID}"
+
+    - name: DisputeTransaction
+      description: Open a dispute on a settled transaction
+      on: start-dispute
+      sequence: "TransactionDetail{transaction ref} → dispute form → submit → TransactionDetail{disputed}"
+
+    - name: SessionExpiry
+      description: Inactivity triggers warning — extend session or get logged out
+      sequence: "SessionTimeout activates → extend-session or logout → Login"
