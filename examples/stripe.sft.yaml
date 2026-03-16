@@ -50,22 +50,20 @@ app:
           description: Export selected, refund selected — appears in selecting state
           events: [bulk-export]
       states:
-        values: [browsing, selecting]
-        transitions:
-          - on: select-payment
-            from: browsing
-            action: navigate(PaymentDetail)
-          - on: check-payment
-            from: browsing
-            to: selecting
-          - on: check-payment
-            from: selecting
-          - on: bulk-export
-            from: selecting
-            to: browsing
-          - on: Escape
-            from: selecting
-            to: browsing
+        - on: select-payment
+          from: browsing
+          action: navigate(PaymentDetail)
+        - on: check-payment
+          from: browsing
+          to: selecting
+        - on: check-payment
+          from: selecting
+        - on: bulk-export
+          from: selecting
+          to: browsing
+        - on: Escape
+          from: selecting
+          to: browsing
 
     - name: PaymentDetail
       description: Single payment — amount, timeline, customer, metadata, and available actions
@@ -92,17 +90,15 @@ app:
               tags: [overlay]
               events: [confirm-refund, cancel-refund]
           states:
-            values: [idle, confirming]
-            transitions:
-              - on: start-refund
-                from: idle
-                to: confirming
-              - on: confirm-refund
-                from: confirming
-                to: idle
-              - on: cancel-refund
-                from: confirming
-                to: idle
+            - on: start-refund
+              from: idle
+              to: confirming
+            - on: confirm-refund
+              from: confirming
+              to: idle
+            - on: cancel-refund
+              from: confirming
+              to: idle
         - name: DisputeAlert
           description: Warning banner showing dispute reason and evidence submission deadline
           tags: [disputed]
@@ -142,23 +138,21 @@ app:
           tags: [overlay]
           events: [confirm-delete, cancel-delete]
       states:
-        values: [viewing, deleting]
-        transitions:
-          - on: select-payment
-            from: viewing
-            action: navigate(PaymentDetail)
-          - on: select-subscription
-            from: viewing
-            action: navigate(SubscriptionDetail)
-          - on: start-delete
-            from: viewing
-            to: deleting
-          - on: confirm-delete
-            from: deleting
-            to: viewing
-          - on: cancel-delete
-            from: deleting
-            to: viewing
+        - on: select-payment
+          from: viewing
+          action: navigate(PaymentDetail)
+        - on: select-subscription
+          from: viewing
+          action: navigate(SubscriptionDetail)
+        - on: start-delete
+          from: viewing
+          to: deleting
+        - on: confirm-delete
+          from: deleting
+          to: viewing
+        - on: cancel-delete
+          from: deleting
+          to: viewing
 
     - name: SubscriptionDetail
       description: Subscription management — plan, billing cycle, invoices, and cancellation
@@ -180,17 +174,15 @@ app:
           tags: [overlay]
           events: [confirm-cancel, abort-cancel]
       states:
-        values: [viewing, cancelling]
-        transitions:
-          - on: start-cancel
-            from: viewing
-            to: cancelling
-          - on: confirm-cancel
-            from: cancelling
-            to: viewing
-          - on: abort-cancel
-            from: cancelling
-            to: viewing
+        - on: start-cancel
+          from: viewing
+          to: cancelling
+        - on: confirm-cancel
+          from: cancelling
+          to: viewing
+        - on: abort-cancel
+          from: cancelling
+          to: viewing
 
     - name: DisputeDetail
       description: Dispute evidence submission and resolution tracking
@@ -205,24 +197,20 @@ app:
           tags: [needs-evidence]
           events: [upload-evidence, submit-evidence]
           states:
-            values: [collecting, submitted]
-            transitions:
-              - on: upload-evidence
-                from: collecting
-                to: collecting
-              - on: submit-evidence
-                from: collecting
-                to: submitted
-                action: emit(evidence-complete)
+            - on: upload-evidence
+              from: collecting
+              to: collecting
+            - on: submit-evidence
+              from: collecting
+              to: submitted
+              action: emit(evidence-complete)
         - name: ResolutionSummary
           description: Outcome — funds returned (won) or permanently deducted (lost)
           tags: [resolved]
       states:
-        values: [responding, awaiting-resolution]
-        transitions:
-          - on: evidence-complete
-            from: responding
-            to: awaiting-resolution
+        - on: evidence-complete
+          from: responding
+          to: awaiting-resolution
 
     - name: Developers
       description: API keys, webhooks, event logs, and testing tools
@@ -244,8 +232,7 @@ app:
     - name: RefundPayment
       description: Issue a refund with amount and reason confirmation
       on: start-refund
-      sequence: "PaymentDetail → RefundConfirmation → confirm-refund → PaymentDetail"
-      state_carries: "payment ID → refund amount + reason → updated payment status"
+      sequence: "PaymentDetail{payment ID} → RefundConfirmation{refund amount + reason} → confirm-refund → PaymentDetail{updated status}"
 
     - name: RefundFailed
       description: Refund processing fails — user sees error and retries or abandons
@@ -254,13 +241,11 @@ app:
     - name: CancelSubscription
       description: Cancel a subscription with timing choice and revenue impact warning
       on: start-cancel
-      sequence: "SubscriptionDetail → CancelConfirmation → confirm-cancel → SubscriptionDetail"
-      state_carries: "subscription ID → cancellation timing → updated subscription status"
+      sequence: "SubscriptionDetail{subscription ID} → CancelConfirmation{cancellation timing} → confirm-cancel → SubscriptionDetail{updated status}"
 
     - name: DisputeResponse
       description: Collect and submit evidence for a payment dispute before the deadline
-      sequence: "DisputeDetail → upload-evidence → submit-evidence → await resolution"
-      state_carries: "dispute ID + deadline → evidence files → submission confirmation"
+      sequence: "DisputeDetail{dispute ID + deadline} → upload-evidence{evidence files} → submit-evidence → await resolution{submission confirmation}"
 
     - name: PaymentFromList
       description: Inspect a payment and return to the list with position preserved

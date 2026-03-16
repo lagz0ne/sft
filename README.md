@@ -32,7 +32,7 @@ app:
 
 ### States — layered state machines
 
-State machines live at the layer they belong to. Events bubble up: Sub-Region → Region → Screen → App.
+State machines live at the layer they belong to. Events bubble up: Sub-Region → Region → Screen → App. Valid states are inferred from `from:` and `to:` values in transitions. The first `from:` value is the initial state.
 
 ```yaml
 screens:
@@ -43,17 +43,15 @@ screens:
 
     # screen-level state machine
     states:
-      values: [browsing, selecting]
-      transitions:
-        - on: select-email          # event from EmailList (bubbled up)
-          from: browsing
-          action: navigate(ThreadView)
-        - on: check-email
-          from: browsing
-          to: selecting
-        - on: Escape                # ambient event (keyboard)
-          from: selecting
-          to: browsing
+      - on: select-email          # event from EmailList (bubbled up)
+        from: browsing
+        action: navigate(ThreadView)
+      - on: check-email
+        from: browsing
+        to: selecting
+      - on: Escape                # ambient event (keyboard)
+        from: selecting
+        to: browsing
 
   - name: ThreadView
     regions:
@@ -62,22 +60,18 @@ screens:
 
         # region-level state machine (sub-machine)
         states:
-          values: [collapsed, expanded]
-          transitions:
-            - on: start-reply       # consumed here, doesn't bubble
-              from: collapsed
-              to: expanded
-            - on: send-reply
-              from: expanded
-              to: collapsed
-              action: emit(reply-sent)   # handle locally AND send reply-sent to parent
+          - on: start-reply       # consumed here, doesn't bubble
+            from: collapsed
+            to: expanded
+          - on: send-reply
+            from: expanded
+            to: collapsed
+            action: emit(reply-sent)   # handle locally AND send reply-sent to parent
 
     # screen-level state machine
     states:
-      values: [reading]
-      transitions:
-        - on: reply-sent            # emitted from ReplyComposer
-          from: reading
+      - on: reply-sent            # emitted from ReplyComposer
+        from: reading
 ```
 
 **Event bubbling**: Region emits event → Region's state machine gets first look → if unhandled, bubbles to Screen → if unhandled, bubbles to App. Handled = consumed. With nested regions, the chain deepens: Sub-Region → Region → Screen → App.
@@ -117,17 +111,16 @@ flows:
   - name: RefundPayment
     description: Issue a refund with amount and reason confirmation
     on: start-refund
-    sequence: "PaymentDetail → RefundConfirmation → confirm-refund → PaymentDetail"
-    state_carries: "payment ID → refund amount + reason → updated status"
+    sequence: "PaymentDetail{payment ID} → RefundConfirmation{refund amount + reason} → confirm-refund → PaymentDetail{updated status}"
 ```
 
 - **`sequence`** — arrow notation showing the journey path. Authoritative representation.
 - **`(H)`** — history re-entry. Resume prior sub-state (scroll position, selection, tab).
 - **`on:`** — event that triggers the flow. Omit when the flow starts from a screen the user navigates to normally.
-- **`state_carries:`** — what data flows across screen boundaries. Arrows map to transitions between adjacent steps. Include when data other than the entity ID must survive a screen change.
+- **`{data}`** — inline data annotation on a step. Shows what data is available or produced at that step. Use when data other than the entity ID must survive a screen change.
 - **`activates`** — in a sequence, means an independently-triggered overlay becomes visible without screen navigation: `"ComposeWindow activates → fill → send-email"`. State-machine-controlled overlays (confirmation dialogs) are referenced directly: `"PaymentDetail → RefundConfirmation → confirm-refund → PaymentDetail"` — the parent state machine governs visibility.
 
-Sequence elements follow naming conventions: `ScreenName` or `RegionName` (PascalCase), `event-name` (kebab-case), prose action (lowercase, e.g., `fill`, `await resolution`), `[Back]` (bracketed navigation), `RegionName activates` (overlay activation), `ScreenName(H)` (history re-entry).
+Sequence elements follow naming conventions: `ScreenName` or `RegionName` (PascalCase), `event-name` (kebab-case), prose action (lowercase, e.g., `fill`, `await resolution`), `[Back]` (bracketed navigation), `RegionName activates` (overlay activation), `ScreenName(H)` (history re-entry), `Step{data}` (data annotation).
 
 ## Conventions
 
@@ -135,7 +128,7 @@ Sequence elements follow naming conventions: `ScreenName` or `RegionName` (Pasca
 |-----------|-------------|
 | **App-level Regions** | Regions under App persist across all screens |
 | **Naming** | Screen names imply parameterization. `ProductDetail` = per-product |
-| **Tags** | Untyped bracket annotations. Categories by naming convention: `[overlay]` rendering, `[per-X]` parameterization, `[has-X]`/`[no-X]`/`[loading]`/`[error]` data states, `[primary]`/`[destructive]` action weight, role names (`[admin]`) permissions, domain predicates (`[fulfilled]`) visibility conditions. They compose. |
+| **Tags** | Untyped bracket annotations. Categories by naming convention: `[overlay]` rendering, `[per-X]` parameterization, `[has-X]`/`[no-X]`/`[loading]`/`[error]` data states, `[primary]`/`[destructive]` action weight, role names (`[admin]`) permissions, domain predicates (`[fulfilled]`) visibility conditions, `[contains:AppName]` cross-app composition. They compose. |
 | **Sub-machine** | Region with `states` block. No marker needed. |
 | **Nested regions** | Region with `regions` block. Cap at 1 level of nesting. Deeper nesting signals a Region should be its own Screen. |
 | **Ambient events** | Keyboard shortcuts appear in state machines without a Region declaring them |
@@ -179,21 +172,20 @@ Example: `on: check-payment, from: browsing, to: selecting` reads as:
 ```
 app:
   name, description
-  regions: [{ name, description, tags?, events?, regions?, states?, contains? }]
+  regions: [{ name, description, tags?, events?, regions?, states? }]
   screens:
     [{ name, description, tags?,
        regions: [{ name, description, tags?, events?, regions?, states? }],
        states? }]
-  flows: [{ name, description?, on?, sequence, state_carries? }]
+  flows: [{ name, description?, on?, sequence }]
 
-states:               # can appear at app, screen, or region level
-  values: [state-names]
-  transitions:
-    [{ on, from?, to?, action? }]
+states:               # can appear at app, screen, or region level — list of transitions
+  [{ on, from?, to?, action? }]
               # on: may reference ambient events (keyboard shortcuts, system events) without a Region declaring them
+              # valid states inferred from from/to values; first from is initial state
 ```
 
-Multi-app: `apps:` (list) instead of `app:`. Cross-app: `contains:` on Region.
+Multi-app: `app:` accepts a list of apps. Cross-app: `[contains:AppName]` tag on Region.
 
 ## Examples
 

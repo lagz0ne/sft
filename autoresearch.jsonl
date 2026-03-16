@@ -1,0 +1,7 @@
+{"run":1,"commit":"0b66da9","metrics":{"vocab_count":19,"coverage":"4/4","coverage_pct":100},"status":"keep","description":"baseline","timestamp":1773642452}
+{"run":2,"commit":"d49f833","metrics":{"vocab_count":18,"coverage":"4/4","coverage_pct":100},"status":"keep","description":"merge apps into app (accept list)","timestamp":1773642477}
+{"run":3,"commit":"2dce258","metrics":{"vocab_count":16,"coverage":"4/4","coverage_pct":100},"status":"keep","description":"remove values and transitions — states is now a direct list of transition objects","timestamp":1773642587}
+{"run":4,"commit":"0355692","metrics":{"vocab_count":15,"coverage":"4/4","coverage_pct":100},"status":"keep","description":"remove state_carries — data annotations inline in sequence via {data}","timestamp":1773642687}
+{"run":5,"commit":"6c3346f","metrics":{"vocab_count":14,"coverage":"4/4","coverage_pct":100},"status":"keep","description":"remove contains — express as [contains:AppName] tag convention","timestamp":1773642743}
+{"run":5.1,"commit":"b7017d0","metrics":{"vocab_count":14,"coverage":"4/4","coverage_pct":100},"status":"skip","description":"explored removing action, description, name, flows — all either net-zero or degrade semantics","timestamp":1773642781}
+{"run":6,"commit":"b7017d0","metrics":{"vocab_count":14,"coverage":"5/5","coverage_pct":100,"pattern_count":36,"pattern_total":36},"status":"keep","description":"add docs.sft.yaml — covers all 8 missing patterns (auth, undo, context menu, toast, optimistic, offline, onboarding, responsive)","timestamp":1773642953}

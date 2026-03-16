@@ -29,22 +29,20 @@ app:
           description: Archive, label, assign, change status — appears in selecting state
           events: [bulk-action]
       states:
-        values: [browsing, selecting]
-        transitions:
-          - on: select-issue
-            from: browsing
-            action: navigate(IssueDetail)
-          - on: shift-select-issue
-            from: browsing
-            to: selecting
-          - on: shift-select-issue
-            from: selecting
-          - on: bulk-action
-            from: selecting
-            to: browsing
-          - on: Escape
-            from: selecting
-            to: browsing
+        - on: select-issue
+          from: browsing
+          action: navigate(IssueDetail)
+        - on: shift-select-issue
+          from: browsing
+          to: selecting
+        - on: shift-select-issue
+          from: selecting
+        - on: bulk-action
+          from: selecting
+          to: browsing
+        - on: Escape
+          from: selecting
+          to: browsing
 
     - name: IssueDetail
       description: Full issue view with description, activity, properties, and sub-issues
@@ -56,14 +54,12 @@ app:
           description: Rich text editor for issue description — supports markdown, mentions, slash commands
           events: [edit-description, save-description]
           states:
-            values: [viewing, editing]
-            transitions:
-              - on: edit-description
-                from: viewing
-                to: editing
-              - on: save-description
-                from: editing
-                to: viewing
+            - on: edit-description
+              from: viewing
+              to: editing
+            - on: save-description
+              from: editing
+              to: viewing
         - name: ActivityFeed
           description: Chronological log of comments, status changes, and linked activity
         - name: PropertiesPanel
