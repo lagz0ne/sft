@@ -14,7 +14,7 @@ app:
         tags: [overlay]
       - name: StorefrontPreview
         description: Live preview of the customer-facing storefront — composition boundary
-        contains: ShopifyStorefront
+        tags: [contains:ShopifyStorefront]
 
     screens:
       - name: Dashboard

@@ -2,3 +2,4 @@
 {"run":2,"commit":"d49f833","metrics":{"vocab_count":18,"coverage":"4/4","coverage_pct":100},"status":"keep","description":"merge apps into app (accept list)","timestamp":1773642477}
 {"run":3,"commit":"2dce258","metrics":{"vocab_count":16,"coverage":"4/4","coverage_pct":100},"status":"keep","description":"remove values and transitions — states is now a direct list of transition objects","timestamp":1773642587}
 {"run":4,"commit":"0355692","metrics":{"vocab_count":15,"coverage":"4/4","coverage_pct":100},"status":"keep","description":"remove state_carries — data annotations inline in sequence via {data}","timestamp":1773642687}
+{"run":5,"commit":"6c3346f","metrics":{"vocab_count":14,"coverage":"4/4","coverage_pct":100},"status":"keep","description":"remove contains — express as [contains:AppName] tag convention","timestamp":1773642743}

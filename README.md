@@ -128,7 +128,7 @@ Sequence elements follow naming conventions: `ScreenName` or `RegionName` (Pasca
 |-----------|-------------|
 | **App-level Regions** | Regions under App persist across all screens |
 | **Naming** | Screen names imply parameterization. `ProductDetail` = per-product |
-| **Tags** | Untyped bracket annotations. Categories by naming convention: `[overlay]` rendering, `[per-X]` parameterization, `[has-X]`/`[no-X]`/`[loading]`/`[error]` data states, `[primary]`/`[destructive]` action weight, role names (`[admin]`) permissions, domain predicates (`[fulfilled]`) visibility conditions. They compose. |
+| **Tags** | Untyped bracket annotations. Categories by naming convention: `[overlay]` rendering, `[per-X]` parameterization, `[has-X]`/`[no-X]`/`[loading]`/`[error]` data states, `[primary]`/`[destructive]` action weight, role names (`[admin]`) permissions, domain predicates (`[fulfilled]`) visibility conditions, `[contains:AppName]` cross-app composition. They compose. |
 | **Sub-machine** | Region with `states` block. No marker needed. |
 | **Nested regions** | Region with `regions` block. Cap at 1 level of nesting. Deeper nesting signals a Region should be its own Screen. |
 | **Ambient events** | Keyboard shortcuts appear in state machines without a Region declaring them |
@@ -172,7 +172,7 @@ Example: `on: check-payment, from: browsing, to: selecting` reads as:
 ```
 app:
   name, description
-  regions: [{ name, description, tags?, events?, regions?, states?, contains? }]
+  regions: [{ name, description, tags?, events?, regions?, states? }]
   screens:
     [{ name, description, tags?,
        regions: [{ name, description, tags?, events?, regions?, states? }],
@@ -185,7 +185,7 @@ states:               # can appear at app, screen, or region level — list of t
               # valid states inferred from from/to values; first from is initial state
 ```
 
-Multi-app: `app:` accepts a list of apps. Cross-app: `contains:` on Region.
+Multi-app: `app:` accepts a list of apps. Cross-app: `[contains:AppName]` tag on Region.
 
 ## Examples
 
