@@ -1,4 +1,4 @@
-apps:
+app:
   - name: ShopifyAdmin
     description: Merchant-facing administration — products, orders, analytics, and settings
 

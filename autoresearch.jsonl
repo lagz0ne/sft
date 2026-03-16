@@ -1,1 +1,2 @@
 {"run":1,"commit":"0b66da9","metrics":{"vocab_count":19,"coverage":"4/4","coverage_pct":100},"status":"keep","description":"baseline","timestamp":1773642452}
+{"run":2,"commit":"d49f833","metrics":{"vocab_count":18,"coverage":"4/4","coverage_pct":100},"status":"keep","description":"merge apps into app (accept list)","timestamp":1773642477}

@@ -193,7 +193,7 @@ states:               # can appear at app, screen, or region level
               # on: may reference ambient events (keyboard shortcuts, system events) without a Region declaring them
 ```
 
-Multi-app: `apps:` (list) instead of `app:`. Cross-app: `contains:` on Region.
+Multi-app: `app:` accepts a list of apps. Cross-app: `contains:` on Region.
 
 ## Examples
 
