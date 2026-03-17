@@ -68,11 +68,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          mkdir -p dist
+          cp npm/linux-x64/bin/sft dist/sft-linux-x64
+          cp npm/linux-arm64/bin/sft dist/sft-linux-arm64
+          cp npm/darwin-x64/bin/sft dist/sft-darwin-x64
+          cp npm/darwin-arm64/bin/sft dist/sft-darwin-arm64
+          cp npm/win32-x64/bin/sft.exe dist/sft-win32-x64.exe
           gh release create "$GITHUB_REF_NAME" \
             --title "sft-cli ${VERSION}" \
             --generate-notes \
-            npm/linux-x64/bin/sft#sft-linux-x64 \
-            npm/linux-arm64/bin/sft#sft-linux-arm64 \
-            npm/darwin-x64/bin/sft#sft-darwin-x64 \
-            npm/darwin-arm64/bin/sft#sft-darwin-arm64 \
-            npm/win32-x64/bin/sft.exe#sft-win32-x64.exe
+            dist/*
