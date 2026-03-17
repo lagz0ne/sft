@@ -1,0 +1,11 @@
+# Compiled binary (root)
+/sft
+
+# Cross-compiled binaries
+skills/sft/bin/sft-*
+
+# Local database
+.sft/
+
+# Session artifacts
+tasks/
