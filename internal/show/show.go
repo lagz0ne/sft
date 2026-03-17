@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/lagz0ne/sft/internal/store"
 )
 
 // --- Spec tree types (nested, not flat tables) ---
@@ -23,24 +25,30 @@ type App struct {
 }
 
 type Screen struct {
-	Name        string       `json:"name"`
-	Description string       `json:"description"`
-	Tags        []string     `json:"tags,omitempty"`
-	Component   string       `json:"component,omitempty"`
-	Regions     []Region     `json:"regions,omitempty"`
-	Transitions []Transition `json:"transitions,omitempty"`
-	Attachments []string     `json:"attachments,omitempty"`
+	Name           string       `json:"name"`
+	Description    string       `json:"description"`
+	Tags           []string     `json:"tags,omitempty"`
+	Component      string       `json:"component,omitempty"`
+	ComponentProps string       `json:"component_props,omitempty"` // [F5]
+	ComponentOn    string       `json:"component_on,omitempty"`    // [F5]
+	ComponentVis   string       `json:"component_visible,omitempty"` // [F5]
+	Regions        []Region     `json:"regions,omitempty"`
+	Transitions    []Transition `json:"transitions,omitempty"`
+	Attachments    []string     `json:"attachments,omitempty"`
 }
 
 type Region struct {
-	Name        string       `json:"name"`
-	Description string       `json:"description"`
-	Tags        []string     `json:"tags,omitempty"`
-	Component   string       `json:"component,omitempty"`
-	Events      []string     `json:"events,omitempty"`
-	Regions     []Region     `json:"regions,omitempty"`
-	Transitions []Transition `json:"transitions,omitempty"`
-	Attachments []string     `json:"attachments,omitempty"`
+	Name           string       `json:"name"`
+	Description    string       `json:"description"`
+	Tags           []string     `json:"tags,omitempty"`
+	Component      string       `json:"component,omitempty"`
+	ComponentProps string       `json:"component_props,omitempty"` // [F5]
+	ComponentOn    string       `json:"component_on,omitempty"`    // [F5]
+	ComponentVis   string       `json:"component_visible,omitempty"` // [F5]
+	Events         []string     `json:"events,omitempty"`
+	Regions        []Region     `json:"regions,omitempty"`
+	Transitions    []Transition `json:"transitions,omitempty"`
+	Attachments    []string     `json:"attachments,omitempty"`
 }
 
 type Transition struct {
@@ -60,7 +68,8 @@ type Flow struct {
 // Enricher provides attachment and component data during spec loading.
 type Enricher interface {
 	AttachmentsFor(entity string) []string
-	ComponentFor(entityType string, entityID int64) string // returns component type or ""
+	ComponentFor(entityType string, entityID int64) string                    // type or ""
+	ComponentInfoFor(entityType string, entityID int64) *store.ComponentInfo  // full details
 }
 
 // --- Load from DB ---
@@ -96,6 +105,12 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 		if al != nil {
 			s.Attachments = al.AttachmentsFor(s.Name)
 			s.Component = al.ComponentFor("screen", id)
+			// [F5] Full component details
+			if ci := al.ComponentInfoFor("screen", id); ci != nil {
+				s.ComponentProps = ci.Props
+				s.ComponentOn = ci.OnActions
+				s.ComponentVis = ci.Visible
+			}
 		}
 		spec.Screens = append(spec.Screens, s)
 	}
@@ -152,6 +167,12 @@ func loadRegions(db *sql.DB, parentType string, parentID int64, al Enricher) []R
 		if al != nil {
 			r.Attachments = al.AttachmentsFor(r.Name)
 			r.Component = al.ComponentFor("region", id)
+			// [F5] Full component details
+			if ci := al.ComponentInfoFor("region", id); ci != nil {
+				r.ComponentProps = ci.Props
+				r.ComponentOn = ci.OnActions
+				r.ComponentVis = ci.Visible
+			}
 		}
 		regions = append(regions, r)
 	}

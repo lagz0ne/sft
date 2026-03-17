@@ -125,6 +125,14 @@ func (s *Store) ResolveOwner(name string) (string, int64, error) {
 // --- Insert helpers ---
 
 func (s *Store) InsertApp(a *model.App) error {
+	// [F1] Prevent duplicate apps — single-app model
+	var count int
+	if err := s.DB.QueryRow("SELECT COUNT(*) FROM apps").Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return fmt.Errorf("an app already exists — SFT supports a single app per project")
+	}
 	res, err := s.DB.Exec("INSERT INTO apps (name, description) VALUES (?, ?)", a.Name, a.Description)
 	if err != nil {
 		return err
@@ -328,6 +336,9 @@ func (s *Store) ImpactScreen(name string) ([]Impact, error) {
 		impacts = append(impacts, Impact{Entity: "attachment", Type: "on-screen", Name: a})
 	}
 
+	// [F6] Incoming navigate() references
+	impacts = append(impacts, s.incomingNavigateRefs(name)...)
+
 	return impacts, nil
 }
 
@@ -411,8 +422,37 @@ func (s *Store) ImpactRegion(name string) ([]Impact, error) {
 		impacts = append(impacts, Impact{Entity: "attachment", Type: "on-region", Name: a})
 	}
 
+	// [F6] Incoming navigate() references
+	impacts = append(impacts, s.incomingNavigateRefs(name)...)
+
 	return impacts, nil
 }
+
+// [F6] incomingNavigateRefs finds transitions whose action is navigate(<name>).
+func (s *Store) incomingNavigateRefs(name string) []Impact {
+	target := "navigate(" + name + ")"
+	rows, err := s.DB.Query(`SELECT `+ownerCase+` AS owner_name, t.on_event
+		FROM transitions t
+		WHERE t.action = ?`, target)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var impacts []Impact
+	for rows.Next() {
+		var ownerName, onEvent string
+		rows.Scan(&ownerName, &onEvent)
+		impacts = append(impacts, Impact{Entity: "transition", Type: "navigates-here", Name: onEvent, Detail: "from " + ownerName})
+	}
+	return impacts
+}
+
+// ownerCase for store package queries
+const ownerCase = `CASE t.owner_type
+  WHEN 'screen' THEN (SELECT s.name FROM screens s WHERE s.id = t.owner_id)
+  WHEN 'region' THEN (SELECT r.name FROM regions r WHERE r.id = t.owner_id)
+  WHEN 'app'    THEN (SELECT a.name FROM apps a WHERE a.id = t.owner_id)
+END`
 
 // --- Mutations ---
 
@@ -473,6 +513,7 @@ func (s *Store) DeleteScreen(name string) error {
 	tx.Exec("DELETE FROM transitions WHERE owner_type = 'screen' AND owner_id = ?", id)
 	tx.Exec("DELETE FROM components WHERE entity_type = 'screen' AND entity_id = ?", id) // [H3]
 	tx.Exec("DELETE FROM attachments WHERE entity = ?", name)                             // [H2]
+	tx.Exec("DELETE FROM transitions WHERE action = ?", "navigate("+name+")")             // [F2] cascade dangling navigate()
 	tx.Exec("DELETE FROM screens WHERE id = ?", id)
 
 	return tx.Commit()
@@ -499,6 +540,7 @@ func (s *Store) DeleteRegion(name string) error {
 	tx.Exec("DELETE FROM transitions WHERE owner_type = 'region' AND owner_id = ?", id)
 	tx.Exec("DELETE FROM components WHERE entity_type = 'region' AND entity_id = ?", id) // [H3]
 	tx.Exec("DELETE FROM attachments WHERE entity = ?", name)                             // [H2]
+	tx.Exec("DELETE FROM transitions WHERE action = ?", "navigate("+name+")")             // [F2] cascade dangling navigate()
 	tx.Exec("DELETE FROM flow_steps WHERE type = 'region' AND name = ?", name)
 	tx.Exec("DELETE FROM regions WHERE id = ?", id)
 
@@ -618,7 +660,8 @@ type Component struct {
 }
 
 func (s *Store) SetComponent(entityName, component, props, onActions, visible string) error {
-	entityType, entityID, err := s.ResolveScreenOrRegion(entityName)
+	// [F11] Accept app entities too (not just screen/region)
+	entityType, entityID, err := s.ResolveParent(entityName)
 	if err != nil {
 		return err
 	}
@@ -647,7 +690,8 @@ func (s *Store) GetComponent(entityType string, entityID int64) *Component {
 }
 
 func (s *Store) GetComponentByName(entityName string) *Component {
-	entityType, entityID, err := s.ResolveScreenOrRegion(entityName)
+	// [F11] Support app entities too
+	entityType, entityID, err := s.ResolveParent(entityName)
 	if err != nil {
 		return nil
 	}
@@ -662,8 +706,31 @@ func (s *Store) ComponentFor(entityType string, entityID int64) string {
 	return c.Component
 }
 
+// ComponentInfo holds full component details for enrichment.
+type ComponentInfo struct {
+	Component string
+	Props     string
+	OnActions string
+	Visible   string
+}
+
+// ComponentInfoFor returns full component details.
+func (s *Store) ComponentInfoFor(entityType string, entityID int64) *ComponentInfo {
+	c := s.GetComponent(entityType, entityID)
+	if c == nil {
+		return nil
+	}
+	return &ComponentInfo{
+		Component: c.Component,
+		Props:     c.Props,
+		OnActions: c.OnActions,
+		Visible:   c.Visible,
+	}
+}
+
 func (s *Store) RemoveComponent(entityName string) error {
-	entityType, entityID, err := s.ResolveScreenOrRegion(entityName)
+	// [F11] Support app entities too
+	entityType, entityID, err := s.ResolveParent(entityName)
 	if err != nil {
 		return err
 	}
@@ -681,6 +748,12 @@ type Attachment struct {
 }
 
 func (s *Store) Attach(entity, srcPath, asName string) (string, error) {
+	// [F8] Validate entity exists (allow "_" global)
+	if entity != GlobalEntity {
+		if _, _, err := s.ResolveParent(entity); err != nil {
+			return "", fmt.Errorf("entity %q not found — attach to an existing app, screen, or region (use %q for global)", entity, GlobalEntity)
+		}
+	}
 	name := filepath.Base(srcPath)
 	if asName != "" {
 		name = asName

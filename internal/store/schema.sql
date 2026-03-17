@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS flow_steps (
 
 CREATE TABLE IF NOT EXISTS components (
   id          INTEGER PRIMARY KEY,
-  entity_type TEXT NOT NULL CHECK(entity_type IN ('screen','region')),
+  entity_type TEXT NOT NULL CHECK(entity_type IN ('app','screen','region')),
   entity_id   INTEGER NOT NULL,
   component   TEXT NOT NULL,
   props       TEXT NOT NULL DEFAULT '{}',

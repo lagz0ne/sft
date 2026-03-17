@@ -172,21 +172,24 @@ var rules = []rule{
 	{
 		id:       "invalid-flow-ref",
 		severity: Error,
-		query: `SELECT fs.name, f.name AS flow_name
+		// [F7] Check screen, region, AND event references in flow steps
+		query: `SELECT fs.name, f.name AS flow_name, fs.type
 		        FROM flow_steps fs
 		        JOIN flows f ON f.id = fs.flow_id
-		        WHERE fs.type = 'screen' AND fs.name NOT IN (SELECT s.name FROM screens s)`,
+		        WHERE (fs.type = 'screen' AND fs.name NOT IN (SELECT s.name FROM screens s))
+		           OR (fs.type = 'region' AND fs.name NOT IN (SELECT r.name FROM regions r))
+		           OR (fs.type = 'event'  AND fs.name NOT IN (SELECT e.name FROM events e))`,
 		format: func(rows *sql.Rows) ([]Finding, error) {
 			var findings []Finding
 			for rows.Next() {
-				var stepName, flowName string
-				if err := rows.Scan(&stepName, &flowName); err != nil {
+				var stepName, flowName, stepType string
+				if err := rows.Scan(&stepName, &flowName, &stepType); err != nil {
 					return nil, err
 				}
 				findings = append(findings, Finding{
 					Rule:     "invalid-flow-ref",
 					Severity: Error,
-					Message:  fmt.Sprintf("flow %q references unknown screen %q", flowName, stepName),
+					Message:  fmt.Sprintf("flow %q references unknown %s %q", flowName, stepType, stepName),
 				})
 			}
 			return findings, nil
@@ -210,6 +213,59 @@ var rules = []rule{
 					Rule:     "orphan-event",
 					Severity: Warning,
 					Message:  fmt.Sprintf("%s handles %q but no region emits it", ns(owner), onEvent),
+				})
+			}
+			return findings, nil
+		},
+	},
+	// [F3] Dangling navigate() targets — action references a screen/region that doesn't exist
+	{
+		id:       "dangling-navigate",
+		severity: Error,
+		query: `SELECT t.action, ` + ownerCase + ` AS owner_name
+		        FROM transitions t
+		        WHERE t.action LIKE 'navigate(%)'
+		          AND SUBSTR(t.action, 10, LENGTH(t.action) - 10) NOT IN (
+		            SELECT s.name FROM screens s
+		            UNION ALL
+		            SELECT r.name FROM regions r
+		          )`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var findings []Finding
+			for rows.Next() {
+				var action string
+				var owner sql.NullString
+				if err := rows.Scan(&action, &owner); err != nil {
+					return nil, err
+				}
+				findings = append(findings, Finding{
+					Rule:     "dangling-navigate",
+					Severity: Error,
+					Message:  fmt.Sprintf("%s in %s targets unknown screen/region", action, ns(owner)),
+				})
+			}
+			return findings, nil
+		},
+	},
+	// [F10] Unhandled events — events emitted by regions but no transition handles them
+	{
+		id:       "unhandled-event",
+		severity: Warning,
+		query: `SELECT e.name, r.name AS region_name
+		        FROM events e
+		        JOIN regions r ON r.id = e.region_id
+		        WHERE e.name NOT IN (SELECT t.on_event FROM transitions t)`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var findings []Finding
+			for rows.Next() {
+				var evName, regName string
+				if err := rows.Scan(&evName, &regName); err != nil {
+					return nil, err
+				}
+				findings = append(findings, Finding{
+					Rule:     "unhandled-event",
+					Severity: Warning,
+					Message:  fmt.Sprintf("event %q emitted by %s has no handler", evName, regName),
 				})
 			}
 			return findings, nil

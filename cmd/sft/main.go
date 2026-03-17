@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/lagz0ne/sft/internal/format"
 	"github.com/lagz0ne/sft/internal/model"
@@ -423,7 +424,11 @@ func runComponent(s *store.Store, args []string) {
 		return
 	}
 
+	// [F4] If args[1] starts with --, it's a flag not a component type
 	componentType := args[1]
+	if strings.HasPrefix(componentType, "--") {
+		die("usage: sft component <entity> <Type> [--props/--props-file/--on/--visible]\nmissing component type — got flag %q instead", componentType)
+	}
 	props := flagVal(args, "--props")
 	propsFile := flagVal(args, "--props-file")
 	if propsFile != "" {

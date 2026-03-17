@@ -1,10 +1,12 @@
 package testdata
 
 import (
+	"os"
 	"testing"
 
 	"github.com/lagz0ne/sft/internal/model"
 	"github.com/lagz0ne/sft/internal/store"
+	"github.com/lagz0ne/sft/internal/validator"
 )
 
 func TestSeedGmail(t *testing.T) {
@@ -156,4 +158,258 @@ func TestDeleteScreen(t *testing.T) {
 	if err == nil {
 		t.Fatal("child region should be deleted")
 	}
+}
+
+// --- Round 2 Fixes ---
+
+// F1: Duplicate app guard
+func TestDuplicateAppBlocked(t *testing.T) {
+	s, err := store.Open(t.TempDir() + "/f1.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	must(t, s.InsertApp(&model.App{Name: "App1", Description: "first"}))
+	err = s.InsertApp(&model.App{Name: "App2", Description: "second"})
+	if err == nil {
+		t.Fatal("expected error inserting duplicate app")
+	}
+}
+
+// F2: Deletion cascades navigate() references
+func TestDeleteCascadesNavigate(t *testing.T) {
+	s, err := store.Open(t.TempDir() + "/f2.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	app := &model.App{Name: "App", Description: "test"}
+	must(t, s.InsertApp(app))
+	s1 := &model.Screen{AppID: app.ID, Name: "S1", Description: "screen 1"}
+	s2 := &model.Screen{AppID: app.ID, Name: "S2", Description: "screen 2"}
+	must(t, s.InsertScreen(s1))
+	must(t, s.InsertScreen(s2))
+
+	// S1 has a navigate(S2) transition
+	must(t, s.InsertTransition(&model.Transition{OwnerType: "screen", OwnerID: s1.ID, OnEvent: "go", Action: "navigate(S2)"}))
+
+	// Delete S2 should cascade the navigate reference
+	must(t, s.DeleteScreen("S2"))
+
+	var count int
+	s.DB.QueryRow("SELECT COUNT(*) FROM transitions WHERE action = 'navigate(S2)'").Scan(&count)
+	if count != 0 {
+		t.Fatalf("expected navigate(S2) transitions to be deleted, got %d", count)
+	}
+}
+
+// F3: Dangling navigate validation
+func TestDanglingNavigateValidation(t *testing.T) {
+	s, err := store.Open(t.TempDir() + "/f3.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	app := &model.App{Name: "App", Description: "test"}
+	must(t, s.InsertApp(app))
+	sc := &model.Screen{AppID: app.ID, Name: "S1", Description: "screen"}
+	must(t, s.InsertScreen(sc))
+
+	// Add a transition with navigate to non-existent screen
+	must(t, s.InsertTransition(&model.Transition{OwnerType: "screen", OwnerID: sc.ID, OnEvent: "go", Action: "navigate(NoSuchScreen)"}))
+
+	findings, err := validator.Validate(s.DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	found := false
+	for _, f := range findings {
+		if f.Rule == "dangling-navigate" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected dangling-navigate finding")
+	}
+}
+
+// F6: Impact shows incoming navigate refs
+func TestImpactIncomingNavigate(t *testing.T) {
+	s, err := store.Open(t.TempDir() + "/f6.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	app := &model.App{Name: "App", Description: "test"}
+	must(t, s.InsertApp(app))
+	s1 := &model.Screen{AppID: app.ID, Name: "S1", Description: "screen 1"}
+	s2 := &model.Screen{AppID: app.ID, Name: "S2", Description: "screen 2"}
+	must(t, s.InsertScreen(s1))
+	must(t, s.InsertScreen(s2))
+
+	must(t, s.InsertTransition(&model.Transition{OwnerType: "screen", OwnerID: s1.ID, OnEvent: "go", Action: "navigate(S2)"}))
+
+	impacts, err := s.ImpactScreen("S2")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	found := false
+	for _, imp := range impacts {
+		if imp.Type == "navigates-here" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected navigates-here impact")
+	}
+}
+
+// F7: Extended flow-ref validation for region and event references
+func TestFlowRefValidation(t *testing.T) {
+	s, err := store.Open(t.TempDir() + "/f7.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	app := &model.App{Name: "App", Description: "test"}
+	must(t, s.InsertApp(app))
+	sc := &model.Screen{AppID: app.ID, Name: "S1", Description: "screen"}
+	must(t, s.InsertScreen(sc))
+
+	flow := &model.Flow{AppID: app.ID, Name: "F1", Sequence: "S1 > BadRegion > BadEvent > S1"}
+	must(t, s.InsertFlow(flow))
+	must(t, s.InsertFlowStep(&model.FlowStep{FlowID: flow.ID, Position: 1, Raw: "S1", Type: "screen", Name: "S1"}))
+	must(t, s.InsertFlowStep(&model.FlowStep{FlowID: flow.ID, Position: 2, Raw: "BadRegion", Type: "region", Name: "BadRegion"}))
+	must(t, s.InsertFlowStep(&model.FlowStep{FlowID: flow.ID, Position: 3, Raw: "BadEvent", Type: "event", Name: "BadEvent"}))
+
+	findings, err := validator.Validate(s.DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	regionRef, eventRef := false, false
+	for _, f := range findings {
+		if f.Rule == "invalid-flow-ref" {
+			if f.Message == `flow "F1" references unknown region "BadRegion"` {
+				regionRef = true
+			}
+			if f.Message == `flow "F1" references unknown event "BadEvent"` {
+				eventRef = true
+			}
+		}
+	}
+	if !regionRef {
+		t.Fatal("expected invalid-flow-ref for bad region")
+	}
+	if !eventRef {
+		t.Fatal("expected invalid-flow-ref for bad event")
+	}
+}
+
+// F8: Attach validates entity existence
+func TestAttachValidatesEntity(t *testing.T) {
+	s, err := store.Open(t.TempDir() + "/f8.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	must(t, s.InsertApp(&model.App{Name: "App", Description: "test"}))
+
+	// Create a temp file to attach
+	tmp := t.TempDir() + "/test.txt"
+	if err := writeFile(tmp, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Attaching to non-existent entity should fail
+	_, err = s.Attach("NonExistent", tmp, "")
+	if err == nil {
+		t.Fatal("expected error attaching to non-existent entity")
+	}
+
+	// Attaching to "_" (global) should work
+	_, err = s.Attach("_", tmp, "")
+	if err != nil {
+		t.Fatalf("global attach failed: %v", err)
+	}
+
+	// Attaching to existing app should work
+	_, err = s.Attach("App", tmp, "")
+	if err != nil {
+		t.Fatalf("app attach failed: %v", err)
+	}
+}
+
+// F10: Unhandled event validation
+func TestUnhandledEventValidation(t *testing.T) {
+	s, err := store.Open(t.TempDir() + "/f10.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	app := &model.App{Name: "App", Description: "test"}
+	must(t, s.InsertApp(app))
+	sc := &model.Screen{AppID: app.ID, Name: "S1", Description: "screen"}
+	must(t, s.InsertScreen(sc))
+	r := &model.Region{AppID: app.ID, ParentType: "screen", ParentID: sc.ID, Name: "R1", Description: "region"}
+	must(t, s.InsertRegion(r))
+
+	// Add an event with no handler
+	must(t, s.InsertEvent(&model.Event{RegionID: r.ID, Name: "orphan-ev"}))
+
+	findings, err := validator.Validate(s.DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	found := false
+	for _, f := range findings {
+		if f.Rule == "unhandled-event" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected unhandled-event finding")
+	}
+}
+
+// F11: App root component
+func TestAppComponent(t *testing.T) {
+	s, err := store.Open(t.TempDir() + "/f11.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	app := &model.App{Name: "MyApp", Description: "test"}
+	must(t, s.InsertApp(app))
+
+	must(t, s.SetComponent("MyApp", "AppShell", `{"theme":"dark"}`, "", ""))
+
+	comp := s.GetComponentByName("MyApp")
+	if comp == nil {
+		t.Fatal("expected component on app")
+	}
+	if comp.Component != "AppShell" {
+		t.Fatalf("expected AppShell, got %s", comp.Component)
+	}
+	if comp.EntityType != "app" {
+		t.Fatalf("expected entity_type app, got %s", comp.EntityType)
+	}
+}
+
+func writeFile(path, content string) error {
+	return os.WriteFile(path, []byte(content), 0o644)
 }
