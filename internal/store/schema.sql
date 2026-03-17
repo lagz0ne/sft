@@ -17,8 +17,10 @@ CREATE TABLE IF NOT EXISTS regions (
   app_id      INTEGER NOT NULL REFERENCES apps(id),
   parent_type TEXT NOT NULL CHECK(parent_type IN ('app','screen','region')),
   parent_id   INTEGER NOT NULL,
-  name        TEXT NOT NULL UNIQUE,
-  description TEXT NOT NULL
+  name        TEXT NOT NULL,
+  description TEXT NOT NULL,
+  position    INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(parent_type, parent_id, name)
 );
 
 CREATE TABLE IF NOT EXISTS tags (

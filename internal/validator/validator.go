@@ -247,6 +247,28 @@ var rules = []rule{
 			return findings, nil
 		},
 	},
+	// Ambiguous region names — same name used by multiple regions (requires --in to disambiguate)
+	{
+		id:       "ambiguous-region-name",
+		severity: Warning,
+		query:    `SELECT name, COUNT(*) AS cnt FROM regions GROUP BY name HAVING cnt > 1`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var findings []Finding
+			for rows.Next() {
+				var name string
+				var cnt int
+				if err := rows.Scan(&name, &cnt); err != nil {
+					return nil, err
+				}
+				findings = append(findings, Finding{
+					Rule:     "ambiguous-region-name",
+					Severity: Warning,
+					Message:  fmt.Sprintf("region %q appears %dx — use --in to disambiguate", name, cnt),
+				})
+			}
+			return findings, nil
+		},
+	},
 	// [F10] Unhandled events — events emitted by regions but no transition handles them
 	{
 		id:       "unhandled-event",

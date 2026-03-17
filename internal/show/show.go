@@ -149,7 +149,7 @@ func loadTags(db *sql.DB, entityType string, entityID int64) []string {
 }
 
 func loadRegions(db *sql.DB, parentType string, parentID int64, al Enricher) []Region {
-	rows, _ := db.Query("SELECT id, name, description FROM regions WHERE parent_type = ? AND parent_id = ? ORDER BY id",
+	rows, _ := db.Query("SELECT id, name, description FROM regions WHERE parent_type = ? AND parent_id = ? ORDER BY position, id",
 		parentType, parentID)
 	if rows == nil {
 		return nil

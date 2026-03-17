@@ -42,6 +42,13 @@ func States(db *sql.DB, name string) ([]map[string]any, error) {
 	return execQuery(db, q, name)
 }
 
+// Steps returns parsed flow steps for a given flow name.
+func Steps(db *sql.DB, flowName string) ([]map[string]any, error) {
+	return execQuery(db, `SELECT fs.position, fs.raw, fs.type, fs.name, fs.history, fs.data
+		FROM flow_steps fs JOIN flows f ON f.id = fs.flow_id
+		WHERE f.name = ? ORDER BY fs.position`, flowName)
+}
+
 func execQuery(db *sql.DB, query string, args ...any) ([]map[string]any, error) {
 	rows, err := db.Query(query, args...)
 	if err != nil {

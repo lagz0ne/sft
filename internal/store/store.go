@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/lagz0ne/sft/internal/flow"
 	"github.com/lagz0ne/sft/internal/model"
 	_ "modernc.org/sqlite"
 )
@@ -43,7 +45,58 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
+	// Schema migration: add position column to regions if missing (existing DBs).
+	db.Exec("ALTER TABLE regions ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+	// Schema migration: scoped region unique constraint (parent_type, parent_id, name) replacing global UNIQUE(name).
+	s.migrateRegionScope()
 	return s, nil
+}
+
+// memSeq ensures unique shared-cache names for concurrent in-memory stores.
+var memSeq int64
+
+// OpenMemory opens an in-memory SQLite store (same schema, no persistence).
+func OpenMemory() (*Store, error) {
+	memSeq++
+	dsn := fmt.Sprintf("file:sft_mem_%d?mode=memory&cache=shared", memSeq)
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open memory db: %w", err)
+	}
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("enable foreign keys: %w", err)
+	}
+	s := &Store{DB: db, Path: ":memory:"}
+	if _, err := db.Exec(schema); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("init schema: %w", err)
+	}
+	return s, nil
+}
+
+// migrateRegionScope converts old UNIQUE(name) to UNIQUE(parent_type, parent_id, name).
+func (s *Store) migrateRegionScope() {
+	// Check if old global unique index exists (sqlite_autoindex_regions_1 with 1 column = old schema).
+	var cnt int
+	err := s.DB.QueryRow(`SELECT COUNT(*) FROM pragma_index_info('sqlite_autoindex_regions_1')`).Scan(&cnt)
+	if err != nil || cnt != 1 {
+		return // already migrated or no old index
+	}
+	tx, _ := s.DB.Begin()
+	if tx == nil {
+		return
+	}
+	defer tx.Rollback()
+	tx.Exec(`CREATE TABLE regions_new (
+		id INTEGER PRIMARY KEY, app_id INTEGER NOT NULL REFERENCES apps(id),
+		parent_type TEXT NOT NULL CHECK(parent_type IN ('app','screen','region')),
+		parent_id INTEGER NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL,
+		position INTEGER NOT NULL DEFAULT 0, UNIQUE(parent_type, parent_id, name))`)
+	tx.Exec(`INSERT INTO regions_new SELECT id, app_id, parent_type, parent_id, name, description, position FROM regions`)
+	tx.Exec(`DROP TABLE regions`)
+	tx.Exec(`ALTER TABLE regions_new RENAME TO regions`)
+	tx.Commit()
 }
 
 func (s *Store) Close() error {
@@ -78,12 +131,70 @@ func (s *Store) ResolveScreen(name string) (int64, error) {
 }
 
 func (s *Store) ResolveRegion(name string) (int64, error) {
-	var id int64
-	err := s.DB.QueryRow("SELECT id FROM regions WHERE name = ?", name).Scan(&id)
-	if err == sql.ErrNoRows {
+	rows, err := s.DB.Query("SELECT id FROM regions WHERE name = ?", name)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		rows.Scan(&id)
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
 		return 0, fmt.Errorf("region %q not found", name)
 	}
+	if len(ids) > 1 {
+		// List parents for disambiguation
+		var parents []string
+		for _, id := range ids {
+			var pt string
+			var pid int64
+			s.DB.QueryRow("SELECT parent_type, parent_id FROM regions WHERE id = ?", id).Scan(&pt, &pid)
+			pName := s.parentName(pt, pid)
+			parents = append(parents, pName)
+		}
+		return 0, fmt.Errorf("region %q is ambiguous — found in: %s (use --in to disambiguate)", name, strings.Join(parents, ", "))
+	}
+	return ids[0], nil
+}
+
+// ResolveRegionIn resolves a region name scoped to a parent name.
+func (s *Store) ResolveRegionIn(name, parentName string) (int64, error) {
+	parentType, parentID, err := s.ResolveParent(parentName)
+	if err != nil {
+		return 0, err
+	}
+	var id int64
+	err = s.DB.QueryRow("SELECT id FROM regions WHERE name = ? AND parent_type = ? AND parent_id = ?",
+		name, parentType, parentID).Scan(&id)
+	if err == sql.ErrNoRows {
+		return 0, fmt.Errorf("region %q not found in %s", name, parentName)
+	}
 	return id, err
+}
+
+// resolveRegionWithScope resolves a region, using scoped resolution if inParent is provided.
+func (s *Store) resolveRegionWithScope(name string, inParent ...string) (int64, error) {
+	if len(inParent) > 0 && inParent[0] != "" {
+		return s.ResolveRegionIn(name, inParent[0])
+	}
+	return s.ResolveRegion(name)
+}
+
+// parentName resolves a parent_type+parent_id to a name.
+func (s *Store) parentName(pt string, pid int64) string {
+	var name string
+	switch pt {
+	case "app":
+		s.DB.QueryRow("SELECT name FROM apps WHERE id = ?", pid).Scan(&name)
+	case "screen":
+		s.DB.QueryRow("SELECT name FROM screens WHERE id = ?", pid).Scan(&name)
+	case "region":
+		s.DB.QueryRow("SELECT name FROM regions WHERE id = ?", pid).Scan(&name)
+	}
+	return name
 }
 
 // ResolveParent resolves a name to (type, id). Checks apps, screens, then regions. [C2 fix]
@@ -143,7 +254,9 @@ func (s *Store) InsertApp(a *model.App) error {
 
 // [M1 fix] check cross-table name collision
 func (s *Store) InsertScreen(sc *model.Screen) error {
-	if _, err := s.ResolveRegion(sc.Name); err == nil {
+	var regionCount int
+	s.DB.QueryRow("SELECT COUNT(*) FROM regions WHERE name = ?", sc.Name).Scan(&regionCount)
+	if regionCount > 0 {
 		return fmt.Errorf("name %q already used by a region", sc.Name)
 	}
 	res, err := s.DB.Exec("INSERT INTO screens (app_id, name, description) VALUES (?, ?, ?)",
@@ -155,7 +268,7 @@ func (s *Store) InsertScreen(sc *model.Screen) error {
 	return nil
 }
 
-// [M1 fix] check cross-table name collision
+// [M1 fix] check cross-table name collision (screen names must be globally unique vs regions)
 func (s *Store) InsertRegion(r *model.Region) error {
 	if _, err := s.ResolveScreen(r.Name); err == nil {
 		return fmt.Errorf("name %q already used by a screen", r.Name)
@@ -163,6 +276,10 @@ func (s *Store) InsertRegion(r *model.Region) error {
 	res, err := s.DB.Exec("INSERT INTO regions (app_id, parent_type, parent_id, name, description) VALUES (?, ?, ?, ?, ?)",
 		r.AppID, r.ParentType, r.ParentID, r.Name, r.Description)
 	if err != nil {
+		// Translate the scoped unique constraint error into a friendlier message
+		if strings.Contains(err.Error(), "UNIQUE constraint") {
+			return fmt.Errorf("region %q already exists in this parent", r.Name)
+		}
 		return err
 	}
 	r.ID, _ = res.LastInsertId()
@@ -206,7 +323,22 @@ func (s *Store) InsertFlow(f *model.Flow) error {
 		return err
 	}
 	f.ID, _ = res.LastInsertId()
+
+	// Parse sequence into flow_steps
+	steps := flow.ParseSequence(f.Sequence, f.ID, s)
+	for i := range steps {
+		if err := s.InsertFlowStep(&steps[i]); err != nil {
+			return fmt.Errorf("flow step %d: %w", i+1, err)
+		}
+	}
 	return nil
+}
+
+// IsEvent returns true if a name matches any known event.
+func (s *Store) IsEvent(name string) bool {
+	var count int
+	s.DB.QueryRow("SELECT COUNT(*) FROM events WHERE name = ?", name).Scan(&count)
+	return count > 0
 }
 
 func (s *Store) InsertFlowStep(fs *model.FlowStep) error {
@@ -233,16 +365,13 @@ func (s *Store) UpdateScreen(name, newDesc string) error {
 	return nil
 }
 
-func (s *Store) UpdateRegion(name, newDesc string) error {
-	res, err := s.DB.Exec("UPDATE regions SET description = ? WHERE name = ?", newDesc, name)
+func (s *Store) UpdateRegion(name, newDesc string, inParent ...string) error {
+	id, err := s.resolveRegionWithScope(name, inParent...)
 	if err != nil {
 		return err
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("region %q not found", name)
-	}
-	return nil
+	_, err = s.DB.Exec("UPDATE regions SET description = ? WHERE id = ?", newDesc, id)
+	return err
 }
 
 // --- Impact analysis [H3 fix: add components + attachments] ---
@@ -342,8 +471,8 @@ func (s *Store) ImpactScreen(name string) ([]Impact, error) {
 	return impacts, nil
 }
 
-func (s *Store) ImpactRegion(name string) ([]Impact, error) {
-	id, err := s.ResolveRegion(name)
+func (s *Store) ImpactRegion(name string, inParent ...string) ([]Impact, error) {
+	id, err := s.resolveRegionWithScope(name, inParent...)
 	if err != nil {
 		return nil, err
 	}
@@ -519,8 +648,8 @@ func (s *Store) DeleteScreen(name string) error {
 	return tx.Commit()
 }
 
-func (s *Store) DeleteRegion(name string) error {
-	id, err := s.ResolveRegion(name)
+func (s *Store) DeleteRegion(name string, inParent ...string) error {
+	id, err := s.resolveRegionWithScope(name, inParent...)
 	if err != nil {
 		return err
 	}
@@ -564,18 +693,26 @@ func (s *Store) DeleteEvent(name, regionName string) error {
 	return nil
 }
 
-func (s *Store) DeleteTransition(onEvent, ownerName string) error {
+func (s *Store) DeleteTransition(onEvent, ownerName, fromState string) error {
 	ownerType, ownerID, err := s.ResolveOwner(ownerName)
 	if err != nil {
 		return err
 	}
-	res, err := s.DB.Exec("DELETE FROM transitions WHERE on_event = ? AND owner_type = ? AND owner_id = ?",
-		onEvent, ownerType, ownerID)
+	q := "DELETE FROM transitions WHERE on_event = ? AND owner_type = ? AND owner_id = ?"
+	args := []any{onEvent, ownerType, ownerID}
+	if fromState != "" {
+		q += " AND from_state = ?"
+		args = append(args, fromState)
+	}
+	res, err := s.DB.Exec(q, args...)
 	if err != nil {
 		return err
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
+		if fromState != "" {
+			return fmt.Errorf("transition on %q from %q not found in %s", onEvent, fromState, ownerName)
+		}
 		return fmt.Errorf("transition on %q not found in %s", onEvent, ownerName)
 	}
 	return nil
@@ -610,8 +747,8 @@ func (s *Store) DeleteFlow(name string) error {
 }
 
 // [H4 fix] MoveRegion with cycle detection
-func (s *Store) MoveRegion(name, newParentName string) error {
-	id, err := s.ResolveRegion(name)
+func (s *Store) MoveRegion(name, newParentName string, inParent ...string) error {
+	id, err := s.resolveRegionWithScope(name, inParent...)
 	if err != nil {
 		return err
 	}
@@ -646,6 +783,100 @@ func (s *Store) MoveRegion(name, newParentName string) error {
 	_, err = s.DB.Exec("UPDATE regions SET parent_type = ?, parent_id = ? WHERE id = ?",
 		parentType, parentID, id)
 	return err
+}
+
+// --- Rename ---
+
+func (s *Store) RenameScreen(old, newName string) error {
+	id, err := s.ResolveScreen(old)
+	if err != nil {
+		return err
+	}
+	if _, err := s.ResolveScreen(newName); err == nil {
+		return fmt.Errorf("screen %q already exists", newName)
+	}
+	if _, err := s.ResolveRegion(newName); err == nil {
+		return fmt.Errorf("name %q already used by a region", newName)
+	}
+	_ = id
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	tx.Exec("UPDATE screens SET name = ? WHERE name = ?", newName, old)
+	tx.Exec("UPDATE flow_steps SET name = ? WHERE type = 'screen' AND name = ?", newName, old)
+	tx.Exec("UPDATE transitions SET action = ? WHERE action = ?", "navigate("+newName+")", "navigate("+old+")")
+	tx.Exec("UPDATE attachments SET entity = ? WHERE entity = ?", newName, old)
+	return tx.Commit()
+}
+
+func (s *Store) RenameRegion(old, newName string, inParent ...string) error {
+	id, err := s.resolveRegionWithScope(old, inParent...)
+	if err != nil {
+		return err
+	}
+	if _, err := s.ResolveScreen(newName); err == nil {
+		return fmt.Errorf("name %q already used by a screen", newName)
+	}
+	// Scoped collision check: only block if newName exists under the same parent
+	var parentType string
+	var parentID int64
+	s.DB.QueryRow("SELECT parent_type, parent_id FROM regions WHERE id = ?", id).Scan(&parentType, &parentID)
+	var collision int
+	s.DB.QueryRow("SELECT COUNT(*) FROM regions WHERE name = ? AND parent_type = ? AND parent_id = ? AND id != ?",
+		newName, parentType, parentID, id).Scan(&collision)
+	if collision > 0 {
+		return fmt.Errorf("region %q already exists in %s", newName, s.parentName(parentType, parentID))
+	}
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	tx.Exec("UPDATE regions SET name = ? WHERE id = ?", newName, id)
+	tx.Exec("UPDATE flow_steps SET name = ? WHERE type = 'region' AND name = ?", newName, old)
+	tx.Exec("UPDATE transitions SET action = ? WHERE action = ?", "navigate("+newName+")", "navigate("+old+")")
+	tx.Exec("UPDATE attachments SET entity = ? WHERE entity = ?", newName, old)
+	return tx.Commit()
+}
+
+func (s *Store) RenameFlow(old, newName string) error {
+	res, err := s.DB.Exec("UPDATE flows SET name = ? WHERE name = ?", newName, old)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("flow %q not found", old)
+	}
+	return nil
+}
+
+// --- Reorder ---
+
+func (s *Store) ReorderRegions(parentName string, childNames []string) error {
+	parentType, parentID, err := s.ResolveParent(parentName)
+	if err != nil {
+		return err
+	}
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for i, name := range childNames {
+		res, err := tx.Exec("UPDATE regions SET position = ? WHERE name = ? AND parent_type = ? AND parent_id = ?",
+			i+1, name, parentType, parentID)
+		if err != nil {
+			return fmt.Errorf("reorder %s: %w", name, err)
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			return fmt.Errorf("region %q is not a child of %s", name, parentName)
+		}
+	}
+	return tx.Commit()
 }
 
 // --- Components ---

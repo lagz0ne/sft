@@ -110,6 +110,13 @@ var Queries = map[string][]Column{
 		{Key: "entity_type", Header: "TYPE"},
 		{Key: "entity_name", Header: "ENTITY"},
 	},
+	"steps": {
+		{Key: "position", Header: "#", Right: true},
+		{Key: "type", Header: "TYPE"},
+		{Key: "name", Header: "NAME"},
+		{Key: "data", Header: "DATA"},
+		{Key: "history", Header: "HISTORY", Bool: true},
+	},
 }
 
 func Table(queryName string, rows []map[string]any) {

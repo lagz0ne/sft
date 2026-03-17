@@ -5,7 +5,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/lagz0ne/sft/internal/diff"
 	"github.com/lagz0ne/sft/internal/format"
+	"github.com/lagz0ne/sft/internal/loader"
 	"github.com/lagz0ne/sft/internal/model"
 	"github.com/lagz0ne/sft/internal/query"
 	"github.com/lagz0ne/sft/internal/render"
@@ -47,14 +49,24 @@ func main() {
 		runQuery(s, rest)
 	case "validate", "check":
 		runValidate(s)
+	case "import":
+		runImport(s, rest)
+	case "export":
+		runExport(s, rest)
+	case "diff":
+		runDiff(s, rest)
 	case "add":
 		runAdd(s, rest)
 	case "set":
 		runSet(s, rest)
+	case "rename":
+		runRename(s, rest)
 	case "rm":
 		runRm(s, rest)
 	case "mv":
 		runMv(s, rest)
+	case "reorder":
+		runReorder(s, rest)
 	case "impact":
 		runImpact(s, rest)
 	case "component", "comp":
@@ -78,14 +90,19 @@ const usage = `usage: sft <command> [args] [--json]
 
 commands:
   show                                render full spec (human/LLM readable)
-  query    <name|SELECT>              screens, events, states, flows, tags, regions
+  query    <name|SELECT>              screens, events, states, flows, tags, regions, steps
   validate                            run validation rules
+  import   <file.yaml>                bulk import from SFT YAML
+  export   [file.yaml]               export spec to YAML (stdout if no file)
+  diff     <file.yaml>               compare current spec vs YAML file
   add      <type> ...                 app, screen, region, event, transition, tag, flow
-  set      <screen|region> <name> --description <d>   update entity
+  set      <screen|region> <name> --description <d> [--in <parent>]
+  rename   <type> <old> <new> [--in <parent>]
   rm       <type> <name> [--in <p>]   remove entity (screen, region, event, transition, tag, flow)
-  mv       region <name> --to <dst>   move a region
-  impact   <screen|region> <name>     show dependents
-  component <entity> [Type] [--props/--props-file/--on/--visible]
+  mv       region <name> --to <dst> [--in <parent>]
+  reorder  <parent> <c1> <c2> ...     set region display order
+  impact   <screen|region> <name> [--in <parent>]
+  component <entity> [Type] [--props/--props-file/--on/--visible] [--in <parent>]
   render                              generate json-render spec
   attach   <entity> <file> [--as n]   attach a file to an entity
   detach   <entity> <name>            remove an attachment
@@ -123,6 +140,11 @@ func runQuery(s *store.Store, args []string) {
 			die("usage: sft query states <name>")
 		}
 		results, err = query.States(s.DB, args[1])
+	} else if name == "steps" {
+		if len(args) < 2 {
+			die("usage: sft query steps <flow-name>")
+		}
+		results, err = query.Steps(s.DB, args[1])
 	} else {
 		results, err = query.Run(s.DB, name)
 		if name != "screens" && name != "regions" && name != "events" &&
@@ -270,22 +292,121 @@ func runAdd(s *store.Store, args []string) {
 
 func runSet(s *store.Store, args []string) {
 	if len(args) < 2 {
-		die("usage: sft set <screen|region> <name> --description <new>")
+		die("usage: sft set <screen|region> <name> --description <new> [--in <parent>]")
 	}
 	entity, name := args[0], args[1]
 	desc := flagVal(args, "--description")
 	if desc == "" {
-		die("usage: sft set <screen|region> <name> --description <new>")
+		die("usage: sft set <screen|region> <name> --description <new> [--in <parent>]")
 	}
+	in := flagVal(args, "--in")
 	switch entity {
 	case "screen":
 		must(s.UpdateScreen(name, desc))
 	case "region":
-		must(s.UpdateRegion(name, desc))
+		must(s.UpdateRegion(name, desc, in))
 	default:
 		die("set supports: screen, region")
 	}
 	ok("updated %s %s", entity, name)
+}
+
+// --- import ---
+
+func runImport(s *store.Store, args []string) {
+	if len(args) == 0 {
+		die("usage: sft import <file.yaml>")
+	}
+	if err := loader.Load(s, args[0]); err != nil {
+		die("import: %v", err)
+	}
+	ok("imported %s", args[0])
+}
+
+// --- export ---
+
+func runExport(s *store.Store, args []string) {
+	spec, err := show.Load(s.DB, s)
+	if err != nil {
+		die("%v", err)
+	}
+	if len(args) > 0 {
+		f, err := os.Create(args[0])
+		if err != nil {
+			die("create %s: %v", args[0], err)
+		}
+		defer f.Close()
+		must(loader.Export(spec, f))
+		ok("exported to %s", args[0])
+	} else {
+		must(loader.Export(spec, os.Stdout))
+	}
+}
+
+// --- diff ---
+
+func runDiff(s *store.Store, args []string) {
+	if len(args) == 0 {
+		die("usage: sft diff <file.yaml>")
+	}
+	// Load current spec from DB
+	currentSpec, err := show.Load(s.DB, s)
+	if err != nil {
+		die("%v", err)
+	}
+	// Load target spec from YAML into in-memory DB
+	memStore, err := store.OpenMemory()
+	if err != nil {
+		die("memory store: %v", err)
+	}
+	defer memStore.Close()
+	if err := loader.Load(memStore, args[0]); err != nil {
+		die("import target: %v", err)
+	}
+	targetSpec, err := show.Load(memStore.DB, nil)
+	if err != nil {
+		die("load target: %v", err)
+	}
+	// Compare
+	changes := diff.Compare(currentSpec, targetSpec)
+	if format.JSONMode {
+		format.JSON(changes)
+		return
+	}
+	fmt.Print(diff.Format(changes))
+}
+
+// --- rename ---
+
+func runRename(s *store.Store, args []string) {
+	if len(args) < 3 {
+		die("usage: sft rename <screen|region|flow> <old> <new> [--in <parent>]")
+	}
+	entity, old, newName := args[0], args[1], args[2]
+	in := flagVal(args, "--in")
+	switch entity {
+	case "screen":
+		must(s.RenameScreen(old, newName))
+	case "region":
+		must(s.RenameRegion(old, newName, in))
+	case "flow":
+		must(s.RenameFlow(old, newName))
+	default:
+		die("rename supports: screen, region, flow")
+	}
+	ok("renamed %s %s → %s", entity, old, newName)
+}
+
+// --- reorder ---
+
+func runReorder(s *store.Store, args []string) {
+	if len(args) < 2 {
+		die("usage: sft reorder <parent> <child1> <child2> ...")
+	}
+	parent := args[0]
+	children := args[1:]
+	must(s.ReorderRegions(parent, children))
+	ok("reordered %d regions in %s", len(children), parent)
 }
 
 // --- rm [H7 fix: extended to all entity types] ---
@@ -298,15 +419,16 @@ func runRm(s *store.Store, args []string) {
 
 	switch entity {
 	case "screen":
-		impacts := getImpacts(s, entity, name)
+		impacts := getImpacts(s, entity, name, "")
 		showImpacts(entity, name, impacts, false)
 		must(s.DeleteScreen(name))
 		ok("deleted screen %s", name)
 
 	case "region":
-		impacts := getImpacts(s, entity, name)
+		in := flagVal(args, "--in")
+		impacts := getImpacts(s, entity, name, in)
 		showImpacts(entity, name, impacts, false)
-		must(s.DeleteRegion(name))
+		must(s.DeleteRegion(name, in))
 		ok("deleted region %s", name)
 
 	case "event":
@@ -320,10 +442,15 @@ func runRm(s *store.Store, args []string) {
 	case "transition":
 		in := flagVal(args, "--in")
 		if in == "" {
-			die("usage: sft rm transition <on-event> --in <owner>")
+			die("usage: sft rm transition <on-event> --in <owner> [--from <state>]")
 		}
-		must(s.DeleteTransition(name, in))
-		ok("deleted transition on %s from %s", name, in)
+		from := flagVal(args, "--from")
+		must(s.DeleteTransition(name, in, from))
+		if from != "" {
+			ok("deleted transition on %s from %s in %s", name, from, in)
+		} else {
+			ok("deleted transition on %s from %s", name, in)
+		}
 
 	case "tag":
 		on := flagVal(args, "--on")
@@ -346,16 +473,17 @@ func runRm(s *store.Store, args []string) {
 
 func runMv(s *store.Store, args []string) {
 	if len(args) < 2 || args[0] != "region" {
-		die("usage: sft mv region <name> --to <parent>")
+		die("usage: sft mv region <name> --to <parent> [--in <current-parent>]")
 	}
 	name := args[1]
 	to := flagVal(args, "--to")
+	in := flagVal(args, "--in")
 	if to == "" {
-		die("usage: sft mv region <name> --to <parent>")
+		die("usage: sft mv region <name> --to <parent> [--in <current-parent>]")
 	}
-	impacts := getImpacts(s, "region", name)
+	impacts := getImpacts(s, "region", name, in)
 	showImpacts("region", name, impacts, false)
-	if err := s.MoveRegion(name, to); err != nil {
+	if err := s.MoveRegion(name, to, in); err != nil {
 		die("move: %v", err)
 	}
 	format.OK(fmt.Sprintf("moved region %s → %s", name, to))
@@ -365,21 +493,22 @@ func runMv(s *store.Store, args []string) {
 
 func runImpact(s *store.Store, args []string) {
 	if len(args) < 2 {
-		die("usage: sft impact <screen|region> <name>")
+		die("usage: sft impact <screen|region> <name> [--in <parent>]")
 	}
 	entity, name := args[0], args[1]
-	impacts := getImpacts(s, entity, name)
+	in := flagVal(args, "--in")
+	impacts := getImpacts(s, entity, name, in)
 	showImpacts(entity, name, impacts, true)
 }
 
-func getImpacts(s *store.Store, entity, name string) []store.Impact {
+func getImpacts(s *store.Store, entity, name, in string) []store.Impact {
 	var impacts []store.Impact
 	var err error
 	switch entity {
 	case "screen":
 		impacts, err = s.ImpactScreen(name)
 	case "region":
-		impacts, err = s.ImpactRegion(name)
+		impacts, err = s.ImpactRegion(name, in)
 	default:
 		die("impact supports: screen, region")
 	}
