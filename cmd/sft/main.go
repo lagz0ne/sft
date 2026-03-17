@@ -30,7 +30,8 @@ func main() {
 	format.Init(jsonMode)
 
 	if len(os.Args) < 2 {
-		die(usage)
+		fmt.Fprintln(os.Stderr, usage)
+		os.Exit(1)
 	}
 
 	s, err := store.Open(store.DefaultPath())
@@ -86,30 +87,89 @@ func main() {
 	}
 }
 
-const usage = `usage: sft <command> [args] [--json]
+const usage = `sft — SQLite-backed behavioral spec tool for UI screens, regions, events, flows, and components.
 
-commands:
-  show                                render full spec (human/LLM readable)
-  query    <name|SELECT>              screens, events, states, flows, tags, regions, steps
-  validate                            run validation rules
-  import   <file.yaml>                bulk import from SFT YAML
-  export   [file.yaml]               export spec to YAML (stdout if no file)
-  diff     <file.yaml>               compare current spec vs YAML file
-  add      <type> ...                 app, screen, region, event, transition, tag, flow
-  set      <screen|region> <name> --description <d> [--in <parent>]
-  rename   <type> <old> <new> [--in <parent>]
-  rm       <type> <name> [--in <p>]   remove entity (screen, region, event, transition, tag, flow)
-  mv       region <name> --to <dst> [--in <parent>]
-  reorder  <parent> <c1> <c2> ...     set region display order
-  impact   <screen|region> <name> [--in <parent>]
-  component <entity> [Type] [--props/--props-file/--on/--visible] [--in <parent>]
-  render                              generate json-render spec
-  attach   <entity> <file> [--as n]   attach a file to an entity
-  detach   <entity> <name>            remove an attachment
-  list     [entity]                   show all attachments
-  cat      <entity> <name>            read an attachment
+All output supports --json for structured data. The spec lives in .sft/db (auto-created).
 
-aliases: q=query, check=validate, ls=list, comp=component`
+Core Workflow:
+  sft import spec.yaml           # load a YAML spec into the local DB
+  sft show                       # render full spec tree (human + LLM readable)
+  sft show --json                # structured JSON — best for programmatic use
+  sft query screens              # list all screens
+  sft validate                   # check for issues (orphans, dead events, cycles)
+  sft export updated.yaml        # round-trip back to YAML
+
+Reading:
+  show                             full spec tree (text or --json)
+  query  <type>                    screens | regions | events | flows | tags | steps <flow>
+  query  states <name>             transitions for a screen/region
+  query  <SELECT ...>              raw SQL against the spec DB
+  impact <screen|region> <name>    what depends on this entity
+
+Mutating:
+  add app <name> <desc>
+  add screen <name> <desc>
+  add region <name> <desc> --in <parent>
+  add event <name> --in <region>
+  add transition --on <event> --in <owner> [--from <s>] [--to <s>] [--action <a>]
+  add tag <tag> --on <entity>
+  add flow <name> <sequence> [--description <d>] [--on <event>]
+  set <screen|region> <name> --description <new> [--in <parent>]
+  rename <screen|region|flow> <old> <new> [--in <parent>]
+  rm <screen|region|event|transition|tag|flow> <name> [--in/--on <parent>]
+  mv region <name> --to <parent> [--in <current-parent>]
+  reorder <parent> <child1> <child2> ...
+
+Components:
+  component <entity>                          show bound component (JSON)
+  component <entity> <Type> [--props <json>]  bind a UI component
+  component <entity> <Type> --props-file <f>  bind with props from file
+  component <entity> --rm                     unbind component
+
+Import / Export / Diff:
+  import <file.yaml>              load YAML into fresh DB
+  export [file.yaml]              serialize spec to YAML (stdout if no file)
+  diff <file.yaml>                compare current spec vs a YAML file
+
+Attachments:
+  attach <entity> <file> [--as <name>]
+  detach <entity> <name>
+  list [entity]
+  cat <entity> <name>
+
+Rendering:
+  render                          generate json-render spec (for UI runtime)
+
+Scoped Regions:
+  Region names can repeat across parents. Use --in <parent> to disambiguate:
+    sft add region Header "Top bar" --in Settings
+    sft rm region Header --in Settings
+    sft rename region Header TopBar --in Settings
+
+Common Patterns:
+  # Build a spec from scratch
+  sft add app MyApp "Description"
+  sft add screen Home "Landing page"
+  sft add region Hero "Hero section" --in Home
+  sft add event cta-click --in Hero
+  sft add transition --on cta-click --in Home --action "navigate(Detail)"
+  sft add flow Onboarding "Home → Detail → [Back] → Home(H)"
+
+  # Inspect before deleting
+  sft impact screen Home
+  sft rm screen Home
+
+  # Diff after local edits
+  sft export /tmp/before.yaml
+  # ... make changes ...
+  sft diff /tmp/before.yaml
+
+  # Attach a wireframe, query events, validate
+  sft attach Home mockup.png
+  sft query events --json
+  sft validate
+
+Aliases: q=query, check=validate, ls=list, comp=component`
 
 // --- show ---
 
