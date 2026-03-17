@@ -4,6 +4,116 @@ A lightweight vocabulary for making implicit UI structure explicit. Event-driven
 
 SFT sits between Figma (visual design) and PRDs (requirements) — a **behavioral contract layer** that captures what the user sees and does at the screen/region level. Write it once, hand it to designers, engineers, and PMs.
 
+## Install
+
+```bash
+npm i -g sft-cli
+```
+
+Binaries also available from [GitHub Releases](https://github.com/lagz0ne/sft/releases).
+
+## Quick Start
+
+```bash
+# Import an existing spec
+sft import examples/linear.sft.yaml
+
+# Explore
+sft show                   # full spec tree (human + LLM readable)
+sft show --json            # structured JSON
+sft query screens          # list all screens
+sft query events           # list all events
+sft query states Home      # transitions for a screen
+
+# Validate
+sft validate               # check for orphans, dead events, cycles
+
+# Round-trip
+sft export spec.yaml       # serialize back to YAML
+sft diff examples/linear.sft.yaml   # compare current vs a file
+```
+
+## CLI Reference
+
+All commands support `--json` for structured output. The spec lives in `.sft/db` (auto-created).
+
+### Reading
+
+```bash
+sft show                             # full spec tree
+sft query <type>                     # screens | regions | events | flows | tags
+sft query states <name>              # transitions for a screen/region
+sft query steps <flow>               # parsed flow steps
+sft query "SELECT ..."               # raw SQL against the spec DB
+sft impact <screen|region> <name>    # what depends on this entity
+```
+
+### Mutating
+
+```bash
+sft add app <name> <desc>
+sft add screen <name> <desc>
+sft add region <name> <desc> --in <parent>
+sft add event <name> --in <region>
+sft add transition --on <event> --in <owner> [--from <s>] [--to <s>] [--action <a>]
+sft add tag <tag> --on <entity>
+sft add flow <name> <sequence> [--description <d>] [--on <event>]
+
+sft set <screen|region> <name> --description <new> [--in <parent>]
+sft rename <screen|region|flow> <old> <new> [--in <parent>]
+sft rm <screen|region|event|transition|tag|flow> <name> [--in/--on <parent>]
+sft mv region <name> --to <parent> [--in <current-parent>]
+sft reorder <parent> <child1> <child2> ...
+```
+
+### Components
+
+Bind UI component types to screens or regions for code generation:
+
+```bash
+sft component Home                          # show bound component (JSON)
+sft component Home Dashboard --props '{"layout":"grid"}'
+sft component Sidebar NavPanel --props-file sidebar.json --on handleClick --visible auth
+sft component Home --rm                     # unbind
+```
+
+Components round-trip through `export`/`import` — they're preserved in YAML.
+
+### Import / Export / Diff
+
+```bash
+sft import spec.yaml          # load YAML into fresh DB
+sft export [file.yaml]        # serialize to YAML (stdout if no file)
+sft diff spec.yaml            # compare current spec vs YAML file
+```
+
+### Attachments
+
+```bash
+sft attach Home mockup.png --as wireframe.png
+sft detach Home wireframe.png
+sft list                      # all attachments
+sft list Home                 # attachments on Home
+sft cat Home wireframe.png    # read attachment content
+```
+
+### Scoped Regions
+
+Region names can repeat across different parents. Use `--in` to disambiguate:
+
+```bash
+sft add region Header "Top bar" --in Settings
+sft add region Header "Top bar" --in Profile    # same name, different parent
+sft rm region Header --in Settings
+sft rename region Header TopBar --in Profile
+```
+
+### Rendering
+
+```bash
+sft render                    # generate json-render spec (for UI runtime)
+```
+
 ## The Model
 
 ### Structure — what exists, what events it emits
@@ -122,6 +232,22 @@ flows:
 
 Sequence elements follow naming conventions: `ScreenName` or `RegionName` (PascalCase), `event-name` (kebab-case), prose action (lowercase, e.g., `fill`, `await resolution`), `[Back]` (bracketed navigation), `RegionName activates` (overlay activation), `ScreenName(H)` (history re-entry), `Step{data}` (data annotation).
 
+### Components
+
+Components bind a UI component type to a screen or region, bridging behavioral spec to implementation:
+
+```yaml
+screens:
+  - name: Dashboard
+    description: Main dashboard
+    component: DataGrid
+    props: '{"cols":5}'
+    on_actions: handleClick
+    visible: admin
+```
+
+Components survive `import` → `export` round-trips and are detected by `sft diff`.
+
 ## Conventions
 
 | Convention | How it works |
@@ -159,6 +285,7 @@ Example: `on: check-payment, from: browsing, to: selecting` reads as:
 | State machines (interaction modes) | |
 | Flows across screens | |
 | Conditional existence (tags) | |
+| Components bound to screens/regions | |
 | | Component internals (button variants, form fields) → **design system** |
 | | Visual hierarchy (typography, spacing, color) → **Figma** |
 | | Form validation rules → **acceptance criteria in PRD** |
@@ -172,10 +299,13 @@ Example: `on: check-payment, from: browsing, to: selecting` reads as:
 ```
 app:
   name, description
-  regions: [{ name, description, tags?, events?, regions?, states? }]
+  regions: [{ name, description, tags?, events?, regions?, states?,
+              component?, props?, on_actions?, visible? }]
   screens:
     [{ name, description, tags?,
-       regions: [{ name, description, tags?, events?, regions?, states? }],
+       component?, props?, on_actions?, visible?,
+       regions: [{ name, description, tags?, events?, regions?, states?,
+                   component?, props?, on_actions?, visible? }],
        states? }]
   flows: [{ name, description?, on?, sequence }]
 
@@ -193,6 +323,18 @@ Multi-app: `app:` accepts a list of apps. Cross-app: `[contains:AppName]` tag on
 - [`linear.sft.yaml`](./examples/linear.sft.yaml) — Project management. Issue list/board/cycle, DescriptionEditor sub-machine, keyboard shortcuts.
 - [`shopify.sft.yaml`](./examples/shopify.sft.yaml) — E-commerce. Two apps, cross-app `contains`, nested FulfillmentArea, VariantEditor sub-machine.
 - [`stripe.sft.yaml`](./examples/stripe.sft.yaml) — Payments. Nested RefundArea, `emit` for evidence completion, data-conditional states, unhappy path flows.
+- [`bank.sft.yaml`](./examples/bank.sft.yaml) — Banking. Conditional display, wizards, multi-step flows.
+- [`docs.sft.yaml`](./examples/docs.sft.yaml) — Documentation. All 36 UI patterns covered with 14 keywords.
+
+Try them:
+```bash
+sft import examples/stripe.sft.yaml
+sft show
+sft validate
+sft query flows
+sft export /tmp/roundtrip.yaml
+sft diff examples/stripe.sft.yaml   # should show "no changes"
+```
 
 ## Quick Reference
 
