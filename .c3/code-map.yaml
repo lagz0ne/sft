@@ -1,0 +1,53 @@
+# C3 code-map: maps component and ref IDs to source file glob patterns.
+# Edit patterns, then verify with: c3x coverage
+
+# Components
+c3-101:
+  - internal/model/**
+c3-102:
+  - internal/store/**
+c3-103:
+  - internal/format/**
+c3-110:
+  - internal/loader/**
+c3-111:
+  - internal/show/**
+c3-112:
+  - internal/query/**
+c3-113:
+  - internal/validator/**
+c3-114:
+  - internal/diff/**
+c3-115:
+  - internal/render/**
+c3-116:
+  - internal/flow/**
+c3-117:
+  - cmd/sft/**
+
+# Refs (convention-only, no direct code counterpart)
+ref-entity-resolution: []
+ref-event-model: []
+ref-sqlite-persistence: []
+ref-yaml-format: []
+
+# Exclusions (not counted in coverage)
+_exclude:
+  - testdata/**
+  - examples/**
+  - scripts/**
+  - npm/**
+  - skills/**
+  - "**/*.md"
+  - "**/*.yaml"
+  - "**/*.yml"
+  - "**/*.sh"
+  - "**/*.mod"
+  - "**/*.sum"
+  - "**/*.jsonl"
+  - benchmark.sh
+  - patterns.md
+  - autoresearch.md
+  - autoresearch.jsonl
+  - .gitignore
+  - .claude-plugin/**
