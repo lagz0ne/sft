@@ -6,7 +6,7 @@ const PLATFORMS = {
   "darwin x64": "sft-cli-darwin-x64",
   "linux arm64": "sft-cli-linux-arm64",
   "linux x64": "sft-cli-linux-x64",
-  "win32 x64": "sft-cli-win32-x64",
+  "win32 x64": "@sft-cli/win32-x64",
 };
 
 function getBinaryPath() {
