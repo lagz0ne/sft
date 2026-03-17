@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Test
+        run: go test ./...
+
+      - name: Sync version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+          # Update all package.json versions
+          for f in npm/*/package.json npm/sft-cli/package.json; do
+            node -e "
+              const fs = require('fs');
+              const pkg = JSON.parse(fs.readFileSync('$f', 'utf8'));
+              pkg.version = '$VERSION';
+              if (pkg.optionalDependencies) {
+                for (const k of Object.keys(pkg.optionalDependencies)) {
+                  pkg.optionalDependencies[k] = '$VERSION';
+                }
+              }
+              fs.writeFileSync('$f', JSON.stringify(pkg, null, 2) + '\n');
+            "
+          done
+
+      - name: Build binaries
+        run: bash scripts/build-npm.sh
+
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for dir in linux-x64 linux-arm64 darwin-x64 darwin-arm64 win32-x64; do
+            echo "Publishing sft-cli-${dir}@${VERSION}..."
+            (cd "npm/$dir" && npm publish --access public)
+          done
+
+      - name: Publish main package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd npm/sft-cli && npm publish --access public
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "sft-cli ${VERSION}" \
+            --generate-notes \
+            npm/linux-x64/bin/sft#sft-linux-x64 \
+            npm/linux-arm64/bin/sft#sft-linux-arm64 \
+            npm/darwin-x64/bin/sft#sft-darwin-x64 \
+            npm/darwin-arm64/bin/sft#sft-darwin-arm64 \
+            npm/win32-x64/bin/sft.exe#sft-win32-x64.exe

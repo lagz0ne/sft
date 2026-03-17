@@ -9,3 +9,6 @@ skills/sft/bin/sft-*
 
 # Session artifacts
 tasks/
+
+# npm platform binaries (built artifacts)
+npm/*/bin/

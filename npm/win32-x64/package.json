@@ -1,0 +1,10 @@
+{
+  "name": "sft-cli-win32-x64",
+  "version": "0.1.0",
+  "description": "Windows x64 binary for sft-cli",
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "files": ["bin/sft.exe"],
+  "preferUnplugged": true,
+  "license": "MIT"
+}

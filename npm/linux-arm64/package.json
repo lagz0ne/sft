@@ -1,0 +1,10 @@
+{
+  "name": "sft-cli-linux-arm64",
+  "version": "0.1.0",
+  "description": "Linux arm64 binary for sft-cli",
+  "os": ["linux"],
+  "cpu": ["arm64"],
+  "files": ["bin/sft"],
+  "preferUnplugged": true,
+  "license": "MIT"
+}

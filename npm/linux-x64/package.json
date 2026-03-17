@@ -1,0 +1,10 @@
+{
+  "name": "sft-cli-linux-x64",
+  "version": "0.1.0",
+  "description": "Linux x64 binary for sft-cli",
+  "os": ["linux"],
+  "cpu": ["x64"],
+  "files": ["bin/sft"],
+  "preferUnplugged": true,
+  "license": "MIT"
+}
