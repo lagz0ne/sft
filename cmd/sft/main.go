@@ -137,8 +137,10 @@ Attachments:
   list [entity]
   cat <entity> <name>
 
-Rendering:
-  render                          generate json-render spec (for UI runtime)
+Rendering (json-render):
+  render                          generate json-render element tree from spec
+  # screens → Card, regions → Stack, components override type/props/on/visible
+  # pipe to jq: sft render | jq '.elements.Home'
 
 Scoped Regions:
   Region names can repeat across parents. Use --in <parent> to disambiguate:

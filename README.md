@@ -108,10 +108,55 @@ sft rm region Header --in Settings
 sft rename region Header TopBar --in Profile
 ```
 
-### Rendering
+### Rendering (json-render)
+
+`sft render` generates a [json-render](https://github.com/nicholasgasior/json-render)-compatible spec — a flat element tree that a UI runtime can consume directly.
 
 ```bash
-sft render                    # generate json-render spec (for UI runtime)
+sft render                    # full json-render spec to stdout
+sft render | jq '.elements.Home'   # inspect one element
+```
+
+The pipeline:
+1. **Skeleton** — every screen becomes a `Card`, every region a `Stack`, children wired by hierarchy
+2. **Hydrate** — components bound via `sft component` override the element type, props, `on` handlers, and `visible` conditions
+
+```bash
+# Without components — generic skeleton
+sft render | jq '.elements.MyIssues'
+# {"type": "Card", "props": {"title": "MyIssues"}, "children": ["IssueList", "FilterBar", ...]}
+
+# Bind a component
+sft component MyIssues DataTable --props '{"cols":["title","status"],"selectable":true}'
+
+# Now render picks it up
+sft render | jq '.elements.MyIssues'
+# {"type": "DataTable", "props": {"cols":["title","status"],"selectable":true}, "children": [...]}
+```
+
+Full component binding with event handlers and visibility:
+
+```bash
+sft component IssueDetail DetailPanel \
+  --props '{"layout":"split"}' \
+  --on '{"save":"handleSave","delete":"handleDelete"}' \
+  --visible '{"role":"member"}'
+```
+
+Output schema:
+```json
+{
+  "root": "AppName",
+  "elements": {
+    "ScreenOrRegionName": {
+      "type": "ComponentType",
+      "props": { ... },
+      "children": ["ChildName", ...],
+      "on": { "event": "handler" },
+      "visible": { "condition": "value" }
+    }
+  }
+}
 ```
 
 ## The Model
