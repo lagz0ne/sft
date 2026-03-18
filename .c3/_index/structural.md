@@ -1,7 +1,10 @@
 # C3 Structural Index
-<!-- hash: sha256:6f06d4d4caaf026b6d336eb6390712adf947733a8bef974bf781b2c196b212c7 -->
+<!-- hash: sha256:e869fdb12ebaca77672e6e8b26609d864378348f4d97fafd81e33377ed09cb8c -->
 
 ## adr-00000000-c3-adoption — C3 Architecture Documentation Adoption (adr)
+blocks: Goal ✓
+
+## adr-20260317-sft-view-nats-backbone — sft view — NATS messaging + SQLite query engine (adr)
 blocks: Goal ✓
 
 ## c3-0 — SFT (context)
@@ -23,7 +26,7 @@ blocks: Container Connection ✓, Dependencies ✓, Goal ✓, Related Refs ✓
 
 ## c3-102 — store (component)
 container: c3-1 | context: c3-0
-reverse deps: ref-entity-resolution, ref-sqlite-persistence
+reverse deps: adr-20260317-sft-view-nats-backbone, ref-entity-resolution, ref-sqlite-persistence
 files: internal/store/**
 constraints from: c3-0, c3-1
 blocks: Container Connection ✓, Dependencies ✓, Goal ✓, Related Refs ✓
@@ -50,7 +53,7 @@ blocks: Container Connection ✓, Dependencies ✓, Goal ✓, Related Refs ✓
 
 ## c3-112 — query (component)
 container: c3-1 | context: c3-0
-reverse deps: ref-sqlite-persistence
+reverse deps: adr-20260317-sft-view-nats-backbone, ref-sqlite-persistence
 files: internal/query/**
 constraints from: c3-0, c3-1
 blocks: Container Connection ✓, Dependencies ✓, Goal ✓, Related Refs ✓
@@ -70,6 +73,7 @@ blocks: Container Connection ✓, Dependencies ✓, Goal ✓, Related Refs ○
 
 ## c3-115 — render (component)
 container: c3-1 | context: c3-0
+reverse deps: adr-20260317-sft-view-nats-backbone
 files: internal/render/**
 constraints from: c3-0, c3-1
 blocks: Container Connection ✓, Dependencies ✓, Goal ✓, Related Refs ○
@@ -83,6 +87,7 @@ blocks: Container Connection ✓, Dependencies ✓, Goal ✓, Related Refs ✓
 
 ## c3-117 — entrypoint (component)
 container: c3-1 | context: c3-0
+reverse deps: adr-20260317-sft-view-nats-backbone
 files: cmd/sft/**
 constraints from: c3-0, c3-1
 blocks: Container Connection ✓, Dependencies ✓, Goal ✓, Related Refs ○

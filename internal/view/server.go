@@ -87,10 +87,15 @@ func (srv *Server) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /nats", srv.proxyNatsWS) // WS upgrade → internal NATS
 	mux.HandleFunc("GET /a/{entity}/{name}", srv.handleAttachment)
-	mux.Handle("GET /deps/", http.StripPrefix("/deps/", http.FileServer(http.Dir(filepath.Join(srv.opts.WebDir, "node_modules")))))
-	mux.Handle("GET /src/", http.StripPrefix("/src/", http.FileServer(http.Dir(filepath.Join(srv.opts.WebDir, "src")))))
+
+	// Serve built client assets from dist/client/
+	clientDir := filepath.Join(srv.opts.WebDir, "apps", "web", "dist", "client")
+	assetsDir := filepath.Join(clientDir, "assets")
+	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir(assetsDir))))
+	// SPA fallback — all other routes serve the prerendered shell
+	shellHTML := filepath.Join(clientDir, "_shell.html")
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, filepath.Join(srv.opts.WebDir, "index.html"))
+		http.ServeFile(w, r, shellHTML)
 	})
 
 	srv.httpServer = &http.Server{
