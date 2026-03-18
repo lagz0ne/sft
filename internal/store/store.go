@@ -40,6 +40,8 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("enable foreign keys: %w", err)
 	}
+	db.Exec("PRAGMA journal_mode = WAL")
+	db.Exec("PRAGMA busy_timeout = 5000")
 	s := &Store{DB: db, Path: path}
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()

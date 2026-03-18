@@ -12,3 +12,6 @@ tasks/
 
 # npm platform binaries (built artifacts)
 npm/*/bin/
+
+# Web dependencies
+web/node_modules/

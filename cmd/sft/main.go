@@ -14,6 +14,7 @@ import (
 	"github.com/lagz0ne/sft/internal/show"
 	"github.com/lagz0ne/sft/internal/store"
 	"github.com/lagz0ne/sft/internal/validator"
+	"github.com/lagz0ne/sft/internal/view"
 )
 
 func main() {
@@ -82,6 +83,8 @@ func main() {
 		runList(s, rest)
 	case "cat":
 		runCat(s, rest)
+	case "view":
+		runView(s, rest)
 	default:
 		die("unknown command %q\n%s", cmd, usage)
 	}
@@ -170,6 +173,9 @@ Common Patterns:
   sft attach Home mockup.png
   sft query events --json
   sft validate
+
+View (browser):
+  view [--port N] [--web-dir DIR]  open spec in browser (embedded NATS + HTTP)
 
 Aliases: q=query, check=validate, ls=list, comp=component`
 
@@ -739,6 +745,35 @@ func runCat(s *store.Store, args []string) {
 		die("cat: %v", err)
 	}
 	os.Stdout.Write(data)
+}
+
+// --- view ---
+
+func runView(s *store.Store, args []string) {
+	// Check for empty spec before starting server
+	if _, err := s.ResolveApp(); err != nil {
+		die("no spec found in %s — import one first:\n  sft import spec.yaml\n  sft add app MyApp \"description\"", store.DefaultPath())
+	}
+
+	var opts view.Options
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--port":
+			if i+1 < len(args) {
+				fmt.Sscanf(args[i+1], "%d", &opts.Port)
+				i++
+			}
+		case "--web-dir":
+			if i+1 < len(args) {
+				opts.WebDir = args[i+1]
+				i++
+			}
+		}
+	}
+	srv := view.NewServer(s, opts)
+	if err := srv.Start(); err != nil {
+		die("view: %v", err)
+	}
 }
 
 // --- helpers ---
