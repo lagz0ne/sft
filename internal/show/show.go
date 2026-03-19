@@ -2,6 +2,7 @@ package show
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -18,37 +19,42 @@ type Spec struct {
 }
 
 type App struct {
-	Name        string       `json:"name"`
-	Description string       `json:"description"`
-	Regions     []Region     `json:"regions,omitempty"`
-	Transitions []Transition `json:"transitions,omitempty"`
+	Name        string                       `json:"name"`
+	Description string                       `json:"description"`
+	DataTypes   map[string]map[string]string `json:"data_types,omitempty"`
+	Context     map[string]string            `json:"context,omitempty"`
+	Regions     []Region                     `json:"regions,omitempty"`
+	Transitions []Transition                 `json:"transitions,omitempty"`
 }
 
 type Screen struct {
-	Name           string       `json:"name"`
-	Description    string       `json:"description"`
-	Tags           []string     `json:"tags,omitempty"`
-	Component      string       `json:"component,omitempty"`
-	ComponentProps string       `json:"component_props,omitempty"` // [F5]
-	ComponentOn    string       `json:"component_on,omitempty"`    // [F5]
-	ComponentVis   string       `json:"component_visible,omitempty"` // [F5]
-	Regions        []Region     `json:"regions,omitempty"`
-	Transitions    []Transition `json:"transitions,omitempty"`
-	Attachments    []string     `json:"attachments,omitempty"`
+	Name           string            `json:"name"`
+	Description    string            `json:"description"`
+	Tags           []string          `json:"tags,omitempty"`
+	Context        map[string]string `json:"context,omitempty"`
+	Component      string            `json:"component,omitempty"`
+	ComponentProps string            `json:"component_props,omitempty"` // [F5]
+	ComponentOn    string            `json:"component_on,omitempty"`    // [F5]
+	ComponentVis   string            `json:"component_visible,omitempty"` // [F5]
+	Regions        []Region          `json:"regions,omitempty"`
+	Transitions    []Transition      `json:"transitions,omitempty"`
+	Attachments    []string          `json:"attachments,omitempty"`
 }
 
 type Region struct {
-	Name           string       `json:"name"`
-	Description    string       `json:"description"`
-	Tags           []string     `json:"tags,omitempty"`
-	Component      string       `json:"component,omitempty"`
-	ComponentProps string       `json:"component_props,omitempty"` // [F5]
-	ComponentOn    string       `json:"component_on,omitempty"`    // [F5]
-	ComponentVis   string       `json:"component_visible,omitempty"` // [F5]
-	Events         []string     `json:"events,omitempty"`
-	Regions        []Region     `json:"regions,omitempty"`
-	Transitions    []Transition `json:"transitions,omitempty"`
-	Attachments    []string     `json:"attachments,omitempty"`
+	Name           string            `json:"name"`
+	Description    string            `json:"description"`
+	Tags           []string          `json:"tags,omitempty"`
+	Component      string            `json:"component,omitempty"`
+	ComponentProps string            `json:"component_props,omitempty"` // [F5]
+	ComponentOn    string            `json:"component_on,omitempty"`    // [F5]
+	ComponentVis   string            `json:"component_visible,omitempty"` // [F5]
+	Events         []string          `json:"events,omitempty"`
+	Ambient        map[string]string `json:"ambient,omitempty"`
+	RegionData     map[string]string `json:"region_data,omitempty"`
+	Regions        []Region          `json:"regions,omitempty"`
+	Transitions    []Transition      `json:"transitions,omitempty"`
+	Attachments    []string          `json:"attachments,omitempty"`
 }
 
 type Transition struct {
@@ -86,6 +92,8 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 	// App-level data [C2 fix: load app-level regions]
 	appID := int64(0)
 	db.QueryRow("SELECT id FROM apps LIMIT 1").Scan(&appID)
+	spec.App.DataTypes = loadDataTypes(db, appID)
+	spec.App.Context = loadContext(db, "app", appID)
 	spec.App.Regions = loadRegions(db, "app", appID, al)
 	spec.App.Transitions = loadTransitions(db, "app", appID)
 
@@ -100,6 +108,7 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 		var s Screen
 		rows.Scan(&id, &s.Name, &s.Description)
 		s.Tags = loadTags(db, "screen", id)
+		s.Context = loadContext(db, "screen", id)
 		s.Regions = loadRegions(db, "screen", id, al)
 		s.Transitions = loadTransitions(db, "screen", id)
 		if al != nil {
@@ -162,6 +171,8 @@ func loadRegions(db *sql.DB, parentType string, parentID int64, al Enricher) []R
 		rows.Scan(&id, &r.Name, &r.Description)
 		r.Tags = loadTags(db, "region", id)
 		r.Events = loadEvents(db, id)
+		r.Ambient = loadAmbientRefs(db, id)
+		r.RegionData = loadRegionData(db, id)
 		r.Regions = loadRegions(db, "region", id, al) // recurse
 		r.Transitions = loadTransitions(db, "region", id)
 		if al != nil {
@@ -212,6 +223,80 @@ func loadTransitions(db *sql.DB, ownerType string, ownerID int64) []Transition {
 		transitions = append(transitions, t)
 	}
 	return transitions
+}
+
+func loadDataTypes(db *sql.DB, appID int64) map[string]map[string]string {
+	rows, _ := db.Query("SELECT name, fields FROM data_types WHERE app_id = ? ORDER BY name", appID)
+	if rows == nil {
+		return nil
+	}
+	defer rows.Close()
+	result := map[string]map[string]string{}
+	for rows.Next() {
+		var name, fieldsJSON string
+		rows.Scan(&name, &fieldsJSON)
+		var fields map[string]string
+		json.Unmarshal([]byte(fieldsJSON), &fields)
+		result[name] = fields
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func loadContext(db *sql.DB, ownerType string, ownerID int64) map[string]string {
+	rows, _ := db.Query("SELECT field_name, field_type FROM contexts WHERE owner_type = ? AND owner_id = ? ORDER BY field_name", ownerType, ownerID)
+	if rows == nil {
+		return nil
+	}
+	defer rows.Close()
+	result := map[string]string{}
+	for rows.Next() {
+		var name, typ string
+		rows.Scan(&name, &typ)
+		result[name] = typ
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func loadAmbientRefs(db *sql.DB, regionID int64) map[string]string {
+	rows, _ := db.Query("SELECT local_name, source, query FROM ambient_refs WHERE region_id = ? ORDER BY local_name", regionID)
+	if rows == nil {
+		return nil
+	}
+	defer rows.Close()
+	result := map[string]string{}
+	for rows.Next() {
+		var name, source, query string
+		rows.Scan(&name, &source, &query)
+		result[name] = fmt.Sprintf("data(%s, %s)", source, query)
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func loadRegionData(db *sql.DB, regionID int64) map[string]string {
+	rows, _ := db.Query("SELECT field_name, field_type FROM region_data WHERE region_id = ? ORDER BY field_name", regionID)
+	if rows == nil {
+		return nil
+	}
+	defer rows.Close()
+	result := map[string]string{}
+	for rows.Next() {
+		var name, typ string
+		rows.Scan(&name, &typ)
+		result[name] = typ
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 // --- Text rendering ---

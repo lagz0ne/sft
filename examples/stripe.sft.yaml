@@ -2,6 +2,70 @@ app:
   name: stripe
   description: Payment platform dashboard — payments, customers, subscriptions, disputes, and developer tools
 
+  data:
+    payment:
+      id: string
+      amount: number
+      currency: string
+      status: string
+      customer: customer
+      payment_method: string
+      metadata: string
+      created_at: datetime
+    customer:
+      id: string
+      name: string
+      email: string
+      total_spend: number
+      subscription_count: number
+      created_at: datetime
+    subscription:
+      id: string
+      plan_name: string
+      status: string
+      current_period_start: date
+      current_period_end: date
+      next_billing_date: date
+      customer: customer
+    invoice:
+      id: string
+      amount: number
+      status: string
+      period_start: date
+      period_end: date
+      pdf_url: string
+    dispute:
+      id: string
+      amount: number
+      reason: string
+      status: string
+      evidence_deadline: datetime
+      payment: payment
+    refund:
+      amount: number
+      reason: string
+      status: string
+      created_at: datetime
+    webhook_endpoint:
+      url: string
+      events: string[]
+      status: string
+    api_event:
+      id: string
+      type: string
+      created_at: datetime
+      request_body: string
+      response_body: string
+    notification:
+      title: string
+      body: string
+      type: string
+      created_at: datetime
+
+  context:
+    current_user: customer
+    test_mode: boolean
+
   regions:
     - name: main_nav
       description: Primary navigation — home, payments, customers, products, billing, reports, developers
@@ -18,24 +82,45 @@ app:
   screens:
     - name: home
       description: Business overview — gross volume, successful payments, new disputes, and net revenue
+      context:
+        gross_volume: number
+        successful_payments: number
+        recent_payments: payment[]
       regions:
         - name: volume_chart
           description: Revenue trend for selected period with daily/weekly/monthly toggle
+          ambient:
+            gross_volume: "data(home, .gross_volume)"
         - name: metrics_row
           description: Gross volume, successful payments, new customers, active subscriptions
+          ambient:
+            gross_volume: "data(home, .gross_volume)"
+            successful_payments: "data(home, .successful_payments)"
         - name: recent_payments
           description: Latest payment activity with status and amount
           events: [select_payment]
+          ambient:
+            payments: "data(home, .recent_payments)"
 
     - name: payment_list
       description: Searchable payment log with filtering and bulk export
+      context:
+        payments: payment[]
+        selected: payment[]
       regions:
         - name: filter_bar
           description: Filter by status, amount range, date, payment method, and currency
+          data:
+            status_filter: string
+            amount_min: number
+            amount_max: number
+            date_range: string
         - name: payment_table
           description: Payment rows with amount, status badge, customer, date, and method
           tags: [has_payments]
           events: [select_payment, check_payment]
+          ambient:
+            payments: "data(payment_list, .payments)"
         - name: empty_state
           description: Illustration and prompt to create first payment or adjust filters
           tags: [no_payments]
@@ -49,6 +134,8 @@ app:
         - name: bulk_action_bar
           description: Export selected, refund selected — appears in selecting state
           events: [bulk_export]
+          ambient:
+            selected: "data(payment_list, .selected)"
       state_machine:
         browsing:
           on:
@@ -63,15 +150,26 @@ app:
     - name: payment_detail
       description: Single payment — amount, timeline, customer, metadata, and available actions
       tags: [per_payment]
+      context:
+        payment: payment
+        refunds: refund[]
       regions:
         - name: payment_header
           description: Amount, status badge, payment ID, and creation timestamp
+          ambient:
+            payment: "data(payment_detail, .payment)"
         - name: payment_timeline
           description: Chronological events — created, processing, succeeded/failed, refunded, disputed
+          ambient:
+            payment: "data(payment_detail, .payment)"
         - name: customer_card
           description: Linked customer name, email, and payment history summary
+          ambient:
+            payment: "data(payment_detail, .payment)"
         - name: payment_metadata
           description: Key-value metadata attached by the integration
+          ambient:
+            payment: "data(payment_detail, .payment)"
         - name: refund_area
           description: Refund action group — button and confirmation dialog
           tags: [succeeded]
@@ -84,6 +182,9 @@ app:
               description: Confirm refund amount and reason before processing
               tags: [overlay]
               events: [confirm_refund, cancel_refund]
+              data:
+                refund_amount: number
+                refund_reason: string
           state_machine:
             idle:
               on:
@@ -101,11 +202,15 @@ app:
 
     - name: customer_list
       description: Customer directory with search and segment filtering
+      context:
+        customers: customer[]
       regions:
         - name: customer_table
           description: Customer rows with name, email, total spend, and subscription count
           tags: [has_customers]
           events: [select_customer]
+          ambient:
+            customers: "data(customer_list, .customers)"
         - name: empty_state
           description: Prompt to create first customer or import from CSV
           tags: [no_customers]
@@ -113,15 +218,25 @@ app:
     - name: customer_detail
       description: Customer profile — payment history, subscriptions, and account management
       tags: [per_customer]
+      context:
+        customer: customer
+        payments: payment[]
+        subscriptions: subscription[]
       regions:
         - name: customer_header
           description: Name, email, created date, and lifetime value
+          ambient:
+            customer: "data(customer_detail, .customer)"
         - name: payment_history
           description: All payments from this customer with status and amount
           events: [select_payment]
+          ambient:
+            payments: "data(customer_detail, .payments)"
         - name: active_subscriptions
           description: Current subscriptions with plan, status, and next billing date
           events: [select_subscription]
+          ambient:
+            subscriptions: "data(customer_detail, .subscriptions)"
         - name: delete_button
           description: Permanently remove customer and all associated data
           tags: [destructive]
@@ -130,6 +245,8 @@ app:
           description: Type customer name to confirm deletion — warns this cannot be undone
           tags: [overlay]
           events: [confirm_delete, cancel_delete]
+          data:
+            confirmation_name: string
       state_machine:
         viewing:
           on:
@@ -144,11 +261,18 @@ app:
     - name: subscription_detail
       description: Subscription management — plan, billing cycle, invoices, and cancellation
       tags: [per_subscription]
+      context:
+        subscription: subscription
+        invoices: invoice[]
       regions:
         - name: subscription_header
           description: Plan name, status badge, current period, and next billing date
+          ambient:
+            subscription: "data(subscription_detail, .subscription)"
         - name: invoice_history
           description: Past invoices with amount, status, and PDF download
+          ambient:
+            invoices: "data(subscription_detail, .invoices)"
         - name: upcoming_invoice
           description: Preview of next invoice with prorated line items
           tags: [active]
@@ -160,6 +284,8 @@ app:
           description: Choose immediate or end-of-period — shows revenue impact warning
           tags: [overlay]
           events: [confirm_cancel, abort_cancel]
+          data:
+            cancel_timing: string
       state_machine:
         viewing:
           on:
@@ -172,15 +298,23 @@ app:
     - name: dispute_detail
       description: Dispute evidence submission and resolution tracking
       tags: [per_dispute]
+      context:
+        dispute: dispute
       regions:
         - name: dispute_header
           description: Dispute amount, reason category, and evidence deadline countdown
+          ambient:
+            dispute: "data(dispute_detail, .dispute)"
         - name: dispute_timeline
           description: Status progression — opened, evidence due, under review, won or lost
+          ambient:
+            dispute: "data(dispute_detail, .dispute)"
         - name: evidence_uploader
           description: Upload receipts, shipping proof, and customer correspondence
           tags: [needs_evidence]
           events: [upload_evidence, submit_evidence]
+          data:
+            uploaded_files: string[]
           state_machine:
             collecting:
               on:
@@ -198,16 +332,23 @@ app:
 
     - name: developers
       description: API keys, webhooks, event logs, and testing tools
+      context:
+        webhooks: webhook_endpoint[]
+        events: api_event[]
       regions:
         - name: api_keys
           description: Publishable and secret keys for test and live modes
         - name: webhook_endpoints
           description: Configured URLs with event subscriptions and delivery status
           events: [select_webhook]
+          ambient:
+            webhooks: "data(developers, .webhooks)"
         - name: recent_events
           description: Latest API events with request/response inspection
           tags: [has_events]
           events: [select_event]
+          ambient:
+            events: "data(developers, .events)"
         - name: events_empty
           description: No events yet — shows quickstart integration guide
           tags: [no_events]

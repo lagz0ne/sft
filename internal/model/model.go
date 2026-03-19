@@ -64,3 +64,35 @@ type FlowStep struct {
 	History  int    `json:"history"`
 	Data     string `json:"data,omitempty"`
 }
+
+// Phase 2: Data model types
+
+type DataType struct {
+	ID     int64  `json:"id"`
+	AppID  int64  `json:"app_id"`
+	Name   string `json:"name"`
+	Fields string `json:"fields"`
+}
+
+type ContextField struct {
+	ID        int64  `json:"id"`
+	OwnerType string `json:"owner_type"`
+	OwnerID   int64  `json:"owner_id"`
+	FieldName string `json:"field_name"`
+	FieldType string `json:"field_type"`
+}
+
+type AmbientRef struct {
+	ID        int64  `json:"id"`
+	RegionID  int64  `json:"region_id"`
+	LocalName string `json:"local_name"`
+	Source    string `json:"source"`
+	Query    string `json:"query"`
+}
+
+type RegionData struct {
+	ID        int64  `json:"id"`
+	RegionID  int64  `json:"region_id"`
+	FieldName string `json:"field_name"`
+	FieldType string `json:"field_type"`
+}

@@ -135,3 +135,128 @@ func TestGuardAmbiguity_WithGuards(t *testing.T) {
 		t.Errorf("expected no guard-ambiguity findings when guards are present, got %d: %v", len(matched), matched)
 	}
 }
+
+func TestUndefinedDataType(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+
+	// Context references "nonexistent" type
+	s.InsertContextField(&model.ContextField{OwnerType: "screen", OwnerID: screenID, FieldName: "items", FieldType: "nonexistent[]"})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "undefined-data-type")
+	if len(matched) == 0 {
+		t.Error("expected undefined-data-type finding")
+	}
+}
+
+func TestUndefinedDataType_ValidPrimitive(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+
+	// Primitive types should not trigger
+	s.InsertContextField(&model.ContextField{OwnerType: "screen", OwnerID: screenID, FieldName: "name", FieldType: "string"})
+	s.InsertContextField(&model.ContextField{OwnerType: "screen", OwnerID: screenID, FieldName: "tags", FieldType: "string[]"})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "undefined-data-type")
+	if len(matched) != 0 {
+		t.Errorf("unexpected undefined-data-type finding: %v", matched)
+	}
+}
+
+func TestUndefinedDataType_DefinedType(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	// Define a custom type, then reference it — should not trigger
+	s.InsertDataType(&model.DataType{AppID: appID, Name: "email", Fields: `{"address": "string"}`})
+	s.InsertContextField(&model.ContextField{OwnerType: "screen", OwnerID: screenID, FieldName: "emails", FieldType: "email[]"})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "undefined-data-type")
+	if len(matched) != 0 {
+		t.Errorf("unexpected undefined-data-type finding for defined type: %v", matched)
+	}
+}
+
+func TestInvalidAmbientPath(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	region := &model.Region{AppID: appID, ParentType: "screen", ParentID: screenID, Name: "widget", Description: "w"}
+	s.InsertRegion(region)
+
+	// Source "nonexistent" is not a screen name or "app"
+	s.InsertAmbientRef(&model.AmbientRef{RegionID: region.ID, LocalName: "items", Source: "nonexistent", Query: ".items"})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "invalid-ambient-path")
+	if len(matched) == 0 {
+		t.Error("expected invalid-ambient-path finding")
+	}
+}
+
+func TestInvalidAmbientPath_BadQuery(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	region := &model.Region{AppID: appID, ParentType: "screen", ParentID: screenID, Name: "widget", Description: "w"}
+	s.InsertRegion(region)
+
+	// Valid source but query doesn't start with "."
+	s.InsertAmbientRef(&model.AmbientRef{RegionID: region.ID, LocalName: "data", Source: "app", Query: "items"})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "invalid-ambient-path")
+	if len(matched) == 0 {
+		t.Error("expected invalid-ambient-path finding for bad query")
+	}
+}
+
+func TestInvalidAmbientPath_ValidRef(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	region := &model.Region{AppID: appID, ParentType: "screen", ParentID: screenID, Name: "widget", Description: "w"}
+	s.InsertRegion(region)
+
+	// Valid source "app" and query starts with "."
+	s.InsertAmbientRef(&model.AmbientRef{RegionID: region.ID, LocalName: "items", Source: "app", Query: ".items"})
+	// Valid source is a real screen name
+	s.InsertAmbientRef(&model.AmbientRef{RegionID: region.ID, LocalName: "data", Source: "Main", Query: ".data"})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "invalid-ambient-path")
+	if len(matched) != 0 {
+		t.Errorf("unexpected invalid-ambient-path finding for valid refs: %v", matched)
+	}
+}
