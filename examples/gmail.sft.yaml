@@ -74,15 +74,19 @@ app:
             action_label: string
       state_machine:
         browsing:
+          fixture: inbox_full
           on:
             select_email: navigate(thread_view)
             check_email: selecting
         selecting:
+          fixture: inbox_selecting
           on:
             check_email: .
             archive_selected: browsing
             delete_selected: browsing
             escape: browsing
+        empty:
+          fixture: inbox_empty
 
     - name: thread_view
       description: Full conversation view with chronological messages and inline reply
@@ -110,6 +114,7 @@ app:
                 discard_reply: collapsed
       state_machine:
         reading:
+          fixture: thread_reading
           on:
             reply_sent: .
 
@@ -141,6 +146,7 @@ app:
             results: "data(search_results, .results)"
       state_machine:
         browsing:
+          fixture: search_with_results
           on:
             select_result: navigate(thread_view)
 
@@ -160,6 +166,44 @@ app:
         browsing:
           on:
             select_email: navigate(thread_view)
+
+  fixtures:
+    inbox_full:
+      inbox:
+        emails:
+          - { subject: "Welcome aboard", sender: { name: "HR", email: "hr@acme.co" }, read: false, date: "2026-03-19" }
+          - { subject: "Q1 Report", sender: { name: "Finance", email: "fin@acme.co" }, read: true, date: "2026-03-18" }
+        selected: []
+        active_category: "primary"
+
+    inbox_empty:
+      inbox:
+        emails: []
+        selected: []
+        active_category: "primary"
+
+    inbox_selecting:
+      extends: inbox_full
+      inbox:
+        selected:
+          - { subject: "Welcome aboard", sender: { name: "HR" }, read: false }
+      inbox.bulk_action_bar:
+        action_label: "Archive 1 item"
+
+    thread_reading:
+      thread_view:
+        thread:
+          - { subject: "Welcome aboard", sender: { name: "HR" }, read: true, body: "Welcome to the team!" }
+        current_email:
+          subject: "Welcome aboard"
+          sender: { name: "HR" }
+          body: "Welcome to the team!"
+
+    search_with_results:
+      search_results:
+        query: "invoice"
+        results:
+          - { subject: "Invoice #1234", sender: { name: "Billing" }, read: true }
 
   flows:
     - name: email_from_inbox

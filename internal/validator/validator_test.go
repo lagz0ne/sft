@@ -260,3 +260,163 @@ func TestInvalidAmbientPath_ValidRef(t *testing.T) {
 		t.Errorf("unexpected invalid-ambient-path finding for valid refs: %v", matched)
 	}
 }
+
+func TestFixtureNotFound(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+
+	// Reference a fixture that doesn't exist
+	s.InsertStateFixture(&model.StateFixture{
+		OwnerType: "screen", OwnerID: screenID,
+		StateName: "start", FixtureName: "nonexistent",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "fixture-not-found")
+	if len(matched) == 0 {
+		t.Error("expected fixture-not-found finding")
+	}
+}
+
+func TestFixtureNotFound_Valid(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	// Create a fixture, then reference it — should not trigger
+	s.InsertFixture(&model.Fixture{AppID: appID, Name: "my_fixture", Data: `{"key": "val"}`})
+	s.InsertStateFixture(&model.StateFixture{
+		OwnerType: "screen", OwnerID: screenID,
+		StateName: "start", FixtureName: "my_fixture",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "fixture-not-found")
+	if len(matched) != 0 {
+		t.Errorf("unexpected fixture-not-found finding for valid fixture: %v", matched)
+	}
+}
+
+func TestOrphanFixture(t *testing.T) {
+	s := setup(t)
+	appID := int64(1)
+
+	// Create a fixture that isn't referenced by any state or extends
+	s.InsertFixture(&model.Fixture{AppID: appID, Name: "unused_fixture", Data: `{"key": "val"}`})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "orphan-fixture")
+	if len(matched) == 0 {
+		t.Error("expected orphan-fixture finding")
+	}
+}
+
+func TestOrphanFixture_Referenced(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	// Create a fixture and reference it — should not trigger
+	s.InsertFixture(&model.Fixture{AppID: appID, Name: "used_fixture", Data: `{"key": "val"}`})
+	s.InsertStateFixture(&model.StateFixture{
+		OwnerType: "screen", OwnerID: screenID,
+		StateName: "start", FixtureName: "used_fixture",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "orphan-fixture")
+	if len(matched) != 0 {
+		t.Errorf("unexpected orphan-fixture finding for referenced fixture: %v", matched)
+	}
+}
+
+func TestNavigateWithParams(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	// Create the target screen so navigate is valid
+	target := &model.Screen{AppID: appID, Name: "OrderDetail", Description: "order detail"}
+	if err := s.InsertScreen(target); err != nil {
+		t.Fatalf("InsertScreen: %v", err)
+	}
+
+	// navigate(OrderDetail, { order: data(order_list, .selected) })
+	s.InsertTransition(&model.Transition{
+		OwnerType: "screen", OwnerID: screenID,
+		OnEvent: "select_order", FromState: "start",
+		Action: "navigate(OrderDetail, { order: data(order_list, .selected) })",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "dangling-navigate")
+	if len(matched) != 0 {
+		t.Errorf("navigate with params should not trigger dangling-navigate: %v", matched)
+	}
+}
+
+func TestNavigateWithParams_DanglingTarget(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+
+	// navigate(Nonexistent, { order: data(list, .selected) }) — target doesn't exist
+	s.InsertTransition(&model.Transition{
+		OwnerType: "screen", OwnerID: screenID,
+		OnEvent: "select_order", FromState: "start",
+		Action: "navigate(Nonexistent, { order: data(list, .selected) })",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "dangling-navigate")
+	if len(matched) == 0 {
+		t.Error("expected dangling-navigate finding for nonexistent target with params")
+	}
+}
+
+func TestOrphanFixture_ExtendedBase(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	// base_fixture is not directly referenced by a state, but child_fixture extends it
+	s.InsertFixture(&model.Fixture{AppID: appID, Name: "base_fixture", Data: `{"key": "base"}`})
+	s.InsertFixture(&model.Fixture{AppID: appID, Name: "child_fixture", Extends: "base_fixture", Data: `{"extra": "val"}`})
+	s.InsertStateFixture(&model.StateFixture{
+		OwnerType: "screen", OwnerID: screenID,
+		StateName: "start", FixtureName: "child_fixture",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "orphan-fixture")
+	if len(matched) != 0 {
+		t.Errorf("unexpected orphan-fixture finding for base fixture used via extends: %v", matched)
+	}
+}

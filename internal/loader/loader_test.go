@@ -2,6 +2,7 @@ package loader
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"os"
 	"strings"
@@ -776,6 +777,340 @@ func TestDataModelRoundTrip(t *testing.T) {
 	if count != 2 {
 		t.Errorf("round-trip ambient_refs: got %d, want 2", count)
 	}
+}
+
+const testFixtureYAML = `app:
+  name: test_app
+  description: test
+  screens:
+    - name: inbox
+      description: email list
+      regions:
+        - name: email_list
+          description: list
+          events: [select_email]
+      state_machine:
+        start:
+          fixture: inbox_full
+          on:
+            select_email: selecting
+        selecting:
+          fixture: inbox_selecting
+          on:
+            escape: start
+        empty:
+          fixture: inbox_empty
+  fixtures:
+    inbox_full:
+      inbox:
+        emails:
+          - { subject: "Welcome", read: false }
+        selected: []
+    inbox_empty:
+      inbox:
+        emails: []
+        selected: []
+    inbox_selecting:
+      extends: inbox_full
+      inbox:
+        selected:
+          - { subject: "Welcome" }
+`
+
+func TestFixtureImport(t *testing.T) {
+	s := mustStore(t)
+	importYAML(t, s, testFixtureYAML)
+
+	var count int
+	s.DB.QueryRow("SELECT COUNT(*) FROM fixtures").Scan(&count)
+	if count != 3 {
+		t.Errorf("fixtures: got %d, want 3", count)
+	}
+
+	// Check extends
+	var extends sql.NullString
+	s.DB.QueryRow("SELECT extends FROM fixtures WHERE name = 'inbox_selecting'").Scan(&extends)
+	if !extends.Valid || extends.String != "inbox_full" {
+		t.Errorf("extends = %v, want inbox_full", extends)
+	}
+
+	// Check data is valid JSON
+	var data string
+	s.DB.QueryRow("SELECT data FROM fixtures WHERE name = 'inbox_full'").Scan(&data)
+	var parsed interface{}
+	if err := json.Unmarshal([]byte(data), &parsed); err != nil {
+		t.Errorf("fixture data is not valid JSON: %v", err)
+	}
+}
+
+func TestStateFixtureBinding(t *testing.T) {
+	s := mustStore(t)
+	importYAML(t, s, testFixtureYAML)
+
+	var count int
+	s.DB.QueryRow("SELECT COUNT(*) FROM state_fixtures").Scan(&count)
+	if count != 3 {
+		t.Errorf("state_fixtures: got %d, want 3", count)
+	}
+
+	var fixtureName string
+	s.DB.QueryRow("SELECT fixture_name FROM state_fixtures WHERE state_name = 'start'").Scan(&fixtureName)
+	if fixtureName != "inbox_full" {
+		t.Errorf("start fixture = %q, want inbox_full", fixtureName)
+	}
+
+	s.DB.QueryRow("SELECT fixture_name FROM state_fixtures WHERE state_name = 'selecting'").Scan(&fixtureName)
+	if fixtureName != "inbox_selecting" {
+		t.Errorf("selecting fixture = %q, want inbox_selecting", fixtureName)
+	}
+
+	s.DB.QueryRow("SELECT fixture_name FROM state_fixtures WHERE state_name = 'empty'").Scan(&fixtureName)
+	if fixtureName != "inbox_empty" {
+		t.Errorf("empty fixture = %q, want inbox_empty", fixtureName)
+	}
+}
+
+func TestFixtureShow(t *testing.T) {
+	s := mustStore(t)
+	importYAML(t, s, testFixtureYAML)
+	spec := loadSpec(t, s)
+
+	if len(spec.Fixtures) != 3 {
+		t.Fatalf("fixtures: got %d, want 3", len(spec.Fixtures))
+	}
+
+	// Check state fixtures loaded on screen
+	inbox := spec.Screens[0]
+	if len(inbox.StateFixtures) != 3 {
+		t.Errorf("screen state_fixtures: got %d, want 3", len(inbox.StateFixtures))
+	}
+	if inbox.StateFixtures["start"] != "inbox_full" {
+		t.Errorf("start fixture = %q, want inbox_full", inbox.StateFixtures["start"])
+	}
+}
+
+func TestFixtureRoundTrip(t *testing.T) {
+	s1 := mustStore(t)
+	importYAML(t, s1, testFixtureYAML)
+	spec1 := loadSpec(t, s1)
+
+	if len(spec1.Fixtures) != 3 {
+		t.Fatalf("fixtures: got %d, want 3", len(spec1.Fixtures))
+	}
+
+	var buf bytes.Buffer
+	Export(spec1, &buf)
+	exported := buf.String()
+
+	if !strings.Contains(exported, "fixtures:") {
+		t.Error("export missing fixtures:")
+	}
+	if !strings.Contains(exported, "inbox_full:") {
+		t.Error("export missing inbox_full fixture")
+	}
+	if !strings.Contains(exported, "extends: inbox_full") {
+		t.Error("export missing extends: inbox_full")
+	}
+
+	// Verify fixture: appears in state_machine export
+	if !strings.Contains(exported, "fixture: inbox_full") {
+		t.Error("export missing fixture: inbox_full in state_machine")
+	}
+
+	// Re-import
+	s2 := mustStore(t)
+	importYAML(t, s2, buf.String())
+	var count int
+	s2.DB.QueryRow("SELECT COUNT(*) FROM fixtures").Scan(&count)
+	if count != 3 {
+		t.Errorf("round-trip fixtures: got %d, want 3", count)
+	}
+
+	// Verify state fixtures survive round-trip
+	s2.DB.QueryRow("SELECT COUNT(*) FROM state_fixtures").Scan(&count)
+	if count != 3 {
+		t.Errorf("round-trip state_fixtures: got %d, want 3", count)
+	}
+
+	var fixtureName string
+	s2.DB.QueryRow("SELECT fixture_name FROM state_fixtures WHERE state_name = 'start'").Scan(&fixtureName)
+	if fixtureName != "inbox_full" {
+		t.Errorf("round-trip start fixture = %q, want inbox_full", fixtureName)
+	}
+}
+
+func TestStateTemplateImport(t *testing.T) {
+	yamlWithTemplate := `app:
+  name: TemplateApp
+  description: Test state templates
+  state_templates:
+    crud_loadable:
+      start:
+        on: { load: loading }
+      loading:
+        on: { load_success: loaded, load_error: error }
+      loaded:
+        on: { edit: editing }
+      editing:
+        on: { save: saving, cancel: loaded }
+      saving:
+        on: { save_success: loaded, save_error: editing }
+      error:
+        on: { retry: loading }
+  screens:
+    - name: Dashboard
+      description: Main dashboard
+`
+	s := mustStore(t)
+	importYAML(t, s, yamlWithTemplate)
+
+	// Verify the template was stored
+	var count int
+	s.DB.QueryRow("SELECT COUNT(*) FROM state_templates").Scan(&count)
+	if count != 1 {
+		t.Fatalf("state_templates: got %d, want 1", count)
+	}
+
+	var name, definition string
+	s.DB.QueryRow("SELECT name, definition FROM state_templates").Scan(&name, &definition)
+	if name != "crud_loadable" {
+		t.Errorf("template name = %q, want crud_loadable", name)
+	}
+	// Verify definition is valid JSON
+	var parsed interface{}
+	if err := json.Unmarshal([]byte(definition), &parsed); err != nil {
+		t.Errorf("template definition is not valid JSON: %v", err)
+	}
+}
+
+func TestStateTemplateExtends(t *testing.T) {
+	yamlWithExtends := `app:
+  name: ExtendsApp
+  description: Test extends
+  state_templates:
+    crud_loadable:
+      start:
+        on: { load: loading }
+      loading:
+        on: { load_success: loaded, load_error: error }
+      loaded:
+        on: { edit: editing }
+      editing:
+        on: { save: saving, cancel: loaded }
+      saving:
+        on: { save_success: loaded, save_error: editing }
+      error:
+        on: { retry: loading }
+  screens:
+    - name: order_detail
+      description: Order detail screen
+      state_machine:
+        extends: crud_loadable
+        loaded:
+          on:
+            delete: { action: "navigate(order_list)" }
+`
+	s := mustStore(t)
+
+	// Need order_list screen to exist for navigate validation
+	importYAML(t, s, yamlWithExtends)
+
+	spec := loadSpec(t, s)
+
+	if len(spec.Screens) != 1 {
+		t.Fatalf("expected 1 screen, got %d", len(spec.Screens))
+	}
+	screen := spec.Screens[0]
+
+	// Template has: start→loading, loading→loaded, loading→error,
+	// loaded→editing, editing→saving, editing→loaded, saving→loaded, saving→editing,
+	// error→loading
+	// Override adds: loaded→delete (navigate(order_list))
+	// The override merged with the base loaded state should have: edit→editing AND delete→navigate(order_list)
+
+	// Build a lookup
+	type transKey struct {
+		from, event string
+	}
+	found := map[transKey]string{}
+	for _, tr := range screen.Transitions {
+		key := transKey{tr.FromState, tr.OnEvent}
+		if tr.ToState != "" {
+			found[key] = tr.ToState
+		} else {
+			found[key] = tr.Action
+		}
+	}
+
+	// Check template-provided transitions exist
+	checks := []struct {
+		from, event, expected string
+	}{
+		{"start", "load", "loading"},
+		{"loading", "load_success", "loaded"},
+		{"loading", "load_error", "error"},
+		{"loaded", "edit", "editing"},             // from template
+		{"loaded", "delete", "navigate(order_list)"}, // from override
+		{"editing", "save", "saving"},
+		{"editing", "cancel", "loaded"},
+		{"saving", "save_success", "loaded"},
+		{"saving", "save_error", "editing"},
+		{"error", "retry", "loading"},
+	}
+	for _, c := range checks {
+		key := transKey{c.from, c.event}
+		val, ok := found[key]
+		if !ok {
+			t.Errorf("missing transition: %s/%s", c.from, c.event)
+			continue
+		}
+		if val != c.expected {
+			t.Errorf("transition %s/%s = %q, want %q", c.from, c.event, val, c.expected)
+		}
+	}
+
+	if len(screen.Transitions) != 10 {
+		t.Errorf("expected 10 transitions, got %d", len(screen.Transitions))
+		for _, tr := range screen.Transitions {
+			t.Logf("  %s/%s → %s %s", tr.FromState, tr.OnEvent, tr.ToState, tr.Action)
+		}
+	}
+}
+
+func TestStateTemplateOverrideEvent(t *testing.T) {
+	yamlOverride := `app:
+  name: OverrideApp
+  description: Test override
+  state_templates:
+    simple:
+      idle:
+        on: { click: active }
+      active:
+        on: { reset: idle }
+  screens:
+    - name: Custom
+      description: Custom screen
+      state_machine:
+        extends: simple
+        idle:
+          on:
+            click: custom_active
+`
+	s := mustStore(t)
+	importYAML(t, s, yamlOverride)
+	spec := loadSpec(t, s)
+
+	screen := spec.Screens[0]
+	// The override should change idle/click from "active" to "custom_active"
+	for _, tr := range screen.Transitions {
+		if tr.FromState == "idle" && tr.OnEvent == "click" {
+			if tr.ToState != "custom_active" {
+				t.Errorf("idle/click ToState = %q, want custom_active", tr.ToState)
+			}
+			return
+		}
+	}
+	t.Error("missing idle/click transition")
 }
 
 func TestParseDataRef(t *testing.T) {

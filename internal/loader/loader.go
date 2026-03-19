@@ -21,13 +21,15 @@ type yamlFile struct {
 }
 
 type yamlApp struct {
-	Name        string                       `yaml:"name"`
-	Description string                       `yaml:"description"`
-	Data        map[string]map[string]string `yaml:"data,omitempty"`
-	Context     map[string]string            `yaml:"context,omitempty"`
-	Regions     []yamlRegion                 `yaml:"regions,omitempty"`
-	Screens     []yamlScreen                 `yaml:"screens,omitempty"`
-	Flows       []yamlFlow                   `yaml:"flows,omitempty"`
+	Name           string                       `yaml:"name"`
+	Description    string                       `yaml:"description"`
+	Data           map[string]map[string]string `yaml:"data,omitempty"`
+	Context        map[string]string            `yaml:"context,omitempty"`
+	StateTemplates yaml.Node                    `yaml:"state_templates,omitempty"`
+	Regions        []yamlRegion                 `yaml:"regions,omitempty"`
+	Screens        []yamlScreen                 `yaml:"screens,omitempty"`
+	Flows          []yamlFlow                   `yaml:"flows,omitempty"`
+	Fixtures       yaml.Node                    `yaml:"fixtures,omitempty"`
 }
 
 type yamlScreen struct {
@@ -137,6 +139,13 @@ func Load(s *store.Store, path string) error {
 		}
 	}
 
+	// State templates
+	if app.StateTemplates.Kind == yaml.MappingNode {
+		if err := loadStateTemplates(s, a.ID, &app.StateTemplates); err != nil {
+			return err
+		}
+	}
+
 	// App-level regions
 	for _, r := range app.Regions {
 		if err := insertRegion(s, a.ID, "app", a.ID, r); err != nil {
@@ -171,7 +180,7 @@ func Load(s *store.Store, path string) error {
 				return err
 			}
 		}
-		if err := insertTransitions(s, "screen", screen.ID, sc.Name, sc.States, &sc.StateMachine); err != nil {
+		if err := insertTransitions(s, a.ID, "screen", screen.ID, sc.Name, sc.States, &sc.StateMachine); err != nil {
 			return err
 		}
 	}
@@ -186,6 +195,50 @@ func Load(s *store.Store, path string) error {
 		}
 	}
 
+	// Fixtures
+	if app.Fixtures.Kind == yaml.MappingNode {
+		if err := loadFixtures(s, a.ID, &app.Fixtures); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func loadFixtures(s *store.Store, appID int64, node *yaml.Node) error {
+	for i := 0; i < len(node.Content)-1; i += 2 {
+		name := node.Content[i].Value
+		def := node.Content[i+1]
+
+		extends := ""
+		dataNode := &yaml.Node{Kind: yaml.MappingNode}
+
+		if def.Kind == yaml.MappingNode {
+			for j := 0; j < len(def.Content)-1; j += 2 {
+				key := def.Content[j].Value
+				if key == "extends" {
+					extends = def.Content[j+1].Value
+				} else {
+					dataNode.Content = append(dataNode.Content, def.Content[j], def.Content[j+1])
+				}
+			}
+		}
+
+		var dataMap interface{}
+		if err := dataNode.Decode(&dataMap); err != nil {
+			return fmt.Errorf("fixture %s: decode data: %w", name, err)
+		}
+		dataJSON, err := json.Marshal(dataMap)
+		if err != nil {
+			return fmt.Errorf("fixture %s: marshal data: %w", name, err)
+		}
+
+		if err := s.InsertFixture(&model.Fixture{
+			AppID: appID, Name: name, Extends: extends, Data: string(dataJSON),
+		}); err != nil {
+			return fmt.Errorf("fixture %s: %w", name, err)
+		}
+	}
 	return nil
 }
 
@@ -233,7 +286,7 @@ func insertRegion(s *store.Store, appID int64, parentType string, parentID int64
 			return err
 		}
 	}
-	if err := insertTransitions(s, "region", region.ID, r.Name, r.States, &r.StateMachine); err != nil {
+	if err := insertTransitions(s, appID, "region", region.ID, r.Name, r.States, &r.StateMachine); err != nil {
 		return err
 	}
 	return nil
@@ -244,14 +297,24 @@ func insertRegion(s *store.Store, appID int64, parentType string, parentID int64
 // If stateMachine is provided, it parses via ParseStateMachine and sets owner fields.
 // If states is provided, it uses the legacy yamlTransition list.
 // If neither is provided, no transitions are inserted (valid).
-func insertTransitions(s *store.Store, ownerType string, ownerID int64, ownerName string, states []yamlTransition, stateMachine *yaml.Node) error {
+func insertTransitions(s *store.Store, appID int64, ownerType string, ownerID int64, ownerName string, states []yamlTransition, stateMachine *yaml.Node) error {
 	hasStateMachine := stateMachine != nil && stateMachine.Kind != 0
 	if len(states) > 0 && hasStateMachine {
 		return fmt.Errorf("%s %s: cannot specify both states and state_machine", ownerType, ownerName)
 	}
 
 	if hasStateMachine {
-		transitions, _, err := ParseStateMachine(*stateMachine)
+		// Check for extends: key before parsing
+		smNode := stateMachine
+		if extendsName := findKeyValue(stateMachine, "extends"); extendsName != "" {
+			merged, err := mergeWithTemplate(s, appID, extendsName, stateMachine)
+			if err != nil {
+				return fmt.Errorf("state_machine extends in %s %s: %w", ownerType, ownerName, err)
+			}
+			smNode = merged
+		}
+
+		transitions, _, stateFixtures, err := ParseStateMachine(*smNode)
 		if err != nil {
 			return fmt.Errorf("state_machine in %s %s: %w", ownerType, ownerName, err)
 		}
@@ -260,6 +323,15 @@ func insertTransitions(s *store.Store, ownerType string, ownerID int64, ownerNam
 			t.OwnerID = ownerID
 			if err := s.InsertTransition(&t); err != nil {
 				return fmt.Errorf("transition on %s in %s %s: %w", t.OnEvent, ownerType, ownerName, err)
+			}
+		}
+		// Insert state → fixture bindings
+		for stateName, fixtureName := range stateFixtures {
+			if err := s.InsertStateFixture(&model.StateFixture{
+				OwnerType: ownerType, OwnerID: ownerID,
+				StateName: stateName, FixtureName: fixtureName,
+			}); err != nil {
+				return fmt.Errorf("state fixture %s→%s in %s %s: %w", stateName, fixtureName, ownerType, ownerName, err)
 			}
 		}
 		return nil
@@ -274,6 +346,173 @@ func insertTransitions(s *store.Store, ownerType string, ownerID int64, ownerNam
 		}
 	}
 	return nil
+}
+
+// loadStateTemplates parses state_templates from YAML and stores them as JSON.
+func loadStateTemplates(s *store.Store, appID int64, node *yaml.Node) error {
+	for i := 0; i < len(node.Content)-1; i += 2 {
+		name := node.Content[i].Value
+		def := node.Content[i+1]
+
+		// Serialize the template definition as JSON via yaml → interface{} → json
+		var defMap interface{}
+		if err := def.Decode(&defMap); err != nil {
+			return fmt.Errorf("state template %s: %w", name, err)
+		}
+		defJSON, err := json.Marshal(defMap)
+		if err != nil {
+			return fmt.Errorf("state template %s: %w", name, err)
+		}
+
+		if err := s.InsertStateTemplate(&model.StateTemplate{
+			AppID: appID, Name: name, Definition: string(defJSON),
+		}); err != nil {
+			return fmt.Errorf("state template %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// findKeyValue returns the scalar value for a key in a MappingNode, or "".
+func findKeyValue(node *yaml.Node, key string) string {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return ""
+	}
+	for i := 0; i < len(node.Content)-1; i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1].Value
+		}
+	}
+	return ""
+}
+
+// mergeWithTemplate loads a template from the DB, parses it into a yaml.Node,
+// then merges the screen/region overrides on top of it.
+// Returns a new yaml.Node with the merged state machine (no extends: key).
+func mergeWithTemplate(s *store.Store, appID int64, templateName string, overrides *yaml.Node) (*yaml.Node, error) {
+	defJSON, err := s.GetStateTemplate(appID, templateName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert JSON → interface{} → YAML bytes → yaml.Node
+	var defMap interface{}
+	if err := json.Unmarshal([]byte(defJSON), &defMap); err != nil {
+		return nil, fmt.Errorf("unmarshal template %q: %w", templateName, err)
+	}
+	yamlBytes, err := yaml.Marshal(defMap)
+	if err != nil {
+		return nil, fmt.Errorf("marshal template %q to yaml: %w", templateName, err)
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(yamlBytes, &doc); err != nil {
+		return nil, fmt.Errorf("parse template %q: %w", templateName, err)
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
+		return nil, fmt.Errorf("template %q produced empty document", templateName)
+	}
+	base := doc.Content[0]
+	if base.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("template %q is not a mapping", templateName)
+	}
+
+	// Build a map of state name → index in base for merging
+	baseStates := map[string]int{}
+	for i := 0; i < len(base.Content)-1; i += 2 {
+		baseStates[base.Content[i].Value] = i
+	}
+
+	// Apply overrides: iterate through the override node, skip "extends:"
+	for i := 0; i < len(overrides.Content)-1; i += 2 {
+		key := overrides.Content[i].Value
+		if key == "extends" {
+			continue
+		}
+		if idx, ok := baseStates[key]; ok {
+			// Override: replace the state definition in base.
+			// Merge the on: blocks — override events replace base events, base events not overridden are kept.
+			baseVal := base.Content[idx+1]
+			overrideVal := overrides.Content[i+1]
+			base.Content[idx+1] = mergeStateNodes(baseVal, overrideVal)
+		} else {
+			// New state: append to base
+			base.Content = append(base.Content, overrides.Content[i], overrides.Content[i+1])
+		}
+	}
+
+	return base, nil
+}
+
+// mergeStateNodes merges an override state definition into a base state definition.
+// The override's on: events replace matching base events; base-only events are kept.
+func mergeStateNodes(base, override *yaml.Node) *yaml.Node {
+	// If override is scalar or empty, it fully replaces
+	if override.Kind == yaml.ScalarNode || (override.Kind == yaml.MappingNode && len(override.Content) == 0) {
+		return override
+	}
+	// If base is scalar/null, override wins entirely
+	if base.Kind == yaml.ScalarNode || (base.Kind == yaml.MappingNode && len(base.Content) == 0) {
+		return override
+	}
+
+	// Both are mappings — merge on: blocks
+	baseOn := findKey(base, "on")
+	overrideOn := findKey(override, "on")
+
+	if baseOn == nil || overrideOn == nil {
+		// No on: in one of them — just use override
+		return override
+	}
+
+	// Merge on: mappings — override events replace base events
+	mergedOn := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	baseEvents := map[string]int{}
+	for i := 0; i < len(baseOn.Content)-1; i += 2 {
+		baseEvents[baseOn.Content[i].Value] = i
+		mergedOn.Content = append(mergedOn.Content, baseOn.Content[i], baseOn.Content[i+1])
+	}
+	for i := 0; i < len(overrideOn.Content)-1; i += 2 {
+		eventName := overrideOn.Content[i].Value
+		if idx, ok := baseEvents[eventName]; ok {
+			// Replace in mergedOn — find the index
+			for j := 0; j < len(mergedOn.Content)-1; j += 2 {
+				if mergedOn.Content[j].Value == eventName {
+					mergedOn.Content[j+1] = overrideOn.Content[i+1]
+					break
+				}
+			}
+			_ = idx // used for lookup
+		} else {
+			// New event
+			mergedOn.Content = append(mergedOn.Content, overrideOn.Content[i], overrideOn.Content[i+1])
+		}
+	}
+
+	// Build result: copy all non-"on" keys from override, then add merged on:
+	result := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+
+	// Copy non-on keys from base first (like fixture:)
+	for i := 0; i < len(base.Content)-1; i += 2 {
+		if base.Content[i].Value != "on" {
+			// Only add if override doesn't have this key
+			if findKey(override, base.Content[i].Value) == nil {
+				result.Content = append(result.Content, base.Content[i], base.Content[i+1])
+			}
+		}
+	}
+	// Copy non-on keys from override
+	for i := 0; i < len(override.Content)-1; i += 2 {
+		if override.Content[i].Value != "on" {
+			result.Content = append(result.Content, override.Content[i], override.Content[i+1])
+		}
+	}
+	// Add merged on:
+	result.Content = append(result.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Value: "on", Tag: "!!str"},
+		mergedOn,
+	)
+
+	return result
 }
 
 // parseDataRef parses "data(source, query)" into source and query parts.
@@ -300,6 +539,7 @@ func Export(spec *show.Spec, w io.Writer) error {
 		Regions:     exportRegions(spec.App.Regions),
 		Screens:     exportScreens(spec.Screens),
 		Flows:       exportFlows(spec.Flows),
+		Fixtures:    exportFixtures(spec.Fixtures),
 	}
 	out := struct {
 		App yamlApp `yaml:"app"`
@@ -330,7 +570,7 @@ func exportScreens(screens []show.Screen) []yamlScreen {
 			Visible:     s.ComponentVis,
 			Regions:     exportRegions(s.Regions),
 		}
-		if sm := exportStateMachine(s.Transitions); sm != nil {
+		if sm := exportStateMachine(s.Transitions, s.StateFixtures); sm != nil {
 			ys.StateMachine = *sm
 		}
 		out = append(out, ys)
@@ -357,7 +597,7 @@ func exportRegions(regions []show.Region) []yamlRegion {
 			Data:        r.RegionData,
 			Regions:     exportRegions(r.Regions),
 		}
-		if sm := exportStateMachine(r.Transitions); sm != nil {
+		if sm := exportStateMachine(r.Transitions, r.StateFixtures); sm != nil {
 			yr.StateMachine = *sm
 		}
 		out = append(out, yr)
@@ -367,9 +607,9 @@ func exportRegions(regions []show.Region) []yamlRegion {
 
 // exportStateMachine converts a flat list of transitions into a state_machine yaml.Node.
 // Groups transitions by FromState, producing ordered mappings. Terminal states (appear
-// only as targets) are included as empty mappings.
-func exportStateMachine(transitions []show.Transition) *yaml.Node {
-	if len(transitions) == 0 {
+// only as targets) are included as empty mappings. State fixtures are included as fixture: keys.
+func exportStateMachine(transitions []show.Transition, stateFixtures map[string]string) *yaml.Node {
+	if len(transitions) == 0 && len(stateFixtures) == 0 {
 		return nil
 	}
 
@@ -405,11 +645,24 @@ func exportStateMachine(transitions []show.Transition) *yaml.Node {
 
 	// Find terminal states: appear as to but never as from.
 	var terminalStates []string
+	seenTerminal := map[string]bool{}
 	for s := range allTo {
 		if !seenFrom[s] {
 			terminalStates = append(terminalStates, s)
+			seenTerminal[s] = true
 		}
 	}
+
+	// Include fixture-only states that aren't in stateOrder or terminalStates.
+	var fixtureOnlyStates []string
+	for s := range stateFixtures {
+		if !seenFrom[s] && !seenTerminal[s] {
+			fixtureOnlyStates = append(fixtureOnlyStates, s)
+		}
+	}
+	slices.Sort(fixtureOnlyStates)
+	terminalStates = append(terminalStates, fixtureOnlyStates...)
+
 	// Sort terminal states for deterministic output.
 	slices.Sort(terminalStates)
 
@@ -431,18 +684,30 @@ func exportStateMachine(transitions []show.Transition) *yaml.Node {
 			onMapping.Content = append(onMapping.Content, evKey, evVal)
 		}
 
-		// State value: mapping with "on" key.
+		// State value: mapping with optional "fixture" and "on" keys.
 		stateVal := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		if fixtureName, ok := stateFixtures[stateName]; ok {
+			stateVal.Content = append(stateVal.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Value: "fixture", Tag: "!!str"},
+				&yaml.Node{Kind: yaml.ScalarNode, Value: fixtureName, Tag: "!!str"},
+			)
+		}
 		onKey := &yaml.Node{Kind: yaml.ScalarNode, Value: "on", Tag: "!!str"}
 		stateVal.Content = append(stateVal.Content, onKey, onMapping)
 
 		root.Content = append(root.Content, keyNode, stateVal)
 	}
 
-	// Add terminal states as empty mappings.
+	// Add terminal states as empty mappings (with optional fixture).
 	for _, s := range terminalStates {
 		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Value: s, Tag: "!!str"}
 		valNode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		if fixtureName, ok := stateFixtures[s]; ok {
+			valNode.Content = append(valNode.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Value: "fixture", Tag: "!!str"},
+				&yaml.Node{Kind: yaml.ScalarNode, Value: fixtureName, Tag: "!!str"},
+			)
+		}
 		root.Content = append(root.Content, keyNode, valNode)
 	}
 
@@ -523,6 +788,44 @@ func parseGuardFromAction(action string) (guard, pureAction string) {
 	rest = strings.TrimPrefix(rest, ",")
 	rest = strings.TrimSpace(rest)
 	return guard, rest
+}
+
+func exportFixtures(fixtures []show.Fixture) yaml.Node {
+	if len(fixtures) == 0 {
+		return yaml.Node{}
+	}
+	root := yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	for _, f := range fixtures {
+		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Value: f.Name, Tag: "!!str"}
+
+		// Build fixture value mapping
+		valNode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+
+		if f.Extends != "" {
+			valNode.Content = append(valNode.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Value: "extends", Tag: "!!str"},
+				&yaml.Node{Kind: yaml.ScalarNode, Value: f.Extends, Tag: "!!str"},
+			)
+		}
+
+		// Marshal data back to yaml.Node
+		if f.Data != nil {
+			var dataNode yaml.Node
+			dataBytes, _ := json.Marshal(f.Data)
+			// Unmarshal JSON to interface then encode to yaml.Node
+			var dataMap interface{}
+			json.Unmarshal(dataBytes, &dataMap)
+			if err := dataNode.Encode(dataMap); err == nil && dataNode.Kind == yaml.DocumentNode && len(dataNode.Content) > 0 {
+				inner := dataNode.Content[0]
+				if inner.Kind == yaml.MappingNode {
+					valNode.Content = append(valNode.Content, inner.Content...)
+				}
+			}
+		}
+
+		root.Content = append(root.Content, keyNode, valNode)
+	}
+	return root
 }
 
 func exportFlows(flows []show.Flow) []yamlFlow {

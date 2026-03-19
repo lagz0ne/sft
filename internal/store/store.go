@@ -353,6 +353,50 @@ func (s *Store) InsertFlowStep(fs *model.FlowStep) error {
 	return nil
 }
 
+// --- Phase 4: State template inserts ---
+
+func (s *Store) InsertStateTemplate(st *model.StateTemplate) error {
+	res, err := s.DB.Exec("INSERT INTO state_templates (app_id, name, definition) VALUES (?, ?, ?)",
+		st.AppID, st.Name, st.Definition)
+	if err != nil {
+		return err
+	}
+	st.ID, _ = res.LastInsertId()
+	return nil
+}
+
+// GetStateTemplate returns the definition JSON for a named template, or "" if not found.
+func (s *Store) GetStateTemplate(appID int64, name string) (string, error) {
+	var def string
+	err := s.DB.QueryRow("SELECT definition FROM state_templates WHERE app_id = ? AND name = ?", appID, name).Scan(&def)
+	if err != nil {
+		return "", fmt.Errorf("state template %q not found", name)
+	}
+	return def, nil
+}
+
+// --- Phase 3: Fixture inserts ---
+
+func (s *Store) InsertFixture(f *model.Fixture) error {
+	res, err := s.DB.Exec("INSERT INTO fixtures (app_id, name, extends, data) VALUES (?, ?, ?, ?)",
+		f.AppID, f.Name, f.Extends, f.Data)
+	if err != nil {
+		return err
+	}
+	f.ID, _ = res.LastInsertId()
+	return nil
+}
+
+func (s *Store) InsertStateFixture(sf *model.StateFixture) error {
+	res, err := s.DB.Exec("INSERT INTO state_fixtures (owner_type, owner_id, state_name, fixture_name) VALUES (?, ?, ?, ?)",
+		sf.OwnerType, sf.OwnerID, sf.StateName, sf.FixtureName)
+	if err != nil {
+		return err
+	}
+	sf.ID, _ = res.LastInsertId()
+	return nil
+}
+
 // --- Phase 2: Data model inserts ---
 
 func (s *Store) InsertDataType(dt *model.DataType) error {
@@ -601,12 +645,13 @@ func (s *Store) ImpactRegion(name string, inParent ...string) ([]Impact, error) 
 	return impacts, nil
 }
 
-// [F6] incomingNavigateRefs finds transitions whose action is navigate(<name>).
+// [F6] incomingNavigateRefs finds transitions whose action is navigate(<name>) or navigate(<name>, ...).
 func (s *Store) incomingNavigateRefs(name string) []Impact {
 	target := "navigate(" + name + ")"
+	targetWithParams := "navigate(" + name + ",%"
 	rows, err := s.DB.Query(`SELECT `+ownerCase+` AS owner_name, t.on_event
 		FROM transitions t
-		WHERE t.action = ?`, target)
+		WHERE t.action = ? OR t.action LIKE ?`, target, targetWithParams)
 	if err != nil {
 		return nil
 	}
@@ -686,7 +731,7 @@ func (s *Store) DeleteScreen(name string) error {
 	tx.Exec("DELETE FROM transitions WHERE owner_type = 'screen' AND owner_id = ?", id)
 	tx.Exec("DELETE FROM components WHERE entity_type = 'screen' AND entity_id = ?", id) // [H3]
 	tx.Exec("DELETE FROM attachments WHERE entity = ?", name)                             // [H2]
-	tx.Exec("DELETE FROM transitions WHERE action = ?", "navigate("+name+")")             // [F2] cascade dangling navigate()
+	tx.Exec("DELETE FROM transitions WHERE action = ? OR action LIKE ?", "navigate("+name+")", "navigate("+name+",%") // [F2] cascade dangling navigate()
 	tx.Exec("DELETE FROM screens WHERE id = ?", id)
 
 	return tx.Commit()
@@ -713,7 +758,7 @@ func (s *Store) DeleteRegion(name string, inParent ...string) error {
 	tx.Exec("DELETE FROM transitions WHERE owner_type = 'region' AND owner_id = ?", id)
 	tx.Exec("DELETE FROM components WHERE entity_type = 'region' AND entity_id = ?", id) // [H3]
 	tx.Exec("DELETE FROM attachments WHERE entity = ?", name)                             // [H2]
-	tx.Exec("DELETE FROM transitions WHERE action = ?", "navigate("+name+")")             // [F2] cascade dangling navigate()
+	tx.Exec("DELETE FROM transitions WHERE action = ? OR action LIKE ?", "navigate("+name+")", "navigate("+name+",%") // [F2] cascade dangling navigate()
 	tx.Exec("DELETE FROM flow_steps WHERE type = 'region' AND name = ?", name)
 	tx.Exec("DELETE FROM regions WHERE id = ?", id)
 
@@ -851,6 +896,8 @@ func (s *Store) RenameScreen(old, newName string) error {
 	tx.Exec("UPDATE screens SET name = ? WHERE name = ?", newName, old)
 	tx.Exec("UPDATE flow_steps SET name = ? WHERE type = 'screen' AND name = ?", newName, old)
 	tx.Exec("UPDATE transitions SET action = ? WHERE action = ?", "navigate("+newName+")", "navigate("+old+")")
+	tx.Exec("UPDATE transitions SET action = REPLACE(action, ?, ?) WHERE action LIKE ?",
+		"navigate("+old+",", "navigate("+newName+",", "navigate("+old+",%")
 	tx.Exec("UPDATE attachments SET entity = ? WHERE entity = ?", newName, old)
 	return tx.Commit()
 }
@@ -881,6 +928,8 @@ func (s *Store) RenameRegion(old, newName string, inParent ...string) error {
 	tx.Exec("UPDATE regions SET name = ? WHERE id = ?", newName, id)
 	tx.Exec("UPDATE flow_steps SET name = ? WHERE type = 'region' AND name = ?", newName, old)
 	tx.Exec("UPDATE transitions SET action = ? WHERE action = ?", "navigate("+newName+")", "navigate("+old+")")
+	tx.Exec("UPDATE transitions SET action = REPLACE(action, ?, ?) WHERE action LIKE ?",
+		"navigate("+old+",", "navigate("+newName+",", "navigate("+old+",%")
 	tx.Exec("UPDATE attachments SET entity = ? WHERE entity = ?", newName, old)
 	return tx.Commit()
 }
