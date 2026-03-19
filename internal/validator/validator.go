@@ -218,6 +218,67 @@ var rules = []rule{
 			return findings, nil
 		},
 	},
+	// Dead-end states — transition targets with no outgoing transitions (terminal)
+	{
+		id:       "dead-end",
+		severity: Warning,
+		query: `SELECT DISTINCT t1.to_state, CASE t1.owner_type
+		  WHEN 'screen' THEN (SELECT s.name FROM screens s WHERE s.id = t1.owner_id)
+		  WHEN 'region' THEN (SELECT r.name FROM regions r WHERE r.id = t1.owner_id)
+		  WHEN 'app'    THEN (SELECT a.name FROM apps a WHERE a.id = t1.owner_id)
+		END AS owner_name
+		        FROM transitions t1
+		        WHERE t1.to_state IS NOT NULL AND t1.to_state != ''
+		          AND t1.to_state NOT IN (
+		            SELECT t2.from_state FROM transitions t2
+		            WHERE t2.owner_type = t1.owner_type AND t2.owner_id = t1.owner_id
+		              AND t2.from_state IS NOT NULL AND t2.from_state != ''
+		          )`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var findings []Finding
+			for rows.Next() {
+				var state string
+				var owner sql.NullString
+				if err := rows.Scan(&state, &owner); err != nil {
+					return nil, err
+				}
+				findings = append(findings, Finding{
+					Rule:     "dead-end",
+					Severity: Warning,
+					Message:  fmt.Sprintf("state %q in %s has no outgoing transitions (terminal)", state, ns(owner)),
+				})
+			}
+			return findings, nil
+		},
+	},
+	// Guard ambiguity — same event+from_state appears 2+ times without guard distinction
+	{
+		id:       "guard-ambiguity",
+		severity: Warning,
+		query: `SELECT ` + ownerCase + ` AS owner_name, t.on_event, t.from_state, COUNT(*) AS cnt
+		        FROM transitions t
+		        WHERE t.from_state IS NOT NULL AND t.from_state != ''
+		          AND (t.action IS NULL OR t.action = '' OR t.action NOT LIKE 'guard(%)')
+		        GROUP BY t.owner_type, t.owner_id, t.on_event, t.from_state
+		        HAVING cnt > 1`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var findings []Finding
+			for rows.Next() {
+				var owner sql.NullString
+				var onEvent, fromState string
+				var cnt int64
+				if err := rows.Scan(&owner, &onEvent, &fromState, &cnt); err != nil {
+					return nil, err
+				}
+				findings = append(findings, Finding{
+					Rule:     "guard-ambiguity",
+					Severity: Warning,
+					Message:  fmt.Sprintf("%dx %q from %q in %s without guard", cnt, onEvent, fromState, ns(owner)),
+				})
+			}
+			return findings, nil
+		},
+	},
 	// [F3] Dangling navigate() targets — action references a screen/region that doesn't exist
 	{
 		id:       "dangling-navigate",
