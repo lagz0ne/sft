@@ -10,53 +10,33 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as ScreensNameRouteImport } from './routes/screens/$name'
-import { Route as FlowsNameRouteImport } from './routes/flows/$name'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ScreensNameRoute = ScreensNameRouteImport.update({
-  id: '/screens/$name',
-  path: '/screens/$name',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const FlowsNameRoute = FlowsNameRouteImport.update({
-  id: '/flows/$name',
-  path: '/flows/$name',
-  getParentRoute: () => rootRouteImport,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/flows/$name': typeof FlowsNameRoute
-  '/screens/$name': typeof ScreensNameRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/flows/$name': typeof FlowsNameRoute
-  '/screens/$name': typeof ScreensNameRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/flows/$name': typeof FlowsNameRoute
-  '/screens/$name': typeof ScreensNameRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/flows/$name' | '/screens/$name'
+  fullPaths: '/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/flows/$name' | '/screens/$name'
-  id: '__root__' | '/' | '/flows/$name' | '/screens/$name'
+  to: '/'
+  id: '__root__' | '/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  FlowsNameRoute: typeof FlowsNameRoute
-  ScreensNameRoute: typeof ScreensNameRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -68,27 +48,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/screens/$name': {
-      id: '/screens/$name'
-      path: '/screens/$name'
-      fullPath: '/screens/$name'
-      preLoaderRoute: typeof ScreensNameRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/flows/$name': {
-      id: '/flows/$name'
-      path: '/flows/$name'
-      fullPath: '/flows/$name'
-      preLoaderRoute: typeof FlowsNameRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  FlowsNameRoute: FlowsNameRoute,
-  ScreensNameRoute: ScreensNameRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

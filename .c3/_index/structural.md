@@ -1,10 +1,13 @@
 # C3 Structural Index
-<!-- hash: sha256:e869fdb12ebaca77672e6e8b26609d864378348f4d97fafd81e33377ed09cb8c -->
+<!-- hash: sha256:0cfea410521f83555f46efb8597d586a4bc61d796f8cf6e14ef488fbd401afd8 -->
 
 ## adr-00000000-c3-adoption — C3 Architecture Documentation Adoption (adr)
 blocks: Goal ✓
 
 ## adr-20260317-sft-view-nats-backbone — sft view — NATS messaging + SQLite query engine (adr)
+blocks: Goal ✓
+
+## adr-20260318-frontend-react-migration — Replace vanilla JS frontend with React + TanStack Router via better-t-stack (adr)
 blocks: Goal ✓
 
 ## c3-0 — SFT (context)
@@ -87,7 +90,7 @@ blocks: Container Connection ✓, Dependencies ✓, Goal ✓, Related Refs ✓
 
 ## c3-117 — entrypoint (component)
 container: c3-1 | context: c3-0
-reverse deps: adr-20260317-sft-view-nats-backbone
+reverse deps: adr-20260317-sft-view-nats-backbone, adr-20260318-frontend-react-migration
 files: cmd/sft/**
 constraints from: c3-0, c3-1
 blocks: Container Connection ✓, Dependencies ✓, Goal ✓, Related Refs ○

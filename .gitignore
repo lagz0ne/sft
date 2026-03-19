@@ -15,3 +15,8 @@ npm/*/bin/
 
 # Web dependencies
 web/node_modules/
+.superpowers/
+autoresearch_benchmark.sh
+autoresearch.md
+autoresearch.sh
+autoresearch.jsonl

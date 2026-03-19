@@ -31,8 +31,33 @@ export interface Screen {
 export interface Flow {
 	name: string;
 	description?: string;
+	on_event?: string;
 	sequence: string;
 }
+
+/** Parsed connection between two screens, derived from flow sequences */
+export interface ScreenEdge {
+	from: string;
+	to: string;
+	flow: string;
+}
+
+/** Position of a node on the canvas */
+export interface NodePosition {
+	x: number;
+	y: number;
+}
+
+/** View state for overlay navigation */
+export type ViewState =
+	| { type: "canvas" }
+	| { type: "screen"; screenName: string; highlightRegion?: string }
+	| { type: "flow"; flowName: string };
+
+/** Panel state within screen overlay */
+export type PanelState =
+	| { type: "none" }
+	| { type: "state-machine"; regionName: string };
 
 export interface Spec {
 	app: App;

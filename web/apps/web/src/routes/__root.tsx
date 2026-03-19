@@ -1,9 +1,8 @@
 import { Toaster } from "@sft-web/ui/components/sonner";
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
-import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 
 import { SpecProvider } from "../context/spec-context";
-import { Sidebar } from "../components/sidebar";
+import { ViewProvider } from "../context/view-context";
 import { Lightbox } from "../components/lightbox";
 
 import appCss from "../index.css?url";
@@ -40,18 +39,12 @@ function RootDocument() {
 			</head>
 			<body className="h-svh overflow-hidden font-sans antialiased">
 				<SpecProvider>
-					<div className="grid h-svh grid-cols-[260px_1fr] overflow-hidden">
-						<Sidebar />
-						<main className="overflow-y-auto px-12 py-9">
-							<div className="max-w-[960px]">
-								<Outlet />
-							</div>
-						</main>
-					</div>
+					<ViewProvider>
+						<Outlet />
+					</ViewProvider>
 				</SpecProvider>
 				<Lightbox />
 				<Toaster richColors />
-				<TanStackRouterDevtools position="bottom-left" />
 				<Scripts />
 			</body>
 		</html>
