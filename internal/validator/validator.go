@@ -391,6 +391,59 @@ var rules = []rule{
 			return findings, nil
 		},
 	},
+	// Fixture not found — state_fixtures references a fixture name that doesn't exist
+	{
+		id:       "fixture-not-found",
+		severity: Error,
+		query: `SELECT sf.fixture_name, sf.state_name,
+		          CASE sf.owner_type
+		            WHEN 'screen' THEN (SELECT s.name FROM screens s WHERE s.id = sf.owner_id)
+		            WHEN 'region' THEN (SELECT r.name FROM regions r WHERE r.id = sf.owner_id)
+		            WHEN 'app'    THEN (SELECT a.name FROM apps a WHERE a.id = sf.owner_id)
+		          END AS owner_name
+		        FROM state_fixtures sf
+		        WHERE sf.fixture_name NOT IN (SELECT f.name FROM fixtures f)`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var findings []Finding
+			for rows.Next() {
+				var fixtureName, stateName string
+				var ownerName sql.NullString
+				if err := rows.Scan(&fixtureName, &stateName, &ownerName); err != nil {
+					return nil, err
+				}
+				findings = append(findings, Finding{
+					Rule:     "fixture-not-found",
+					Severity: Error,
+					Message:  fmt.Sprintf("state %q in %s references undefined fixture %q", stateName, ns(ownerName), fixtureName),
+				})
+			}
+			return findings, nil
+		},
+	},
+	// Orphan fixture — fixture not referenced by any state or extends
+	{
+		id:       "orphan-fixture",
+		severity: Warning,
+		query: `SELECT f.name
+		        FROM fixtures f
+		        WHERE f.name NOT IN (SELECT sf.fixture_name FROM state_fixtures sf)
+		          AND f.name NOT IN (SELECT f2.extends FROM fixtures f2 WHERE f2.extends IS NOT NULL)`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var findings []Finding
+			for rows.Next() {
+				var name string
+				if err := rows.Scan(&name); err != nil {
+					return nil, err
+				}
+				findings = append(findings, Finding{
+					Rule:     "orphan-fixture",
+					Severity: Warning,
+					Message:  fmt.Sprintf("fixture %q is not referenced by any state", name),
+				})
+			}
+			return findings, nil
+		},
+	},
 	// Invalid ambient path — ambient ref source must be "app" or a valid screen name, query must start with "."
 	{
 		id:       "invalid-ambient-path",
