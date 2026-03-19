@@ -221,6 +221,176 @@ func TestComponentInYAMLImport(t *testing.T) {
 	}
 }
 
+const testStateMachineYAML = `app:
+  name: SMApp
+  description: State machine test
+  screens:
+    - name: Login
+      description: Login screen
+      state_machine:
+        idle:
+          on:
+            SUBMIT: loading
+        loading:
+          on:
+            SUCCESS: authenticated
+            FAILURE: idle
+        authenticated:
+`
+
+func TestStateMachineExportFormat(t *testing.T) {
+	s := mustStore(t)
+	importYAML(t, s, testStateMachineYAML)
+	spec := loadSpec(t, s)
+
+	var buf bytes.Buffer
+	if err := Export(spec, &buf); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	exported := buf.String()
+
+	if strings.Contains(exported, "states:") {
+		t.Errorf("export should use state_machine:, not states:\nexported:\n%s", exported)
+	}
+	if !strings.Contains(exported, "state_machine:") {
+		t.Errorf("export missing state_machine:\nexported:\n%s", exported)
+	}
+}
+
+func TestStateMachineRoundTrip(t *testing.T) {
+	s1 := mustStore(t)
+	importYAML(t, s1, testStateMachineYAML)
+	spec1 := loadSpec(t, s1)
+
+	var buf bytes.Buffer
+	if err := Export(spec1, &buf); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	s2 := mustStore(t)
+	importYAML(t, s2, buf.String())
+	spec2 := loadSpec(t, s2)
+
+	// Compare transition counts
+	if len(spec1.Screens) != len(spec2.Screens) {
+		t.Fatalf("screen count: %d vs %d", len(spec1.Screens), len(spec2.Screens))
+	}
+	for i, sc := range spec1.Screens {
+		sc2 := spec2.Screens[i]
+		if len(sc.Transitions) != len(sc2.Transitions) {
+			t.Errorf("screen %s: transitions %d vs %d", sc.Name, len(sc.Transitions), len(sc2.Transitions))
+		}
+		// Verify each transition matches.
+		for j, tr := range sc.Transitions {
+			tr2 := sc2.Transitions[j]
+			if tr.OnEvent != tr2.OnEvent || tr.FromState != tr2.FromState || tr.ToState != tr2.ToState || tr.Action != tr2.Action {
+				t.Errorf("screen %s transition %d: %+v vs %+v", sc.Name, j, tr, tr2)
+			}
+		}
+	}
+}
+
+func TestStateMachineExportTerminalStates(t *testing.T) {
+	// Verify that terminal states (appear as to but never as from) are included.
+	s := mustStore(t)
+	importYAML(t, s, testStateMachineYAML)
+	spec := loadSpec(t, s)
+
+	var buf bytes.Buffer
+	if err := Export(spec, &buf); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	exported := buf.String()
+
+	// "authenticated" is a terminal state — it should appear in the output.
+	if !strings.Contains(exported, "authenticated:") {
+		t.Errorf("terminal state 'authenticated' missing from export:\n%s", exported)
+	}
+}
+
+func TestStateMachineExportStayDot(t *testing.T) {
+	// When to == from, export should use "." notation.
+	yamlStay := `app:
+  name: StayApp
+  description: Stay test
+  screens:
+    - name: Editor
+      description: Editor screen
+      state_machine:
+        idle:
+          on:
+            REFRESH: .
+            SUBMIT: loading
+        loading:
+          on:
+            DONE: idle
+`
+	s := mustStore(t)
+	importYAML(t, s, yamlStay)
+	spec := loadSpec(t, s)
+
+	var buf bytes.Buffer
+	if err := Export(spec, &buf); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	exported := buf.String()
+
+	if !strings.Contains(exported, "REFRESH: \".\"") && !strings.Contains(exported, "REFRESH: .") {
+		t.Errorf("stay transition should export as '.'\nexported:\n%s", exported)
+	}
+}
+
+func TestStateMachineExportWithAction(t *testing.T) {
+	// to + action should produce flow-style object.
+	yamlAction := `app:
+  name: ActionApp
+  description: Action test
+  screens:
+    - name: Inbox
+      description: Inbox screen
+      state_machine:
+        start:
+          on:
+            select_email: {to: viewing, action: "navigate(thread_view)"}
+        viewing:
+`
+	s := mustStore(t)
+	importYAML(t, s, yamlAction)
+	spec := loadSpec(t, s)
+
+	var buf bytes.Buffer
+	if err := Export(spec, &buf); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	exported := buf.String()
+
+	// Should contain both to and action in object form.
+	if !strings.Contains(exported, "to:") || !strings.Contains(exported, "action:") {
+		t.Errorf("to+action transition should be object form:\n%s", exported)
+	}
+}
+
+func TestLegacyExportProducesStateMachine(t *testing.T) {
+	// Importing legacy states: format should export as state_machine: format.
+	s := mustStore(t)
+	importYAML(t, s, testYAML)
+	spec := loadSpec(t, s)
+
+	var buf bytes.Buffer
+	if err := Export(spec, &buf); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	exported := buf.String()
+
+	if strings.Contains(exported, "  states:") {
+		t.Errorf("legacy import should export as state_machine:, not states:\n%s", exported)
+	}
+	// Home screen has a transition, so state_machine: should appear.
+	if !strings.Contains(exported, "state_machine:") {
+		t.Errorf("export missing state_machine: for Home screen\n%s", exported)
+	}
+}
+
 func TestStateMachineImport(t *testing.T) {
 	yamlSM := `app:
   name: SMApp

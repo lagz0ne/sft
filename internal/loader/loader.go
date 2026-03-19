@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/lagz0ne/sft/internal/model"
 	"github.com/lagz0ne/sft/internal/show"
@@ -255,7 +256,7 @@ func exportScreens(screens []show.Screen) []yamlScreen {
 	}
 	var out []yamlScreen
 	for _, s := range screens {
-		out = append(out, yamlScreen{
+		ys := yamlScreen{
 			Name:        s.Name,
 			Description: s.Description,
 			Tags:        s.Tags,
@@ -264,8 +265,11 @@ func exportScreens(screens []show.Screen) []yamlScreen {
 			OnActions:   s.ComponentOn,
 			Visible:     s.ComponentVis,
 			Regions:     exportRegions(s.Regions),
-			States:      exportTransitions(s.Transitions),
-		})
+		}
+		if sm := exportStateMachine(s.Transitions); sm != nil {
+			ys.StateMachine = *sm
+		}
+		out = append(out, ys)
 	}
 	return out
 }
@@ -276,7 +280,7 @@ func exportRegions(regions []show.Region) []yamlRegion {
 	}
 	var out []yamlRegion
 	for _, r := range regions {
-		out = append(out, yamlRegion{
+		yr := yamlRegion{
 			Name:        r.Name,
 			Description: r.Description,
 			Tags:        r.Tags,
@@ -286,8 +290,11 @@ func exportRegions(regions []show.Region) []yamlRegion {
 			Visible:     r.ComponentVis,
 			Events:      r.Events,
 			Regions:     exportRegions(r.Regions),
-			States:      exportTransitions(r.Transitions),
-		})
+		}
+		if sm := exportStateMachine(r.Transitions); sm != nil {
+			yr.StateMachine = *sm
+		}
+		out = append(out, yr)
 	}
 	return out
 }
@@ -306,6 +313,177 @@ func exportTransitions(transitions []show.Transition) []yamlTransition {
 		})
 	}
 	return out
+}
+
+// exportStateMachine converts a flat list of transitions into a state_machine yaml.Node.
+// Groups transitions by FromState, producing ordered mappings. Terminal states (appear
+// only as targets) are included as empty mappings.
+func exportStateMachine(transitions []show.Transition) *yaml.Node {
+	if len(transitions) == 0 {
+		return nil
+	}
+
+	// Collect from-states in order, and group events per state.
+	type eventEntry struct {
+		event  string
+		to     string
+		action string
+		from   string // needed for "stay" detection
+	}
+	stateOrder := []string{}
+	stateEvents := map[string][]eventEntry{}
+	seenFrom := map[string]bool{}
+	allTo := map[string]bool{}
+
+	for _, t := range transitions {
+		from := t.FromState
+		if from == "" {
+			continue
+		}
+		if !seenFrom[from] {
+			seenFrom[from] = true
+			stateOrder = append(stateOrder, from)
+		}
+		stateEvents[from] = append(stateEvents[from], eventEntry{
+			event:  t.OnEvent,
+			to:     t.ToState,
+			action: t.Action,
+			from:   from,
+		})
+		if t.ToState != "" {
+			allTo[t.ToState] = true
+		}
+	}
+
+	// Find terminal states: appear as to but never as from.
+	var terminalStates []string
+	for s := range allTo {
+		if !seenFrom[s] {
+			terminalStates = append(terminalStates, s)
+		}
+	}
+	// Sort terminal states for deterministic output.
+	sortStrings(terminalStates)
+
+	// Build the top-level state_machine mapping node.
+	root := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+
+	for _, stateName := range stateOrder {
+		events := stateEvents[stateName]
+
+		// State key.
+		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Value: stateName, Tag: "!!str"}
+
+		// Build on: mapping for this state.
+		onMapping := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+
+		for _, e := range events {
+			evKey := &yaml.Node{Kind: yaml.ScalarNode, Value: e.event, Tag: "!!str"}
+			evVal := buildTransitionValueNode(e.from, e.to, e.action)
+			onMapping.Content = append(onMapping.Content, evKey, evVal)
+		}
+
+		// State value: mapping with "on" key.
+		stateVal := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		onKey := &yaml.Node{Kind: yaml.ScalarNode, Value: "on", Tag: "!!str"}
+		stateVal.Content = append(stateVal.Content, onKey, onMapping)
+
+		root.Content = append(root.Content, keyNode, stateVal)
+	}
+
+	// Add terminal states as empty mappings.
+	for _, s := range terminalStates {
+		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Value: s, Tag: "!!str"}
+		valNode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		root.Content = append(root.Content, keyNode, valNode)
+	}
+
+	return root
+}
+
+// buildTransitionValueNode creates the yaml.Node for a single event's target value.
+// Forms:
+//   - to-state only → scalar: "selecting"
+//   - stay (to == from) → scalar: "."
+//   - action only (no to) → scalar if simple action, else flow object
+//   - to + action → flow object: {to: x, action: y}
+//   - guard in action → flow object: {guard: desc, to: x} or {guard: desc, to: x, action: y}
+func buildTransitionValueNode(from, to, action string) *yaml.Node {
+	guard, pureAction := parseGuardFromAction(action)
+
+	hasTo := to != ""
+	hasGuard := guard != ""
+	hasAction := pureAction != ""
+
+	// Determine the display to-value ("." for stay).
+	displayTo := to
+	if hasTo && to == from {
+		displayTo = "."
+	}
+
+	// Simple case: to-state only, no action, no guard.
+	if hasTo && !hasGuard && !hasAction {
+		return &yaml.Node{Kind: yaml.ScalarNode, Value: displayTo, Tag: "!!str"}
+	}
+
+	// Action only, no to-state, no guard → scalar shorthand.
+	if !hasTo && !hasGuard && hasAction {
+		return &yaml.Node{Kind: yaml.ScalarNode, Value: pureAction, Tag: "!!str"}
+	}
+
+	// Everything else → flow-style mapping.
+	obj := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle}
+
+	if hasGuard {
+		obj.Content = append(obj.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: "guard", Tag: "!!str"},
+			&yaml.Node{Kind: yaml.ScalarNode, Value: guard, Tag: "!!str"},
+		)
+	}
+	if hasTo {
+		obj.Content = append(obj.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: "to", Tag: "!!str"},
+			&yaml.Node{Kind: yaml.ScalarNode, Value: displayTo, Tag: "!!str"},
+		)
+	}
+	if hasAction {
+		obj.Content = append(obj.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: "action", Tag: "!!str"},
+			&yaml.Node{Kind: yaml.ScalarNode, Value: pureAction, Tag: "!!str"},
+		)
+	}
+
+	return obj
+}
+
+// parseGuardFromAction extracts guard and action from a combined action string.
+// Format: "guard(description)" or "guard(description), action_name".
+func parseGuardFromAction(action string) (guard, pureAction string) {
+	if action == "" {
+		return "", ""
+	}
+	if !strings.HasPrefix(action, "guard(") {
+		return "", action
+	}
+	// Find closing paren for guard().
+	idx := strings.Index(action, ")")
+	if idx < 0 {
+		return "", action
+	}
+	guard = action[len("guard("):idx]
+	rest := strings.TrimSpace(action[idx+1:])
+	rest = strings.TrimPrefix(rest, ",")
+	rest = strings.TrimSpace(rest)
+	return guard, rest
+}
+
+// sortStrings sorts a string slice in place.
+func sortStrings(s []string) {
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && s[j] < s[j-1]; j-- {
+			s[j], s[j-1] = s[j-1], s[j]
+		}
+	}
 }
 
 func exportFlows(flows []show.Flow) []yamlFlow {
