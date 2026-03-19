@@ -2,6 +2,7 @@ package loader
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -529,5 +530,231 @@ func TestFlowStepsAfterImport(t *testing.T) {
 	s.DB.QueryRow("SELECT COUNT(*) FROM flow_steps WHERE flow_id = ?", flowID).Scan(&count)
 	if count != 4 {
 		t.Errorf("Landing flow: expected 4 steps, got %d", count)
+	}
+}
+
+const testDataModelYAML = `app:
+  name: test_app
+  description: test
+
+  data:
+    email:
+      subject: string
+      sender: contact
+      read: boolean
+    contact:
+      name: string
+      email: string
+
+  context:
+    current_user: contact
+    permissions: permission[]
+
+  screens:
+    - name: inbox
+      description: email list
+      context:
+        emails: email[]
+        selected: email[]
+      regions:
+        - name: email_list
+          description: list of emails
+          ambient:
+            emails: data(inbox, .emails)
+          events: [select_email]
+        - name: unread_badge
+          description: badge
+          ambient:
+            count: "data(inbox, .emails[?read==false] | length)"
+        - name: search_bar
+          description: search
+          data:
+            query: string
+            suggestions: string[]
+`
+
+func TestDataTypeImport(t *testing.T) {
+	s := mustStore(t)
+	importYAML(t, s, testDataModelYAML)
+
+	var count int
+	s.DB.QueryRow("SELECT COUNT(*) FROM data_types").Scan(&count)
+	if count != 2 {
+		t.Fatalf("expected 2 data types, got %d", count)
+	}
+
+	// Verify email type
+	var fieldsJSON string
+	err := s.DB.QueryRow("SELECT fields FROM data_types WHERE name = 'email'").Scan(&fieldsJSON)
+	if err != nil {
+		t.Fatalf("query email data type: %v", err)
+	}
+	var fields map[string]string
+	if err := json.Unmarshal([]byte(fieldsJSON), &fields); err != nil {
+		t.Fatalf("unmarshal email fields: %v", err)
+	}
+	if fields["subject"] != "string" {
+		t.Errorf("email.subject = %q, want string", fields["subject"])
+	}
+	if fields["sender"] != "contact" {
+		t.Errorf("email.sender = %q, want contact", fields["sender"])
+	}
+	if fields["read"] != "boolean" {
+		t.Errorf("email.read = %q, want boolean", fields["read"])
+	}
+
+	// Verify contact type
+	err = s.DB.QueryRow("SELECT fields FROM data_types WHERE name = 'contact'").Scan(&fieldsJSON)
+	if err != nil {
+		t.Fatalf("query contact data type: %v", err)
+	}
+	if err := json.Unmarshal([]byte(fieldsJSON), &fields); err != nil {
+		t.Fatalf("unmarshal contact fields: %v", err)
+	}
+	if fields["name"] != "string" || fields["email"] != "string" {
+		t.Errorf("contact fields: %v", fields)
+	}
+}
+
+func TestContextImport(t *testing.T) {
+	s := mustStore(t)
+	importYAML(t, s, testDataModelYAML)
+
+	// App-level context
+	var count int
+	s.DB.QueryRow("SELECT COUNT(*) FROM contexts WHERE owner_type = 'app'").Scan(&count)
+	if count != 2 {
+		t.Fatalf("expected 2 app context fields, got %d", count)
+	}
+
+	var fieldType string
+	err := s.DB.QueryRow("SELECT field_type FROM contexts WHERE owner_type = 'app' AND field_name = 'current_user'").Scan(&fieldType)
+	if err != nil {
+		t.Fatalf("query app context current_user: %v", err)
+	}
+	if fieldType != "contact" {
+		t.Errorf("current_user type = %q, want contact", fieldType)
+	}
+
+	err = s.DB.QueryRow("SELECT field_type FROM contexts WHERE owner_type = 'app' AND field_name = 'permissions'").Scan(&fieldType)
+	if err != nil {
+		t.Fatalf("query app context permissions: %v", err)
+	}
+	if fieldType != "permission[]" {
+		t.Errorf("permissions type = %q, want permission[]", fieldType)
+	}
+
+	// Screen-level context
+	s.DB.QueryRow("SELECT COUNT(*) FROM contexts WHERE owner_type = 'screen'").Scan(&count)
+	if count != 2 {
+		t.Fatalf("expected 2 screen context fields, got %d", count)
+	}
+
+	err = s.DB.QueryRow("SELECT field_type FROM contexts WHERE owner_type = 'screen' AND field_name = 'emails'").Scan(&fieldType)
+	if err != nil {
+		t.Fatalf("query screen context emails: %v", err)
+	}
+	if fieldType != "email[]" {
+		t.Errorf("emails type = %q, want email[]", fieldType)
+	}
+}
+
+func TestAmbientImport(t *testing.T) {
+	s := mustStore(t)
+	importYAML(t, s, testDataModelYAML)
+
+	var count int
+	s.DB.QueryRow("SELECT COUNT(*) FROM ambient_refs").Scan(&count)
+	if count != 2 {
+		t.Fatalf("expected 2 ambient refs, got %d", count)
+	}
+
+	// Verify email_list ambient ref
+	var regionID int64
+	s.DB.QueryRow("SELECT id FROM regions WHERE name = 'email_list'").Scan(&regionID)
+
+	var source, query string
+	err := s.DB.QueryRow("SELECT source, query FROM ambient_refs WHERE region_id = ? AND local_name = 'emails'", regionID).Scan(&source, &query)
+	if err != nil {
+		t.Fatalf("query ambient ref emails: %v", err)
+	}
+	if source != "inbox" {
+		t.Errorf("emails source = %q, want inbox", source)
+	}
+	if query != ".emails" {
+		t.Errorf("emails query = %q, want .emails", query)
+	}
+
+	// Verify unread_badge ambient ref with complex query
+	s.DB.QueryRow("SELECT id FROM regions WHERE name = 'unread_badge'").Scan(&regionID)
+	err = s.DB.QueryRow("SELECT source, query FROM ambient_refs WHERE region_id = ? AND local_name = 'count'", regionID).Scan(&source, &query)
+	if err != nil {
+		t.Fatalf("query ambient ref count: %v", err)
+	}
+	if source != "inbox" {
+		t.Errorf("count source = %q, want inbox", source)
+	}
+	if query != ".emails[?read==false] | length" {
+		t.Errorf("count query = %q, want .emails[?read==false] | length", query)
+	}
+}
+
+func TestRegionDataImport(t *testing.T) {
+	s := mustStore(t)
+	importYAML(t, s, testDataModelYAML)
+
+	var count int
+	s.DB.QueryRow("SELECT COUNT(*) FROM region_data").Scan(&count)
+	if count != 2 {
+		t.Fatalf("expected 2 region data fields, got %d", count)
+	}
+
+	var regionID int64
+	s.DB.QueryRow("SELECT id FROM regions WHERE name = 'search_bar'").Scan(&regionID)
+
+	var fieldType string
+	err := s.DB.QueryRow("SELECT field_type FROM region_data WHERE region_id = ? AND field_name = 'query'", regionID).Scan(&fieldType)
+	if err != nil {
+		t.Fatalf("query region data 'query': %v", err)
+	}
+	if fieldType != "string" {
+		t.Errorf("query field_type = %q, want string", fieldType)
+	}
+
+	err = s.DB.QueryRow("SELECT field_type FROM region_data WHERE region_id = ? AND field_name = 'suggestions'", regionID).Scan(&fieldType)
+	if err != nil {
+		t.Fatalf("query region data 'suggestions': %v", err)
+	}
+	if fieldType != "string[]" {
+		t.Errorf("suggestions field_type = %q, want string[]", fieldType)
+	}
+}
+
+func TestParseDataRef(t *testing.T) {
+	tests := []struct {
+		input      string
+		wantSource string
+		wantQuery  string
+		wantErr    bool
+	}{
+		{"data(inbox, .emails)", "inbox", ".emails", false},
+		{"data(app, .permissions)", "app", ".permissions", false},
+		{"data(inbox, .emails[?read==false] | length)", "inbox", ".emails[?read==false] | length", false},
+		{"invalid", "", "", true},
+		{"data(missing_separator)", "", "", true},
+		{"notdata(x, y)", "", "", true},
+	}
+	for _, tt := range tests {
+		source, query, err := parseDataRef(tt.input)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("parseDataRef(%q): err=%v, wantErr=%v", tt.input, err, tt.wantErr)
+			continue
+		}
+		if source != tt.wantSource {
+			t.Errorf("parseDataRef(%q): source=%q, want %q", tt.input, source, tt.wantSource)
+		}
+		if query != tt.wantQuery {
+			t.Errorf("parseDataRef(%q): query=%q, want %q", tt.input, query, tt.wantQuery)
+		}
 	}
 }

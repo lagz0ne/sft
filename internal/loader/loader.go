@@ -1,6 +1,7 @@
 package loader
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -20,17 +21,20 @@ type yamlFile struct {
 }
 
 type yamlApp struct {
-	Name        string           `yaml:"name"`
-	Description string           `yaml:"description"`
-	Regions     []yamlRegion     `yaml:"regions,omitempty"`
-	Screens     []yamlScreen     `yaml:"screens,omitempty"`
-	Flows       []yamlFlow       `yaml:"flows,omitempty"`
+	Name        string                       `yaml:"name"`
+	Description string                       `yaml:"description"`
+	Data        map[string]map[string]string `yaml:"data,omitempty"`
+	Context     map[string]string            `yaml:"context,omitempty"`
+	Regions     []yamlRegion                 `yaml:"regions,omitempty"`
+	Screens     []yamlScreen                 `yaml:"screens,omitempty"`
+	Flows       []yamlFlow                   `yaml:"flows,omitempty"`
 }
 
 type yamlScreen struct {
 	Name         string           `yaml:"name"`
 	Description  string           `yaml:"description"`
 	Tags         []string         `yaml:"tags,omitempty"`
+	Context      map[string]string `yaml:"context,omitempty"`
 	Component    string           `yaml:"component,omitempty"`
 	Props        string           `yaml:"props,omitempty"`
 	OnActions    string           `yaml:"on_actions,omitempty"`
@@ -49,6 +53,8 @@ type yamlRegion struct {
 	OnActions    string           `yaml:"on_actions,omitempty"`
 	Visible      string           `yaml:"visible,omitempty"`
 	Events       []string         `yaml:"events,omitempty"`
+	Ambient      map[string]string `yaml:"ambient,omitempty"`
+	Data         map[string]string `yaml:"data,omitempty"`
 	Regions      []yamlRegion     `yaml:"regions,omitempty"`
 	States       []yamlTransition `yaml:"states,omitempty"`
 	StateMachine yaml.Node        `yaml:"state_machine,omitempty"`
@@ -113,6 +119,24 @@ func Load(s *store.Store, path string) error {
 		return fmt.Errorf("app: %w", err)
 	}
 
+	// Data types
+	for typeName, fields := range app.Data {
+		fieldsJSON, err := json.Marshal(fields)
+		if err != nil {
+			return fmt.Errorf("data type %s: %w", typeName, err)
+		}
+		if err := s.InsertDataType(&model.DataType{AppID: a.ID, Name: typeName, Fields: string(fieldsJSON)}); err != nil {
+			return fmt.Errorf("data type %s: %w", typeName, err)
+		}
+	}
+
+	// App context
+	for fieldName, fieldType := range app.Context {
+		if err := s.InsertContextField(&model.ContextField{OwnerType: "app", OwnerID: a.ID, FieldName: fieldName, FieldType: fieldType}); err != nil {
+			return fmt.Errorf("app context %s: %w", fieldName, err)
+		}
+	}
+
 	// App-level regions
 	for _, r := range app.Regions {
 		if err := insertRegion(s, a.ID, "app", a.ID, r); err != nil {
@@ -129,6 +153,12 @@ func Load(s *store.Store, path string) error {
 		for _, tag := range sc.Tags {
 			if err := s.InsertTag(&model.Tag{EntityType: "screen", EntityID: screen.ID, Tag: tag}); err != nil {
 				return fmt.Errorf("tag [%s] on screen %s: %w", tag, sc.Name, err)
+			}
+		}
+		// Screen context
+		for fieldName, fieldType := range sc.Context {
+			if err := s.InsertContextField(&model.ContextField{OwnerType: "screen", OwnerID: screen.ID, FieldName: fieldName, FieldType: fieldType}); err != nil {
+				return fmt.Errorf("screen context %s on %s: %w", fieldName, sc.Name, err)
 			}
 		}
 		if sc.Component != "" {
@@ -182,6 +212,22 @@ func insertRegion(s *store.Store, appID int64, parentType string, parentID int64
 			return fmt.Errorf("tag [%s] on %s: %w", tag, r.Name, err)
 		}
 	}
+	// Ambient refs
+	for localName, ref := range r.Ambient {
+		source, query, err := parseDataRef(ref)
+		if err != nil {
+			return fmt.Errorf("ambient %s in %s: %w", localName, r.Name, err)
+		}
+		if err := s.InsertAmbientRef(&model.AmbientRef{RegionID: region.ID, LocalName: localName, Source: source, Query: query}); err != nil {
+			return fmt.Errorf("ambient %s in %s: %w", localName, r.Name, err)
+		}
+	}
+	// Region data
+	for fieldName, fieldType := range r.Data {
+		if err := s.InsertRegionData(&model.RegionData{RegionID: region.ID, FieldName: fieldName, FieldType: fieldType}); err != nil {
+			return fmt.Errorf("region data %s in %s: %w", fieldName, r.Name, err)
+		}
+	}
 	for _, child := range r.Regions {
 		if err := insertRegion(s, appID, "region", region.ID, child); err != nil {
 			return err
@@ -228,6 +274,20 @@ func insertTransitions(s *store.Store, ownerType string, ownerID int64, ownerNam
 		}
 	}
 	return nil
+}
+
+// parseDataRef parses "data(source, query)" into source and query parts.
+func parseDataRef(ref string) (source, query string, err error) {
+	if !strings.HasPrefix(ref, "data(") || !strings.HasSuffix(ref, ")") {
+		return "", "", fmt.Errorf("invalid data reference %q: must be data(source, query)", ref)
+	}
+	inner := ref[5 : len(ref)-1] // strip "data(" and ")"
+	// Split on first ", "
+	idx := strings.Index(inner, ", ")
+	if idx < 0 {
+		return "", "", fmt.Errorf("invalid data reference %q: missing separator", ref)
+	}
+	return inner[:idx], inner[idx+2:], nil
 }
 
 // Export serializes a Spec tree to SFT YAML format.
