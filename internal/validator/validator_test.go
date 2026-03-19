@@ -346,6 +346,57 @@ func TestOrphanFixture_Referenced(t *testing.T) {
 	}
 }
 
+func TestNavigateWithParams(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	// Create the target screen so navigate is valid
+	target := &model.Screen{AppID: appID, Name: "OrderDetail", Description: "order detail"}
+	if err := s.InsertScreen(target); err != nil {
+		t.Fatalf("InsertScreen: %v", err)
+	}
+
+	// navigate(OrderDetail, { order: data(order_list, .selected) })
+	s.InsertTransition(&model.Transition{
+		OwnerType: "screen", OwnerID: screenID,
+		OnEvent: "select_order", FromState: "start",
+		Action: "navigate(OrderDetail, { order: data(order_list, .selected) })",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "dangling-navigate")
+	if len(matched) != 0 {
+		t.Errorf("navigate with params should not trigger dangling-navigate: %v", matched)
+	}
+}
+
+func TestNavigateWithParams_DanglingTarget(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+
+	// navigate(Nonexistent, { order: data(list, .selected) }) — target doesn't exist
+	s.InsertTransition(&model.Transition{
+		OwnerType: "screen", OwnerID: screenID,
+		OnEvent: "select_order", FromState: "start",
+		Action: "navigate(Nonexistent, { order: data(list, .selected) })",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "dangling-navigate")
+	if len(matched) == 0 {
+		t.Error("expected dangling-navigate finding for nonexistent target with params")
+	}
+}
+
 func TestOrphanFixture_ExtendedBase(t *testing.T) {
 	s := setup(t)
 	screenID, _ := s.ResolveScreen("Main")

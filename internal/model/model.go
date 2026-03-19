@@ -65,6 +65,15 @@ type FlowStep struct {
 	Data     string `json:"data,omitempty"`
 }
 
+// Phase 4: State machine templates
+
+type StateTemplate struct {
+	ID         int64  `json:"id"`
+	AppID      int64  `json:"app_id"`
+	Name       string `json:"name"`
+	Definition string `json:"definition"`
+}
+
 // Phase 3: Fixtures
 
 type Fixture struct {

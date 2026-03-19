@@ -120,6 +120,15 @@ CREATE TABLE IF NOT EXISTS region_data (
   UNIQUE(region_id, field_name)
 );
 
+-- State machine templates (Phase 4)
+CREATE TABLE IF NOT EXISTS state_templates (
+  id         INTEGER PRIMARY KEY,
+  app_id     INTEGER NOT NULL REFERENCES apps(id),
+  name       TEXT NOT NULL,
+  definition TEXT NOT NULL,
+  UNIQUE(app_id, name)
+);
+
 -- Fixtures (Phase 3)
 CREATE TABLE IF NOT EXISTS fixtures (
   id      INTEGER PRIMARY KEY,

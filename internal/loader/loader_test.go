@@ -939,6 +939,180 @@ func TestFixtureRoundTrip(t *testing.T) {
 	}
 }
 
+func TestStateTemplateImport(t *testing.T) {
+	yamlWithTemplate := `app:
+  name: TemplateApp
+  description: Test state templates
+  state_templates:
+    crud_loadable:
+      start:
+        on: { load: loading }
+      loading:
+        on: { load_success: loaded, load_error: error }
+      loaded:
+        on: { edit: editing }
+      editing:
+        on: { save: saving, cancel: loaded }
+      saving:
+        on: { save_success: loaded, save_error: editing }
+      error:
+        on: { retry: loading }
+  screens:
+    - name: Dashboard
+      description: Main dashboard
+`
+	s := mustStore(t)
+	importYAML(t, s, yamlWithTemplate)
+
+	// Verify the template was stored
+	var count int
+	s.DB.QueryRow("SELECT COUNT(*) FROM state_templates").Scan(&count)
+	if count != 1 {
+		t.Fatalf("state_templates: got %d, want 1", count)
+	}
+
+	var name, definition string
+	s.DB.QueryRow("SELECT name, definition FROM state_templates").Scan(&name, &definition)
+	if name != "crud_loadable" {
+		t.Errorf("template name = %q, want crud_loadable", name)
+	}
+	// Verify definition is valid JSON
+	var parsed interface{}
+	if err := json.Unmarshal([]byte(definition), &parsed); err != nil {
+		t.Errorf("template definition is not valid JSON: %v", err)
+	}
+}
+
+func TestStateTemplateExtends(t *testing.T) {
+	yamlWithExtends := `app:
+  name: ExtendsApp
+  description: Test extends
+  state_templates:
+    crud_loadable:
+      start:
+        on: { load: loading }
+      loading:
+        on: { load_success: loaded, load_error: error }
+      loaded:
+        on: { edit: editing }
+      editing:
+        on: { save: saving, cancel: loaded }
+      saving:
+        on: { save_success: loaded, save_error: editing }
+      error:
+        on: { retry: loading }
+  screens:
+    - name: order_detail
+      description: Order detail screen
+      state_machine:
+        extends: crud_loadable
+        loaded:
+          on:
+            delete: { action: "navigate(order_list)" }
+`
+	s := mustStore(t)
+
+	// Need order_list screen to exist for navigate validation
+	importYAML(t, s, yamlWithExtends)
+
+	spec := loadSpec(t, s)
+
+	if len(spec.Screens) != 1 {
+		t.Fatalf("expected 1 screen, got %d", len(spec.Screens))
+	}
+	screen := spec.Screens[0]
+
+	// Template has: start→loading, loading→loaded, loading→error,
+	// loaded→editing, editing→saving, editing→loaded, saving→loaded, saving→editing,
+	// error→loading
+	// Override adds: loaded→delete (navigate(order_list))
+	// The override merged with the base loaded state should have: edit→editing AND delete→navigate(order_list)
+
+	// Build a lookup
+	type transKey struct {
+		from, event string
+	}
+	found := map[transKey]string{}
+	for _, tr := range screen.Transitions {
+		key := transKey{tr.FromState, tr.OnEvent}
+		if tr.ToState != "" {
+			found[key] = tr.ToState
+		} else {
+			found[key] = tr.Action
+		}
+	}
+
+	// Check template-provided transitions exist
+	checks := []struct {
+		from, event, expected string
+	}{
+		{"start", "load", "loading"},
+		{"loading", "load_success", "loaded"},
+		{"loading", "load_error", "error"},
+		{"loaded", "edit", "editing"},             // from template
+		{"loaded", "delete", "navigate(order_list)"}, // from override
+		{"editing", "save", "saving"},
+		{"editing", "cancel", "loaded"},
+		{"saving", "save_success", "loaded"},
+		{"saving", "save_error", "editing"},
+		{"error", "retry", "loading"},
+	}
+	for _, c := range checks {
+		key := transKey{c.from, c.event}
+		val, ok := found[key]
+		if !ok {
+			t.Errorf("missing transition: %s/%s", c.from, c.event)
+			continue
+		}
+		if val != c.expected {
+			t.Errorf("transition %s/%s = %q, want %q", c.from, c.event, val, c.expected)
+		}
+	}
+
+	if len(screen.Transitions) != 10 {
+		t.Errorf("expected 10 transitions, got %d", len(screen.Transitions))
+		for _, tr := range screen.Transitions {
+			t.Logf("  %s/%s → %s %s", tr.FromState, tr.OnEvent, tr.ToState, tr.Action)
+		}
+	}
+}
+
+func TestStateTemplateOverrideEvent(t *testing.T) {
+	yamlOverride := `app:
+  name: OverrideApp
+  description: Test override
+  state_templates:
+    simple:
+      idle:
+        on: { click: active }
+      active:
+        on: { reset: idle }
+  screens:
+    - name: Custom
+      description: Custom screen
+      state_machine:
+        extends: simple
+        idle:
+          on:
+            click: custom_active
+`
+	s := mustStore(t)
+	importYAML(t, s, yamlOverride)
+	spec := loadSpec(t, s)
+
+	screen := spec.Screens[0]
+	// The override should change idle/click from "active" to "custom_active"
+	for _, tr := range screen.Transitions {
+		if tr.FromState == "idle" && tr.OnEvent == "click" {
+			if tr.ToState != "custom_active" {
+				t.Errorf("idle/click ToState = %q, want custom_active", tr.ToState)
+			}
+			return
+		}
+	}
+	t.Error("missing idle/click transition")
+}
+
 func TestParseDataRef(t *testing.T) {
 	tests := []struct {
 		input      string

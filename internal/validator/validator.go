@@ -282,13 +282,18 @@ var rules = []rule{
 		},
 	},
 	// [F3] Dangling navigate() targets — action references a screen/region that doesn't exist
+	// Handles both navigate(target) and navigate(target, {params})
 	{
 		id:       "dangling-navigate",
 		severity: Error,
 		query: `SELECT t.action, ` + ownerCase + ` AS owner_name
 		        FROM transitions t
 		        WHERE t.action LIKE 'navigate(%)'
-		          AND SUBSTR(t.action, 10, LENGTH(t.action) - 10) NOT IN (
+		          AND TRIM(CASE
+		            WHEN INSTR(SUBSTR(t.action, 10), ',') > 0
+		            THEN SUBSTR(t.action, 10, INSTR(SUBSTR(t.action, 10), ',') - 1)
+		            ELSE SUBSTR(t.action, 10, LENGTH(t.action) - 10)
+		          END) NOT IN (
 		            SELECT s.name FROM screens s
 		            UNION ALL
 		            SELECT r.name FROM regions r
