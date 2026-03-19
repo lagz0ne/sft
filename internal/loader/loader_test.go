@@ -730,6 +730,54 @@ func TestRegionDataImport(t *testing.T) {
 	}
 }
 
+func TestDataModelRoundTrip(t *testing.T) {
+	s1 := mustStore(t)
+	importYAML(t, s1, testDataModelYAML)
+	spec1 := loadSpec(t, s1)
+
+	// Verify show loaded the data
+	if len(spec1.App.DataTypes) != 2 {
+		t.Errorf("data types: got %d, want 2", len(spec1.App.DataTypes))
+	}
+	if len(spec1.App.Context) != 2 {
+		t.Errorf("app context: got %d, want 2", len(spec1.App.Context))
+	}
+
+	// Export
+	var buf bytes.Buffer
+	Export(spec1, &buf)
+	exported := buf.String()
+
+	if !strings.Contains(exported, "data:") {
+		t.Error("export missing data: block")
+	}
+	if !strings.Contains(exported, "context:") {
+		t.Error("export missing context: block")
+	}
+	if !strings.Contains(exported, "ambient:") {
+		t.Error("export missing ambient: block")
+	}
+
+	// Re-import
+	s2 := mustStore(t)
+	importYAML(t, s2, buf.String())
+
+	// Verify data survived
+	var count int
+	s2.DB.QueryRow("SELECT COUNT(*) FROM data_types").Scan(&count)
+	if count != 2 {
+		t.Errorf("round-trip data_types: got %d, want 2", count)
+	}
+	s2.DB.QueryRow("SELECT COUNT(*) FROM contexts").Scan(&count)
+	if count != 4 { // 2 app + 2 screen
+		t.Errorf("round-trip contexts: got %d, want 4", count)
+	}
+	s2.DB.QueryRow("SELECT COUNT(*) FROM ambient_refs").Scan(&count)
+	if count != 2 {
+		t.Errorf("round-trip ambient_refs: got %d, want 2", count)
+	}
+}
+
 func TestParseDataRef(t *testing.T) {
 	tests := []struct {
 		input      string

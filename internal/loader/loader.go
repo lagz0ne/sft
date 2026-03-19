@@ -295,6 +295,8 @@ func Export(spec *show.Spec, w io.Writer) error {
 	app := yamlApp{
 		Name:        spec.App.Name,
 		Description: spec.App.Description,
+		Data:        spec.App.DataTypes,
+		Context:     spec.App.Context,
 		Regions:     exportRegions(spec.App.Regions),
 		Screens:     exportScreens(spec.Screens),
 		Flows:       exportFlows(spec.Flows),
@@ -321,6 +323,7 @@ func exportScreens(screens []show.Screen) []yamlScreen {
 			Name:        s.Name,
 			Description: s.Description,
 			Tags:        s.Tags,
+			Context:     s.Context,
 			Component:   s.Component,
 			Props:       s.ComponentProps,
 			OnActions:   s.ComponentOn,
@@ -350,6 +353,8 @@ func exportRegions(regions []show.Region) []yamlRegion {
 			OnActions:   r.ComponentOn,
 			Visible:     r.ComponentVis,
 			Events:      r.Events,
+			Ambient:     r.Ambient,
+			Data:        r.RegionData,
 			Regions:     exportRegions(r.Regions),
 		}
 		if sm := exportStateMachine(r.Transitions); sm != nil {
