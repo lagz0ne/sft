@@ -26,28 +26,30 @@ type yamlApp struct {
 }
 
 type yamlScreen struct {
-	Name        string           `yaml:"name"`
-	Description string           `yaml:"description"`
-	Tags        []string         `yaml:"tags,omitempty"`
-	Component   string           `yaml:"component,omitempty"`
-	Props       string           `yaml:"props,omitempty"`
-	OnActions   string           `yaml:"on_actions,omitempty"`
-	Visible     string           `yaml:"visible,omitempty"`
-	Regions     []yamlRegion     `yaml:"regions,omitempty"`
-	States      []yamlTransition `yaml:"states,omitempty"`
+	Name         string           `yaml:"name"`
+	Description  string           `yaml:"description"`
+	Tags         []string         `yaml:"tags,omitempty"`
+	Component    string           `yaml:"component,omitempty"`
+	Props        string           `yaml:"props,omitempty"`
+	OnActions    string           `yaml:"on_actions,omitempty"`
+	Visible      string           `yaml:"visible,omitempty"`
+	Regions      []yamlRegion     `yaml:"regions,omitempty"`
+	States       []yamlTransition `yaml:"states,omitempty"`
+	StateMachine yaml.Node        `yaml:"state_machine,omitempty"`
 }
 
 type yamlRegion struct {
-	Name        string           `yaml:"name"`
-	Description string           `yaml:"description"`
-	Tags        []string         `yaml:"tags,omitempty"`
-	Component   string           `yaml:"component,omitempty"`
-	Props       string           `yaml:"props,omitempty"`
-	OnActions   string           `yaml:"on_actions,omitempty"`
-	Visible     string           `yaml:"visible,omitempty"`
-	Events      []string         `yaml:"events,omitempty"`
-	Regions     []yamlRegion     `yaml:"regions,omitempty"`
-	States      []yamlTransition `yaml:"states,omitempty"`
+	Name         string           `yaml:"name"`
+	Description  string           `yaml:"description"`
+	Tags         []string         `yaml:"tags,omitempty"`
+	Component    string           `yaml:"component,omitempty"`
+	Props        string           `yaml:"props,omitempty"`
+	OnActions    string           `yaml:"on_actions,omitempty"`
+	Visible      string           `yaml:"visible,omitempty"`
+	Events       []string         `yaml:"events,omitempty"`
+	Regions      []yamlRegion     `yaml:"regions,omitempty"`
+	States       []yamlTransition `yaml:"states,omitempty"`
+	StateMachine yaml.Node        `yaml:"state_machine,omitempty"`
 }
 
 type yamlTransition struct {
@@ -137,13 +139,8 @@ func Load(s *store.Store, path string) error {
 				return err
 			}
 		}
-		for _, t := range sc.States {
-			if err := s.InsertTransition(&model.Transition{
-				OwnerType: "screen", OwnerID: screen.ID,
-				OnEvent: t.On, FromState: t.From, ToState: t.To, Action: t.Action,
-			}); err != nil {
-				return fmt.Errorf("transition on %s in screen %s: %w", t.On, sc.Name, err)
-			}
+		if err := insertTransitions(s, "screen", screen.ID, sc.Name, sc.States, &sc.StateMachine); err != nil {
+			return err
 		}
 	}
 
@@ -188,12 +185,44 @@ func insertRegion(s *store.Store, appID int64, parentType string, parentID int64
 			return err
 		}
 	}
-	for _, t := range r.States {
+	if err := insertTransitions(s, "region", region.ID, r.Name, r.States, &r.StateMachine); err != nil {
+		return err
+	}
+	return nil
+}
+
+// insertTransitions handles dual-format dispatch for state transitions.
+// If both states and stateMachine are provided, it returns an error.
+// If stateMachine is provided, it parses via ParseStateMachine and sets owner fields.
+// If states is provided, it uses the legacy yamlTransition list.
+// If neither is provided, no transitions are inserted (valid).
+func insertTransitions(s *store.Store, ownerType string, ownerID int64, ownerName string, states []yamlTransition, stateMachine *yaml.Node) error {
+	hasStateMachine := stateMachine != nil && stateMachine.Kind != 0
+	if len(states) > 0 && hasStateMachine {
+		return fmt.Errorf("%s %s: cannot specify both states and state_machine", ownerType, ownerName)
+	}
+
+	if hasStateMachine {
+		transitions, _, err := ParseStateMachine(*stateMachine)
+		if err != nil {
+			return fmt.Errorf("state_machine in %s %s: %w", ownerType, ownerName, err)
+		}
+		for _, t := range transitions {
+			t.OwnerType = ownerType
+			t.OwnerID = ownerID
+			if err := s.InsertTransition(&t); err != nil {
+				return fmt.Errorf("transition on %s in %s %s: %w", t.OnEvent, ownerType, ownerName, err)
+			}
+		}
+		return nil
+	}
+
+	for _, t := range states {
 		if err := s.InsertTransition(&model.Transition{
-			OwnerType: "region", OwnerID: region.ID,
+			OwnerType: ownerType, OwnerID: ownerID,
 			OnEvent: t.On, FromState: t.From, ToState: t.To, Action: t.Action,
 		}); err != nil {
-			return fmt.Errorf("transition on %s in %s: %w", t.On, r.Name, err)
+			return fmt.Errorf("transition on %s in %s %s: %w", t.On, ownerType, ownerName, err)
 		}
 	}
 	return nil

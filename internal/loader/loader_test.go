@@ -221,6 +221,129 @@ func TestComponentInYAMLImport(t *testing.T) {
 	}
 }
 
+func TestStateMachineImport(t *testing.T) {
+	yamlSM := `app:
+  name: SMApp
+  description: State machine test
+  screens:
+    - name: Login
+      description: Login screen
+      state_machine:
+        idle:
+          on:
+            SUBMIT: loading
+        loading:
+          on:
+            SUCCESS: authenticated
+            FAILURE: idle
+        authenticated:
+`
+	s := mustStore(t)
+	importYAML(t, s, yamlSM)
+	spec := loadSpec(t, s)
+
+	if len(spec.Screens) != 1 {
+		t.Fatalf("expected 1 screen, got %d", len(spec.Screens))
+	}
+	login := spec.Screens[0]
+	if len(login.Transitions) != 3 {
+		t.Fatalf("expected 3 transitions, got %d", len(login.Transitions))
+	}
+
+	// Verify specific transitions
+	found := map[string]bool{}
+	for _, tr := range login.Transitions {
+		key := tr.FromState + "/" + tr.OnEvent + "/" + tr.ToState
+		found[key] = true
+	}
+	for _, want := range []string{"idle/SUBMIT/loading", "loading/SUCCESS/authenticated", "loading/FAILURE/idle"} {
+		if !found[want] {
+			t.Errorf("missing transition: %s", want)
+		}
+	}
+}
+
+func TestStateMachineRegionImport(t *testing.T) {
+	yamlSM := `app:
+  name: SMRegionApp
+  description: State machine in region
+  screens:
+    - name: Dashboard
+      description: Main screen
+      regions:
+        - name: Sidebar
+          description: Side panel
+          state_machine:
+            collapsed:
+              on:
+                TOGGLE: expanded
+            expanded:
+              on:
+                TOGGLE: collapsed
+`
+	s := mustStore(t)
+	importYAML(t, s, yamlSM)
+	spec := loadSpec(t, s)
+
+	if len(spec.Screens[0].Regions) != 1 {
+		t.Fatalf("expected 1 region, got %d", len(spec.Screens[0].Regions))
+	}
+	sidebar := spec.Screens[0].Regions[0]
+	if len(sidebar.Transitions) != 2 {
+		t.Fatalf("expected 2 transitions on region, got %d", len(sidebar.Transitions))
+	}
+}
+
+func TestStateMachineAndStatesConflict(t *testing.T) {
+	yamlConflict := `app:
+  name: ConflictApp
+  description: Both formats
+  screens:
+    - name: Broken
+      description: Has both
+      states:
+        - on: click
+          from: a
+          to: b
+      state_machine:
+        a:
+          on:
+            click: b
+`
+	s := mustStore(t)
+	tmp := t.TempDir() + "/conflict.sft.yaml"
+	if err := os.WriteFile(tmp, []byte(yamlConflict), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := Load(s, tmp)
+	if err == nil {
+		t.Fatal("expected error when both states and state_machine are present")
+	}
+	if !strings.Contains(err.Error(), "cannot specify both states and state_machine") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestLegacyStatesFormatStillWorks(t *testing.T) {
+	// This test verifies backward compatibility with the existing states format
+	s := mustStore(t)
+	importYAML(t, s, testYAML)
+	spec := loadSpec(t, s)
+
+	// The testYAML has Home screen with 1 transition (cta-click: idle -> active)
+	home := spec.Screens[0]
+	if home.Name != "Home" {
+		t.Fatalf("expected Home screen, got %s", home.Name)
+	}
+	if len(home.Transitions) != 1 {
+		t.Fatalf("expected 1 transition, got %d", len(home.Transitions))
+	}
+	tr := home.Transitions[0]
+	if tr.OnEvent != "cta-click" || tr.FromState != "idle" || tr.ToState != "active" {
+		t.Errorf("unexpected transition: %+v", tr)
+	}
+}
+
 func TestFlowStepsAfterImport(t *testing.T) {
 	s := mustStore(t)
 	importYAML(t, s, testYAML)
