@@ -26,11 +26,21 @@ type rule struct {
 }
 
 // ownerCase resolves owner_type+owner_id to a human-readable name via subquery.
+// Uses table alias "t" — for other aliases, use ownerCaseAlias.
 const ownerCase = `CASE t.owner_type
   WHEN 'screen' THEN (SELECT s.name FROM screens s WHERE s.id = t.owner_id)
   WHEN 'region' THEN (SELECT r.name FROM regions r WHERE r.id = t.owner_id)
   WHEN 'app'    THEN (SELECT a.name FROM apps a WHERE a.id = t.owner_id)
 END`
+
+// ownerCaseAlias is like ownerCase but parameterized on the table alias.
+func ownerCaseAlias(alias string) string {
+	return fmt.Sprintf(`CASE %s.owner_type
+  WHEN 'screen' THEN (SELECT s.name FROM screens s WHERE s.id = %s.owner_id)
+  WHEN 'region' THEN (SELECT r.name FROM regions r WHERE r.id = %s.owner_id)
+  WHEN 'app'    THEN (SELECT a.name FROM apps a WHERE a.id = %s.owner_id)
+END`, alias, alias, alias, alias)
+}
 
 var rules = []rule{
 	{
@@ -84,11 +94,7 @@ var rules = []rule{
 	{
 		id:       "unreachable-state",
 		severity: Error,
-		query: `SELECT DISTINCT t1.from_state, ` + `CASE t1.owner_type
-		  WHEN 'screen' THEN (SELECT s.name FROM screens s WHERE s.id = t1.owner_id)
-		  WHEN 'region' THEN (SELECT r.name FROM regions r WHERE r.id = t1.owner_id)
-		  WHEN 'app'    THEN (SELECT a.name FROM apps a WHERE a.id = t1.owner_id)
-		END` + ` AS owner_name
+		query: `SELECT DISTINCT t1.from_state, ` + ownerCaseAlias("t1") + ` AS owner_name
 		        FROM transitions t1
 		        WHERE t1.from_state IS NOT NULL
 		          AND t1.from_state NOT IN (
@@ -222,11 +228,7 @@ var rules = []rule{
 	{
 		id:       "dead-end",
 		severity: Warning,
-		query: `SELECT DISTINCT t1.to_state, CASE t1.owner_type
-		  WHEN 'screen' THEN (SELECT s.name FROM screens s WHERE s.id = t1.owner_id)
-		  WHEN 'region' THEN (SELECT r.name FROM regions r WHERE r.id = t1.owner_id)
-		  WHEN 'app'    THEN (SELECT a.name FROM apps a WHERE a.id = t1.owner_id)
-		END AS owner_name
+		query: `SELECT DISTINCT t1.to_state, ` + ownerCaseAlias("t1") + ` AS owner_name
 		        FROM transitions t1
 		        WHERE t1.to_state IS NOT NULL AND t1.to_state != ''
 		          AND t1.to_state NOT IN (

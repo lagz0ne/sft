@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/lagz0ne/sft/internal/model"
@@ -299,22 +300,6 @@ func exportRegions(regions []show.Region) []yamlRegion {
 	return out
 }
 
-func exportTransitions(transitions []show.Transition) []yamlTransition {
-	if len(transitions) == 0 {
-		return nil
-	}
-	var out []yamlTransition
-	for _, t := range transitions {
-		out = append(out, yamlTransition{
-			On:     t.OnEvent,
-			From:   t.FromState,
-			To:     t.ToState,
-			Action: t.Action,
-		})
-	}
-	return out
-}
-
 // exportStateMachine converts a flat list of transitions into a state_machine yaml.Node.
 // Groups transitions by FromState, producing ordered mappings. Terminal states (appear
 // only as targets) are included as empty mappings.
@@ -328,7 +313,6 @@ func exportStateMachine(transitions []show.Transition) *yaml.Node {
 		event  string
 		to     string
 		action string
-		from   string // needed for "stay" detection
 	}
 	stateOrder := []string{}
 	stateEvents := map[string][]eventEntry{}
@@ -348,7 +332,6 @@ func exportStateMachine(transitions []show.Transition) *yaml.Node {
 			event:  t.OnEvent,
 			to:     t.ToState,
 			action: t.Action,
-			from:   from,
 		})
 		if t.ToState != "" {
 			allTo[t.ToState] = true
@@ -363,7 +346,7 @@ func exportStateMachine(transitions []show.Transition) *yaml.Node {
 		}
 	}
 	// Sort terminal states for deterministic output.
-	sortStrings(terminalStates)
+	slices.Sort(terminalStates)
 
 	// Build the top-level state_machine mapping node.
 	root := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
@@ -379,7 +362,7 @@ func exportStateMachine(transitions []show.Transition) *yaml.Node {
 
 		for _, e := range events {
 			evKey := &yaml.Node{Kind: yaml.ScalarNode, Value: e.event, Tag: "!!str"}
-			evVal := buildTransitionValueNode(e.from, e.to, e.action)
+			evVal := buildTransitionValueNode(stateName, e.to, e.action)
 			onMapping.Content = append(onMapping.Content, evKey, evVal)
 		}
 
@@ -475,15 +458,6 @@ func parseGuardFromAction(action string) (guard, pureAction string) {
 	rest = strings.TrimPrefix(rest, ",")
 	rest = strings.TrimSpace(rest)
 	return guard, rest
-}
-
-// sortStrings sorts a string slice in place.
-func sortStrings(s []string) {
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j] < s[j-1]; j-- {
-			s[j], s[j-1] = s[j-1], s[j]
-		}
-	}
 }
 
 func exportFlows(flows []show.Flow) []yamlFlow {

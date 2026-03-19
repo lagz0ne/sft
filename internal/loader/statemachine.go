@@ -101,11 +101,7 @@ func scalarTransition(fromState, event, value string) model.Transition {
 		return t
 	}
 
-	if value == "." {
-		t.ToState = fromState
-	} else {
-		t.ToState = value
-	}
+	t.ToState = resolveDot(value, fromState)
 	return t
 }
 
@@ -117,11 +113,7 @@ func objectTransition(fromState, event string, node *yaml.Node) model.Transition
 		v := node.Content[i+1].Value
 		switch k {
 		case "to":
-			if v == "." {
-				t.ToState = fromState
-			} else {
-				t.ToState = v
-			}
+			t.ToState = resolveDot(v, fromState)
 		case "action":
 			t.Action = v
 		}
@@ -145,11 +137,7 @@ func guardedTransitions(fromState, event string, node *yaml.Node) ([]model.Trans
 			case "guard":
 				guard = v
 			case "to":
-				if v == "." {
-					t.ToState = fromState
-				} else {
-					t.ToState = v
-				}
+				t.ToState = resolveDot(v, fromState)
 			case "action":
 				action = v
 			}
@@ -170,6 +158,14 @@ func formatGuardAction(guard, action string) string {
 		return g
 	}
 	return g + ", " + action
+}
+
+// resolveDot returns fromState when value is ".", otherwise returns value unchanged.
+func resolveDot(value, fromState string) string {
+	if value == "." {
+		return fromState
+	}
+	return value
 }
 
 // isActionShorthand returns true for `navigate(...)` or `emit(...)` patterns.
