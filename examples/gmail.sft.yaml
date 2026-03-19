@@ -2,6 +2,28 @@ app:
   name: gmail
   description: Google's email client — inbox management, threaded reading, search, and composition
 
+  data:
+    email:
+      subject: string
+      sender: contact
+      date: datetime
+      read: boolean
+      body: string
+      attachments: string[]
+    contact:
+      name: string
+      email: string
+    label:
+      name: string
+      color: string
+    draft:
+      to: string[]
+      subject: string
+      body: string
+
+  context:
+    current_user: contact
+
   regions:
     - name: main_nav
       description: Sidebar with labels, folders, and navigation shortcuts
@@ -17,23 +39,39 @@ app:
       description: Email composition form — survives screen transitions as a floating panel
       tags: [composing, overlay]
       events: [send_email, discard_draft]
+      data:
+        draft: draft
 
   screens:
     - name: inbox
       description: Primary email list with category tabs and optional reading pane
+      context:
+        emails: email[]
+        selected: email[]
+        active_category: string
       regions:
         - name: category_tabs
           description: Primary / Social / Promotions / Updates tab filter
           events: [switch_category]
+          ambient:
+            active: "data(inbox, .active_category)"
         - name: email_list
           description: Scrollable thread list supporting individual and bulk interactions
           events: [select_email, check_email]
+          ambient:
+            emails: "data(inbox, .emails)"
         - name: reading_pane
           description: Inline email preview — only exists when preview pane setting is enabled
           tags: [preview_pane_enabled]
+          ambient:
+            email: "data(inbox, .emails[0])"
         - name: bulk_action_bar
           description: Archive, delete, mark read/unread, move, label — appears in selecting state
           events: [archive_selected, delete_selected]
+          ambient:
+            selected: "data(inbox, .selected)"
+          data:
+            action_label: string
       state_machine:
         browsing:
           on:
@@ -48,12 +86,20 @@ app:
 
     - name: thread_view
       description: Full conversation view with chronological messages and inline reply
+      context:
+        thread: email[]
+        current_email: email
       regions:
         - name: message_list
           description: Chronological message thread with expand/collapse per message
+          ambient:
+            thread: "data(thread_view, .thread)"
         - name: reply_composer
           description: Rich text reply editor embedded at the bottom of the thread
           events: [start_reply, send_reply, discard_reply]
+          data:
+            draft_body: string
+            draft_to: string[]
           state_machine:
             collapsed:
               on:
@@ -80,12 +126,19 @@ app:
 
     - name: search_results
       description: Email results matching a search query with refinement filters
+      context:
+        query: string
+        results: email[]
       regions:
         - name: search_filters
           description: Refine by date, sender, has-attachment, label
+          ambient:
+            query: "data(search_results, .query)"
         - name: result_list
           description: Filtered email threads matching the search query
           events: [select_result]
+          ambient:
+            results: "data(search_results, .results)"
       state_machine:
         browsing:
           on:
@@ -94,10 +147,15 @@ app:
     - name: label_view
       description: Emails filtered by a user-created or system label
       tags: [per_label]
+      context:
+        label: label
+        emails: email[]
       regions:
         - name: label_email_list
           description: Thread list scoped to the selected label
           events: [select_email]
+          ambient:
+            emails: "data(label_view, .emails)"
       state_machine:
         browsing:
           on:
