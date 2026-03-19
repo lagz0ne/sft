@@ -120,6 +120,25 @@ CREATE TABLE IF NOT EXISTS region_data (
   UNIQUE(region_id, field_name)
 );
 
+-- Fixtures (Phase 3)
+CREATE TABLE IF NOT EXISTS fixtures (
+  id      INTEGER PRIMARY KEY,
+  app_id  INTEGER NOT NULL REFERENCES apps(id),
+  name    TEXT NOT NULL,
+  extends TEXT,
+  data    TEXT NOT NULL DEFAULT '{}',
+  UNIQUE(app_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS state_fixtures (
+  id         INTEGER PRIMARY KEY,
+  owner_type TEXT NOT NULL CHECK(owner_type IN ('app','screen','region')),
+  owner_id   INTEGER NOT NULL,
+  state_name TEXT NOT NULL,
+  fixture_name TEXT NOT NULL,
+  UNIQUE(owner_type, owner_id, state_name)
+);
+
 -- Cross-cutting views
 CREATE VIEW IF NOT EXISTS event_index AS
 SELECT

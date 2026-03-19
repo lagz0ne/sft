@@ -35,7 +35,7 @@ start:
   on:
     click: selecting
 `)
-	ts, states, err := ParseStateMachine(*node)
+	ts, states, _, err := ParseStateMachine(*node)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ idle:
   on:
     tick: .
 `)
-	ts, _, err := ParseStateMachine(*node)
+	ts, _, _, err := ParseStateMachine(*node)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ viewing:
   on:
     select_email: navigate(thread_view)
 `)
-	ts, _, err := ParseStateMachine(*node)
+	ts, _, _, err := ParseStateMachine(*node)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ active:
   on:
     done: emit(completed)
 `)
-	ts, _, err := ParseStateMachine(*node)
+	ts, _, _, err := ParseStateMachine(*node)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ open:
   on:
     send_reply: { to: collapsed, action: "emit(reply_sent)" }
 `)
-	ts, _, err := ParseStateMachine(*node)
+	ts, _, _, err := ParseStateMachine(*node)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ editing:
   on:
     save: { to: ., action: "emit(saved)" }
 `)
-	ts, _, err := ParseStateMachine(*node)
+	ts, _, _, err := ParseStateMachine(*node)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ form:
       - { guard: "valid", to: saving }
       - { guard: "invalid", to: . }
 `)
-	ts, _, err := ParseStateMachine(*node)
+	ts, _, _, err := ParseStateMachine(*node)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ review:
     approve:
       - { guard: "authorized", to: approved, action: "emit(approved)" }
 `)
-	ts, _, err := ParseStateMachine(*node)
+	ts, _, _, err := ParseStateMachine(*node)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ start:
     go: done
 done: {}
 `)
-	ts, states, err := ParseStateMachine(*node)
+	ts, states, _, err := ParseStateMachine(*node)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ beta:
   on:
     back: alpha
 `)
-	_, states, err := ParseStateMachine(*node)
+	_, states, _, err := ParseStateMachine(*node)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ selecting:
     pick: viewing
 empty: {}
 `)
-	ts, states, err := ParseStateMachine(*node)
+	ts, states, _, err := ParseStateMachine(*node)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +355,7 @@ func TestEmptyOnBlock(t *testing.T) {
 idle:
   on: {}
 `)
-	ts, states, err := ParseStateMachine(*node)
+	ts, states, _, err := ParseStateMachine(*node)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +372,7 @@ func TestMissingOnKey(t *testing.T) {
 idle:
   description: some state without on
 `)
-	ts, states, err := ParseStateMachine(*node)
+	ts, states, _, err := ParseStateMachine(*node)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,7 +391,7 @@ start:
     go: next
 next:
 `)
-	ts, states, err := ParseStateMachine(*node)
+	ts, states, _, err := ParseStateMachine(*node)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +411,7 @@ func TestNotMappingNode(t *testing.T) {
 	if err := yaml.Unmarshal([]byte("- a\n- b"), &doc); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := ParseStateMachine(*doc.Content[0])
+	_, _, _, err := ParseStateMachine(*doc.Content[0])
 	if err == nil {
 		t.Error("expected error for non-mapping node")
 	}

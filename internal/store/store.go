@@ -353,6 +353,28 @@ func (s *Store) InsertFlowStep(fs *model.FlowStep) error {
 	return nil
 }
 
+// --- Phase 3: Fixture inserts ---
+
+func (s *Store) InsertFixture(f *model.Fixture) error {
+	res, err := s.DB.Exec("INSERT INTO fixtures (app_id, name, extends, data) VALUES (?, ?, ?, ?)",
+		f.AppID, f.Name, f.Extends, f.Data)
+	if err != nil {
+		return err
+	}
+	f.ID, _ = res.LastInsertId()
+	return nil
+}
+
+func (s *Store) InsertStateFixture(sf *model.StateFixture) error {
+	res, err := s.DB.Exec("INSERT INTO state_fixtures (owner_type, owner_id, state_name, fixture_name) VALUES (?, ?, ?, ?)",
+		sf.OwnerType, sf.OwnerID, sf.StateName, sf.FixtureName)
+	if err != nil {
+		return err
+	}
+	sf.ID, _ = res.LastInsertId()
+	return nil
+}
+
 // --- Phase 2: Data model inserts ---
 
 func (s *Store) InsertDataType(dt *model.DataType) error {

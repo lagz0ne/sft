@@ -65,6 +65,24 @@ type FlowStep struct {
 	Data     string `json:"data,omitempty"`
 }
 
+// Phase 3: Fixtures
+
+type Fixture struct {
+	ID      int64  `json:"id"`
+	AppID   int64  `json:"app_id"`
+	Name    string `json:"name"`
+	Extends string `json:"extends,omitempty"`
+	Data    string `json:"data"`
+}
+
+type StateFixture struct {
+	ID          int64  `json:"id"`
+	OwnerType   string `json:"owner_type"`
+	OwnerID     int64  `json:"owner_id"`
+	StateName   string `json:"state_name"`
+	FixtureName string `json:"fixture_name"`
+}
+
 // Phase 2: Data model types
 
 type DataType struct {

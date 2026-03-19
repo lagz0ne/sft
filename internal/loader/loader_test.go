@@ -2,6 +2,7 @@ package loader
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"os"
 	"strings"
@@ -775,6 +776,166 @@ func TestDataModelRoundTrip(t *testing.T) {
 	s2.DB.QueryRow("SELECT COUNT(*) FROM ambient_refs").Scan(&count)
 	if count != 2 {
 		t.Errorf("round-trip ambient_refs: got %d, want 2", count)
+	}
+}
+
+const testFixtureYAML = `app:
+  name: test_app
+  description: test
+  screens:
+    - name: inbox
+      description: email list
+      regions:
+        - name: email_list
+          description: list
+          events: [select_email]
+      state_machine:
+        start:
+          fixture: inbox_full
+          on:
+            select_email: selecting
+        selecting:
+          fixture: inbox_selecting
+          on:
+            escape: start
+        empty:
+          fixture: inbox_empty
+  fixtures:
+    inbox_full:
+      inbox:
+        emails:
+          - { subject: "Welcome", read: false }
+        selected: []
+    inbox_empty:
+      inbox:
+        emails: []
+        selected: []
+    inbox_selecting:
+      extends: inbox_full
+      inbox:
+        selected:
+          - { subject: "Welcome" }
+`
+
+func TestFixtureImport(t *testing.T) {
+	s := mustStore(t)
+	importYAML(t, s, testFixtureYAML)
+
+	var count int
+	s.DB.QueryRow("SELECT COUNT(*) FROM fixtures").Scan(&count)
+	if count != 3 {
+		t.Errorf("fixtures: got %d, want 3", count)
+	}
+
+	// Check extends
+	var extends sql.NullString
+	s.DB.QueryRow("SELECT extends FROM fixtures WHERE name = 'inbox_selecting'").Scan(&extends)
+	if !extends.Valid || extends.String != "inbox_full" {
+		t.Errorf("extends = %v, want inbox_full", extends)
+	}
+
+	// Check data is valid JSON
+	var data string
+	s.DB.QueryRow("SELECT data FROM fixtures WHERE name = 'inbox_full'").Scan(&data)
+	var parsed interface{}
+	if err := json.Unmarshal([]byte(data), &parsed); err != nil {
+		t.Errorf("fixture data is not valid JSON: %v", err)
+	}
+}
+
+func TestStateFixtureBinding(t *testing.T) {
+	s := mustStore(t)
+	importYAML(t, s, testFixtureYAML)
+
+	var count int
+	s.DB.QueryRow("SELECT COUNT(*) FROM state_fixtures").Scan(&count)
+	if count != 3 {
+		t.Errorf("state_fixtures: got %d, want 3", count)
+	}
+
+	var fixtureName string
+	s.DB.QueryRow("SELECT fixture_name FROM state_fixtures WHERE state_name = 'start'").Scan(&fixtureName)
+	if fixtureName != "inbox_full" {
+		t.Errorf("start fixture = %q, want inbox_full", fixtureName)
+	}
+
+	s.DB.QueryRow("SELECT fixture_name FROM state_fixtures WHERE state_name = 'selecting'").Scan(&fixtureName)
+	if fixtureName != "inbox_selecting" {
+		t.Errorf("selecting fixture = %q, want inbox_selecting", fixtureName)
+	}
+
+	s.DB.QueryRow("SELECT fixture_name FROM state_fixtures WHERE state_name = 'empty'").Scan(&fixtureName)
+	if fixtureName != "inbox_empty" {
+		t.Errorf("empty fixture = %q, want inbox_empty", fixtureName)
+	}
+}
+
+func TestFixtureShow(t *testing.T) {
+	s := mustStore(t)
+	importYAML(t, s, testFixtureYAML)
+	spec := loadSpec(t, s)
+
+	if len(spec.Fixtures) != 3 {
+		t.Fatalf("fixtures: got %d, want 3", len(spec.Fixtures))
+	}
+
+	// Check state fixtures loaded on screen
+	inbox := spec.Screens[0]
+	if len(inbox.StateFixtures) != 3 {
+		t.Errorf("screen state_fixtures: got %d, want 3", len(inbox.StateFixtures))
+	}
+	if inbox.StateFixtures["start"] != "inbox_full" {
+		t.Errorf("start fixture = %q, want inbox_full", inbox.StateFixtures["start"])
+	}
+}
+
+func TestFixtureRoundTrip(t *testing.T) {
+	s1 := mustStore(t)
+	importYAML(t, s1, testFixtureYAML)
+	spec1 := loadSpec(t, s1)
+
+	if len(spec1.Fixtures) != 3 {
+		t.Fatalf("fixtures: got %d, want 3", len(spec1.Fixtures))
+	}
+
+	var buf bytes.Buffer
+	Export(spec1, &buf)
+	exported := buf.String()
+
+	if !strings.Contains(exported, "fixtures:") {
+		t.Error("export missing fixtures:")
+	}
+	if !strings.Contains(exported, "inbox_full:") {
+		t.Error("export missing inbox_full fixture")
+	}
+	if !strings.Contains(exported, "extends: inbox_full") {
+		t.Error("export missing extends: inbox_full")
+	}
+
+	// Verify fixture: appears in state_machine export
+	if !strings.Contains(exported, "fixture: inbox_full") {
+		t.Error("export missing fixture: inbox_full in state_machine")
+	}
+
+	// Re-import
+	s2 := mustStore(t)
+	importYAML(t, s2, buf.String())
+	var count int
+	s2.DB.QueryRow("SELECT COUNT(*) FROM fixtures").Scan(&count)
+	if count != 3 {
+		t.Errorf("round-trip fixtures: got %d, want 3", count)
+	}
+
+	// Verify state fixtures survive round-trip
+	s2.DB.QueryRow("SELECT COUNT(*) FROM state_fixtures").Scan(&count)
+	if count != 3 {
+		t.Errorf("round-trip state_fixtures: got %d, want 3", count)
+	}
+
+	var fixtureName string
+	s2.DB.QueryRow("SELECT fixture_name FROM state_fixtures WHERE state_name = 'start'").Scan(&fixtureName)
+	if fixtureName != "inbox_full" {
+		t.Errorf("round-trip start fixture = %q, want inbox_full", fixtureName)
 	}
 }
 

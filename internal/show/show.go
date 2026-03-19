@@ -13,9 +13,16 @@ import (
 // --- Spec tree types (nested, not flat tables) ---
 
 type Spec struct {
-	App     App      `json:"app"`
-	Screens []Screen `json:"screens"`
-	Flows   []Flow   `json:"flows,omitempty"`
+	App      App       `json:"app"`
+	Screens  []Screen  `json:"screens"`
+	Flows    []Flow    `json:"flows,omitempty"`
+	Fixtures []Fixture `json:"fixtures,omitempty"`
+}
+
+type Fixture struct {
+	Name    string      `json:"name"`
+	Extends string      `json:"extends,omitempty"`
+	Data    interface{} `json:"data"`
 }
 
 type App struct {
@@ -38,6 +45,7 @@ type Screen struct {
 	ComponentVis   string            `json:"component_visible,omitempty"` // [F5]
 	Regions        []Region          `json:"regions,omitempty"`
 	Transitions    []Transition      `json:"transitions,omitempty"`
+	StateFixtures  map[string]string `json:"state_fixtures,omitempty"`
 	Attachments    []string          `json:"attachments,omitempty"`
 }
 
@@ -54,6 +62,7 @@ type Region struct {
 	RegionData     map[string]string `json:"region_data,omitempty"`
 	Regions        []Region          `json:"regions,omitempty"`
 	Transitions    []Transition      `json:"transitions,omitempty"`
+	StateFixtures  map[string]string `json:"state_fixtures,omitempty"`
 	Attachments    []string          `json:"attachments,omitempty"`
 }
 
@@ -111,6 +120,7 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 		s.Context = loadContext(db, "screen", id)
 		s.Regions = loadRegions(db, "screen", id, al)
 		s.Transitions = loadTransitions(db, "screen", id)
+		s.StateFixtures = loadStateFixtures(db, "screen", id)
 		if al != nil {
 			s.Attachments = al.AttachmentsFor(s.Name)
 			s.Component = al.ComponentFor("screen", id)
@@ -138,6 +148,9 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 		f.OnEvent = onEvent.String
 		spec.Flows = append(spec.Flows, f)
 	}
+
+	// Fixtures
+	spec.Fixtures = loadFixtures(db, appID)
 
 	return spec, nil
 }
@@ -175,6 +188,7 @@ func loadRegions(db *sql.DB, parentType string, parentID int64, al Enricher) []R
 		r.RegionData = loadRegionData(db, id)
 		r.Regions = loadRegions(db, "region", id, al) // recurse
 		r.Transitions = loadTransitions(db, "region", id)
+		r.StateFixtures = loadStateFixtures(db, "region", id)
 		if al != nil {
 			r.Attachments = al.AttachmentsFor(r.Name)
 			r.Component = al.ComponentFor("region", id)
@@ -292,6 +306,44 @@ func loadRegionData(db *sql.DB, regionID int64) map[string]string {
 		var name, typ string
 		rows.Scan(&name, &typ)
 		result[name] = typ
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func loadFixtures(db *sql.DB, appID int64) []Fixture {
+	rows, _ := db.Query("SELECT name, extends, data FROM fixtures WHERE app_id = ? ORDER BY id", appID)
+	if rows == nil {
+		return nil
+	}
+	defer rows.Close()
+	var fixtures []Fixture
+	for rows.Next() {
+		var f Fixture
+		var extends sql.NullString
+		var dataJSON string
+		rows.Scan(&f.Name, &extends, &dataJSON)
+		f.Extends = extends.String
+		json.Unmarshal([]byte(dataJSON), &f.Data)
+		fixtures = append(fixtures, f)
+	}
+	return fixtures
+}
+
+func loadStateFixtures(db *sql.DB, ownerType string, ownerID int64) map[string]string {
+	rows, _ := db.Query("SELECT state_name, fixture_name FROM state_fixtures WHERE owner_type = ? AND owner_id = ? ORDER BY state_name",
+		ownerType, ownerID)
+	if rows == nil {
+		return nil
+	}
+	defer rows.Close()
+	result := map[string]string{}
+	for rows.Next() {
+		var stateName, fixtureName string
+		rows.Scan(&stateName, &fixtureName)
+		result[stateName] = fixtureName
 	}
 	if len(result) == 0 {
 		return nil

@@ -28,6 +28,7 @@ type yamlApp struct {
 	Regions     []yamlRegion                 `yaml:"regions,omitempty"`
 	Screens     []yamlScreen                 `yaml:"screens,omitempty"`
 	Flows       []yamlFlow                   `yaml:"flows,omitempty"`
+	Fixtures    yaml.Node                    `yaml:"fixtures,omitempty"`
 }
 
 type yamlScreen struct {
@@ -186,6 +187,50 @@ func Load(s *store.Store, path string) error {
 		}
 	}
 
+	// Fixtures
+	if app.Fixtures.Kind == yaml.MappingNode {
+		if err := loadFixtures(s, a.ID, &app.Fixtures); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func loadFixtures(s *store.Store, appID int64, node *yaml.Node) error {
+	for i := 0; i < len(node.Content)-1; i += 2 {
+		name := node.Content[i].Value
+		def := node.Content[i+1]
+
+		extends := ""
+		dataNode := &yaml.Node{Kind: yaml.MappingNode}
+
+		if def.Kind == yaml.MappingNode {
+			for j := 0; j < len(def.Content)-1; j += 2 {
+				key := def.Content[j].Value
+				if key == "extends" {
+					extends = def.Content[j+1].Value
+				} else {
+					dataNode.Content = append(dataNode.Content, def.Content[j], def.Content[j+1])
+				}
+			}
+		}
+
+		var dataMap interface{}
+		if err := dataNode.Decode(&dataMap); err != nil {
+			return fmt.Errorf("fixture %s: decode data: %w", name, err)
+		}
+		dataJSON, err := json.Marshal(dataMap)
+		if err != nil {
+			return fmt.Errorf("fixture %s: marshal data: %w", name, err)
+		}
+
+		if err := s.InsertFixture(&model.Fixture{
+			AppID: appID, Name: name, Extends: extends, Data: string(dataJSON),
+		}); err != nil {
+			return fmt.Errorf("fixture %s: %w", name, err)
+		}
+	}
 	return nil
 }
 
@@ -251,7 +296,7 @@ func insertTransitions(s *store.Store, ownerType string, ownerID int64, ownerNam
 	}
 
 	if hasStateMachine {
-		transitions, _, err := ParseStateMachine(*stateMachine)
+		transitions, _, stateFixtures, err := ParseStateMachine(*stateMachine)
 		if err != nil {
 			return fmt.Errorf("state_machine in %s %s: %w", ownerType, ownerName, err)
 		}
@@ -260,6 +305,15 @@ func insertTransitions(s *store.Store, ownerType string, ownerID int64, ownerNam
 			t.OwnerID = ownerID
 			if err := s.InsertTransition(&t); err != nil {
 				return fmt.Errorf("transition on %s in %s %s: %w", t.OnEvent, ownerType, ownerName, err)
+			}
+		}
+		// Insert state → fixture bindings
+		for stateName, fixtureName := range stateFixtures {
+			if err := s.InsertStateFixture(&model.StateFixture{
+				OwnerType: ownerType, OwnerID: ownerID,
+				StateName: stateName, FixtureName: fixtureName,
+			}); err != nil {
+				return fmt.Errorf("state fixture %s→%s in %s %s: %w", stateName, fixtureName, ownerType, ownerName, err)
 			}
 		}
 		return nil
@@ -300,6 +354,7 @@ func Export(spec *show.Spec, w io.Writer) error {
 		Regions:     exportRegions(spec.App.Regions),
 		Screens:     exportScreens(spec.Screens),
 		Flows:       exportFlows(spec.Flows),
+		Fixtures:    exportFixtures(spec.Fixtures),
 	}
 	out := struct {
 		App yamlApp `yaml:"app"`
@@ -330,7 +385,7 @@ func exportScreens(screens []show.Screen) []yamlScreen {
 			Visible:     s.ComponentVis,
 			Regions:     exportRegions(s.Regions),
 		}
-		if sm := exportStateMachine(s.Transitions); sm != nil {
+		if sm := exportStateMachine(s.Transitions, s.StateFixtures); sm != nil {
 			ys.StateMachine = *sm
 		}
 		out = append(out, ys)
@@ -357,7 +412,7 @@ func exportRegions(regions []show.Region) []yamlRegion {
 			Data:        r.RegionData,
 			Regions:     exportRegions(r.Regions),
 		}
-		if sm := exportStateMachine(r.Transitions); sm != nil {
+		if sm := exportStateMachine(r.Transitions, r.StateFixtures); sm != nil {
 			yr.StateMachine = *sm
 		}
 		out = append(out, yr)
@@ -367,9 +422,9 @@ func exportRegions(regions []show.Region) []yamlRegion {
 
 // exportStateMachine converts a flat list of transitions into a state_machine yaml.Node.
 // Groups transitions by FromState, producing ordered mappings. Terminal states (appear
-// only as targets) are included as empty mappings.
-func exportStateMachine(transitions []show.Transition) *yaml.Node {
-	if len(transitions) == 0 {
+// only as targets) are included as empty mappings. State fixtures are included as fixture: keys.
+func exportStateMachine(transitions []show.Transition, stateFixtures map[string]string) *yaml.Node {
+	if len(transitions) == 0 && len(stateFixtures) == 0 {
 		return nil
 	}
 
@@ -405,11 +460,24 @@ func exportStateMachine(transitions []show.Transition) *yaml.Node {
 
 	// Find terminal states: appear as to but never as from.
 	var terminalStates []string
+	seenTerminal := map[string]bool{}
 	for s := range allTo {
 		if !seenFrom[s] {
 			terminalStates = append(terminalStates, s)
+			seenTerminal[s] = true
 		}
 	}
+
+	// Include fixture-only states that aren't in stateOrder or terminalStates.
+	var fixtureOnlyStates []string
+	for s := range stateFixtures {
+		if !seenFrom[s] && !seenTerminal[s] {
+			fixtureOnlyStates = append(fixtureOnlyStates, s)
+		}
+	}
+	slices.Sort(fixtureOnlyStates)
+	terminalStates = append(terminalStates, fixtureOnlyStates...)
+
 	// Sort terminal states for deterministic output.
 	slices.Sort(terminalStates)
 
@@ -431,18 +499,30 @@ func exportStateMachine(transitions []show.Transition) *yaml.Node {
 			onMapping.Content = append(onMapping.Content, evKey, evVal)
 		}
 
-		// State value: mapping with "on" key.
+		// State value: mapping with optional "fixture" and "on" keys.
 		stateVal := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		if fixtureName, ok := stateFixtures[stateName]; ok {
+			stateVal.Content = append(stateVal.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Value: "fixture", Tag: "!!str"},
+				&yaml.Node{Kind: yaml.ScalarNode, Value: fixtureName, Tag: "!!str"},
+			)
+		}
 		onKey := &yaml.Node{Kind: yaml.ScalarNode, Value: "on", Tag: "!!str"}
 		stateVal.Content = append(stateVal.Content, onKey, onMapping)
 
 		root.Content = append(root.Content, keyNode, stateVal)
 	}
 
-	// Add terminal states as empty mappings.
+	// Add terminal states as empty mappings (with optional fixture).
 	for _, s := range terminalStates {
 		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Value: s, Tag: "!!str"}
 		valNode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		if fixtureName, ok := stateFixtures[s]; ok {
+			valNode.Content = append(valNode.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Value: "fixture", Tag: "!!str"},
+				&yaml.Node{Kind: yaml.ScalarNode, Value: fixtureName, Tag: "!!str"},
+			)
+		}
 		root.Content = append(root.Content, keyNode, valNode)
 	}
 
@@ -523,6 +603,44 @@ func parseGuardFromAction(action string) (guard, pureAction string) {
 	rest = strings.TrimPrefix(rest, ",")
 	rest = strings.TrimSpace(rest)
 	return guard, rest
+}
+
+func exportFixtures(fixtures []show.Fixture) yaml.Node {
+	if len(fixtures) == 0 {
+		return yaml.Node{}
+	}
+	root := yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	for _, f := range fixtures {
+		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Value: f.Name, Tag: "!!str"}
+
+		// Build fixture value mapping
+		valNode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+
+		if f.Extends != "" {
+			valNode.Content = append(valNode.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Value: "extends", Tag: "!!str"},
+				&yaml.Node{Kind: yaml.ScalarNode, Value: f.Extends, Tag: "!!str"},
+			)
+		}
+
+		// Marshal data back to yaml.Node
+		if f.Data != nil {
+			var dataNode yaml.Node
+			dataBytes, _ := json.Marshal(f.Data)
+			// Unmarshal JSON to interface then encode to yaml.Node
+			var dataMap interface{}
+			json.Unmarshal(dataBytes, &dataMap)
+			if err := dataNode.Encode(dataMap); err == nil && dataNode.Kind == yaml.DocumentNode && len(dataNode.Content) > 0 {
+				inner := dataNode.Content[0]
+				if inner.Kind == yaml.MappingNode {
+					valNode.Content = append(valNode.Content, inner.Content...)
+				}
+			}
+		}
+
+		root.Content = append(root.Content, keyNode, valNode)
+	}
+	return root
 }
 
 func exportFlows(flows []show.Flow) []yamlFlow {
