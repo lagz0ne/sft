@@ -356,6 +356,81 @@ var rules = []rule{
 			return findings, nil
 		},
 	},
+	// Undefined data type — context or region_data field_type references a type not in data_types
+	{
+		id:       "undefined-data-type",
+		severity: Error,
+		query: `SELECT 'context' AS source, c.field_name, c.field_type,
+		          CASE c.owner_type
+		            WHEN 'app' THEN (SELECT a.name FROM apps a WHERE a.id = c.owner_id)
+		            WHEN 'screen' THEN (SELECT s.name FROM screens s WHERE s.id = c.owner_id)
+		          END AS owner_name
+		        FROM contexts c
+		        WHERE REPLACE(c.field_type, '[]', '') NOT IN ('string', 'number', 'boolean', 'datetime')
+		          AND REPLACE(c.field_type, '[]', '') NOT IN (SELECT dt.name FROM data_types dt)
+		        UNION ALL
+		        SELECT 'region_data' AS source, rd.field_name, rd.field_type,
+		          (SELECT r.name FROM regions r WHERE r.id = rd.region_id) AS owner_name
+		        FROM region_data rd
+		        WHERE REPLACE(rd.field_type, '[]', '') NOT IN ('string', 'number', 'boolean', 'datetime')
+		          AND REPLACE(rd.field_type, '[]', '') NOT IN (SELECT dt.name FROM data_types dt)`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var findings []Finding
+			for rows.Next() {
+				var source, fieldName, fieldType string
+				var ownerName sql.NullString
+				if err := rows.Scan(&source, &fieldName, &fieldType, &ownerName); err != nil {
+					return nil, err
+				}
+				findings = append(findings, Finding{
+					Rule:     "undefined-data-type",
+					Severity: Error,
+					Message:  fmt.Sprintf("%s field %q has undefined type %q in %s", source, fieldName, fieldType, ns(ownerName)),
+				})
+			}
+			return findings, nil
+		},
+	},
+	// Invalid ambient path — ambient ref source must be "app" or a valid screen name, query must start with "."
+	{
+		id:       "invalid-ambient-path",
+		severity: Error,
+		query: `SELECT ar.local_name, ar.source, ar.query,
+		          (SELECT r.name FROM regions r WHERE r.id = ar.region_id) AS region_name,
+		          'bad-source' AS reason
+		        FROM ambient_refs ar
+		        WHERE ar.source != 'app'
+		          AND ar.source NOT IN (SELECT s.name FROM screens s)
+		        UNION ALL
+		        SELECT ar.local_name, ar.source, ar.query,
+		          (SELECT r.name FROM regions r WHERE r.id = ar.region_id) AS region_name,
+		          'bad-query' AS reason
+		        FROM ambient_refs ar
+		        WHERE ar.query NOT LIKE '.%'`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var findings []Finding
+			for rows.Next() {
+				var localName, source, query string
+				var regionName sql.NullString
+				var reason string
+				if err := rows.Scan(&localName, &source, &query, &regionName, &reason); err != nil {
+					return nil, err
+				}
+				var msg string
+				if reason == "bad-source" {
+					msg = fmt.Sprintf("ambient ref %q in %s has invalid source %q (not 'app' or a screen name)", localName, ns(regionName), source)
+				} else {
+					msg = fmt.Sprintf("ambient ref %q in %s has query %q that doesn't start with '.'", localName, ns(regionName), query)
+				}
+				findings = append(findings, Finding{
+					Rule:     "invalid-ambient-path",
+					Severity: Error,
+					Message:  msg,
+				})
+			}
+			return findings, nil
+		},
+	},
 }
 
 func ns(s sql.NullString) string {
