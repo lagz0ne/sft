@@ -85,6 +85,41 @@ CREATE TABLE IF NOT EXISTS attachments (
   UNIQUE(entity, name)
 );
 
+-- Data model (Phase 2)
+CREATE TABLE IF NOT EXISTS data_types (
+  id      INTEGER PRIMARY KEY,
+  app_id  INTEGER NOT NULL REFERENCES apps(id),
+  name    TEXT NOT NULL,
+  fields  TEXT NOT NULL DEFAULT '{}',
+  UNIQUE(app_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS contexts (
+  id          INTEGER PRIMARY KEY,
+  owner_type  TEXT NOT NULL CHECK(owner_type IN ('app','screen')),
+  owner_id    INTEGER NOT NULL,
+  field_name  TEXT NOT NULL,
+  field_type  TEXT NOT NULL,
+  UNIQUE(owner_type, owner_id, field_name)
+);
+
+CREATE TABLE IF NOT EXISTS ambient_refs (
+  id          INTEGER PRIMARY KEY,
+  region_id   INTEGER NOT NULL REFERENCES regions(id),
+  local_name  TEXT NOT NULL,
+  source      TEXT NOT NULL,
+  query       TEXT NOT NULL,
+  UNIQUE(region_id, local_name)
+);
+
+CREATE TABLE IF NOT EXISTS region_data (
+  id          INTEGER PRIMARY KEY,
+  region_id   INTEGER NOT NULL REFERENCES regions(id),
+  field_name  TEXT NOT NULL,
+  field_type  TEXT NOT NULL,
+  UNIQUE(region_id, field_name)
+);
+
 -- Cross-cutting views
 CREATE VIEW IF NOT EXISTS event_index AS
 SELECT

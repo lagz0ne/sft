@@ -159,6 +159,105 @@ func TestIsEvent(t *testing.T) {
 	}
 }
 
+func TestInsertDataType(t *testing.T) {
+	s := mustOpen(t)
+	a := seedApp(t, s)
+
+	dt := &model.DataType{AppID: a.ID, Name: "email", Fields: `{"subject":"string","sender":"contact","read":"boolean"}`}
+	if err := s.InsertDataType(dt); err != nil {
+		t.Fatal(err)
+	}
+	if dt.ID == 0 {
+		t.Error("expected non-zero ID")
+	}
+
+	// Duplicate name should fail (unique constraint)
+	dt2 := &model.DataType{AppID: a.ID, Name: "email", Fields: `{}`}
+	if err := s.InsertDataType(dt2); err == nil {
+		t.Error("expected unique constraint error for duplicate data_type name")
+	}
+}
+
+func TestInsertContextField(t *testing.T) {
+	s := mustOpen(t)
+	a := seedApp(t, s)
+
+	sc := &model.Screen{AppID: a.ID, Name: "Inbox", Description: "inbox"}
+	if err := s.InsertScreen(sc); err != nil {
+		t.Fatal(err)
+	}
+
+	cf := &model.ContextField{OwnerType: "screen", OwnerID: sc.ID, FieldName: "emails", FieldType: "email[]"}
+	if err := s.InsertContextField(cf); err != nil {
+		t.Fatal(err)
+	}
+	if cf.ID == 0 {
+		t.Error("expected non-zero ID")
+	}
+
+	// Duplicate field_name in same owner should fail
+	cf2 := &model.ContextField{OwnerType: "screen", OwnerID: sc.ID, FieldName: "emails", FieldType: "string"}
+	if err := s.InsertContextField(cf2); err == nil {
+		t.Error("expected unique constraint error for duplicate context field")
+	}
+}
+
+func TestInsertAmbientRef(t *testing.T) {
+	s := mustOpen(t)
+	a := seedApp(t, s)
+
+	sc := &model.Screen{AppID: a.ID, Name: "Inbox", Description: "inbox"}
+	if err := s.InsertScreen(sc); err != nil {
+		t.Fatal(err)
+	}
+	r := &model.Region{AppID: a.ID, ParentType: "screen", ParentID: sc.ID, Name: "EmailList", Description: "list"}
+	if err := s.InsertRegion(r); err != nil {
+		t.Fatal(err)
+	}
+
+	ar := &model.AmbientRef{RegionID: r.ID, LocalName: "emails", Source: "inbox", Query: ".emails"}
+	if err := s.InsertAmbientRef(ar); err != nil {
+		t.Fatal(err)
+	}
+	if ar.ID == 0 {
+		t.Error("expected non-zero ID")
+	}
+
+	// Duplicate local_name in same region should fail
+	ar2 := &model.AmbientRef{RegionID: r.ID, LocalName: "emails", Source: "other", Query: ".other"}
+	if err := s.InsertAmbientRef(ar2); err == nil {
+		t.Error("expected unique constraint error for duplicate ambient ref")
+	}
+}
+
+func TestInsertRegionData(t *testing.T) {
+	s := mustOpen(t)
+	a := seedApp(t, s)
+
+	sc := &model.Screen{AppID: a.ID, Name: "Inbox", Description: "inbox"}
+	if err := s.InsertScreen(sc); err != nil {
+		t.Fatal(err)
+	}
+	r := &model.Region{AppID: a.ID, ParentType: "screen", ParentID: sc.ID, Name: "EmailList", Description: "list"}
+	if err := s.InsertRegion(r); err != nil {
+		t.Fatal(err)
+	}
+
+	rd := &model.RegionData{RegionID: r.ID, FieldName: "selected_id", FieldType: "number"}
+	if err := s.InsertRegionData(rd); err != nil {
+		t.Fatal(err)
+	}
+	if rd.ID == 0 {
+		t.Error("expected non-zero ID")
+	}
+
+	// Duplicate field_name in same region should fail
+	rd2 := &model.RegionData{RegionID: r.ID, FieldName: "selected_id", FieldType: "string"}
+	if err := s.InsertRegionData(rd2); err == nil {
+		t.Error("expected unique constraint error for duplicate region data field")
+	}
+}
+
 func TestSetAndGetComponent(t *testing.T) {
 	s := mustOpen(t)
 	a := seedApp(t, s)

@@ -353,6 +353,48 @@ func (s *Store) InsertFlowStep(fs *model.FlowStep) error {
 	return nil
 }
 
+// --- Phase 2: Data model inserts ---
+
+func (s *Store) InsertDataType(dt *model.DataType) error {
+	res, err := s.DB.Exec("INSERT INTO data_types (app_id, name, fields) VALUES (?, ?, ?)",
+		dt.AppID, dt.Name, dt.Fields)
+	if err != nil {
+		return err
+	}
+	dt.ID, _ = res.LastInsertId()
+	return nil
+}
+
+func (s *Store) InsertContextField(cf *model.ContextField) error {
+	res, err := s.DB.Exec("INSERT INTO contexts (owner_type, owner_id, field_name, field_type) VALUES (?, ?, ?, ?)",
+		cf.OwnerType, cf.OwnerID, cf.FieldName, cf.FieldType)
+	if err != nil {
+		return err
+	}
+	cf.ID, _ = res.LastInsertId()
+	return nil
+}
+
+func (s *Store) InsertAmbientRef(ar *model.AmbientRef) error {
+	res, err := s.DB.Exec("INSERT INTO ambient_refs (region_id, local_name, source, query) VALUES (?, ?, ?, ?)",
+		ar.RegionID, ar.LocalName, ar.Source, ar.Query)
+	if err != nil {
+		return err
+	}
+	ar.ID, _ = res.LastInsertId()
+	return nil
+}
+
+func (s *Store) InsertRegionData(rd *model.RegionData) error {
+	res, err := s.DB.Exec("INSERT INTO region_data (region_id, field_name, field_type) VALUES (?, ?, ?)",
+		rd.RegionID, rd.FieldName, rd.FieldType)
+	if err != nil {
+		return err
+	}
+	rd.ID, _ = res.LastInsertId()
+	return nil
+}
+
 // --- Update helpers [H6 fix] ---
 
 func (s *Store) UpdateScreen(name, newDesc string) error {
