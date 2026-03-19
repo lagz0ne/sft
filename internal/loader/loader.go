@@ -224,7 +224,7 @@ func loadFixtures(s *store.Store, appID int64, node *yaml.Node) error {
 			}
 		}
 
-		var dataMap interface{}
+		var dataMap any
 		if err := dataNode.Decode(&dataMap); err != nil {
 			return fmt.Errorf("fixture %s: decode data: %w", name, err)
 		}
@@ -354,8 +354,8 @@ func loadStateTemplates(s *store.Store, appID int64, node *yaml.Node) error {
 		name := node.Content[i].Value
 		def := node.Content[i+1]
 
-		// Serialize the template definition as JSON via yaml → interface{} → json
-		var defMap interface{}
+		// Serialize the template definition as JSON via yaml → any → json
+		var defMap any
 		if err := def.Decode(&defMap); err != nil {
 			return fmt.Errorf("state template %s: %w", name, err)
 		}
@@ -375,13 +375,11 @@ func loadStateTemplates(s *store.Store, appID int64, node *yaml.Node) error {
 
 // findKeyValue returns the scalar value for a key in a MappingNode, or "".
 func findKeyValue(node *yaml.Node, key string) string {
-	if node == nil || node.Kind != yaml.MappingNode {
+	if node == nil {
 		return ""
 	}
-	for i := 0; i < len(node.Content)-1; i += 2 {
-		if node.Content[i].Value == key {
-			return node.Content[i+1].Value
-		}
+	if v := findKey(node, key); v != nil {
+		return v.Value
 	}
 	return ""
 }
@@ -395,8 +393,8 @@ func mergeWithTemplate(s *store.Store, appID int64, templateName string, overrid
 		return nil, err
 	}
 
-	// Convert JSON → interface{} → YAML bytes → yaml.Node
-	var defMap interface{}
+	// Convert JSON → any → YAML bytes → yaml.Node
+	var defMap any
 	if err := json.Unmarshal([]byte(defJSON), &defMap); err != nil {
 		return nil, fmt.Errorf("unmarshal template %q: %w", templateName, err)
 	}
@@ -473,7 +471,7 @@ func mergeStateNodes(base, override *yaml.Node) *yaml.Node {
 	}
 	for i := 0; i < len(overrideOn.Content)-1; i += 2 {
 		eventName := overrideOn.Content[i].Value
-		if idx, ok := baseEvents[eventName]; ok {
+		if _, ok := baseEvents[eventName]; ok {
 			// Replace in mergedOn — find the index
 			for j := 0; j < len(mergedOn.Content)-1; j += 2 {
 				if mergedOn.Content[j].Value == eventName {
@@ -481,7 +479,6 @@ func mergeStateNodes(base, override *yaml.Node) *yaml.Node {
 					break
 				}
 			}
-			_ = idx // used for lookup
 		} else {
 			// New event
 			mergedOn.Content = append(mergedOn.Content, overrideOn.Content[i], overrideOn.Content[i+1])
@@ -517,16 +514,16 @@ func mergeStateNodes(base, override *yaml.Node) *yaml.Node {
 
 // parseDataRef parses "data(source, query)" into source and query parts.
 func parseDataRef(ref string) (source, query string, err error) {
-	if !strings.HasPrefix(ref, "data(") || !strings.HasSuffix(ref, ")") {
+	inner, ok := strings.CutPrefix(ref, "data(")
+	if !ok || !strings.HasSuffix(inner, ")") {
 		return "", "", fmt.Errorf("invalid data reference %q: must be data(source, query)", ref)
 	}
-	inner := ref[5 : len(ref)-1] // strip "data(" and ")"
-	// Split on first ", "
-	idx := strings.Index(inner, ", ")
-	if idx < 0 {
+	inner = strings.TrimSuffix(inner, ")")
+	source, query, found := strings.Cut(inner, ", ")
+	if !found {
 		return "", "", fmt.Errorf("invalid data reference %q: missing separator", ref)
 	}
-	return inner[:idx], inner[idx+2:], nil
+	return source, query, nil
 }
 
 // Export serializes a Spec tree to SFT YAML format.
@@ -775,16 +772,15 @@ func parseGuardFromAction(action string) (guard, pureAction string) {
 	if action == "" {
 		return "", ""
 	}
-	if !strings.HasPrefix(action, "guard(") {
+	after, ok := strings.CutPrefix(action, "guard(")
+	if !ok {
 		return "", action
 	}
-	// Find closing paren for guard().
-	idx := strings.Index(action, ")")
-	if idx < 0 {
+	guard, rest, found := strings.Cut(after, ")")
+	if !found {
 		return "", action
 	}
-	guard = action[len("guard("):idx]
-	rest := strings.TrimSpace(action[idx+1:])
+	rest = strings.TrimSpace(rest)
 	rest = strings.TrimPrefix(rest, ",")
 	rest = strings.TrimSpace(rest)
 	return guard, rest
@@ -812,8 +808,7 @@ func exportFixtures(fixtures []show.Fixture) yaml.Node {
 		if f.Data != nil {
 			var dataNode yaml.Node
 			dataBytes, _ := json.Marshal(f.Data)
-			// Unmarshal JSON to interface then encode to yaml.Node
-			var dataMap interface{}
+			var dataMap any
 			json.Unmarshal(dataBytes, &dataMap)
 			if err := dataNode.Encode(dataMap); err == nil && dataNode.Kind == yaml.DocumentNode && len(dataNode.Content) > 0 {
 				inner := dataNode.Content[0]

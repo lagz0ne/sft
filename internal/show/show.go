@@ -22,7 +22,7 @@ type Spec struct {
 type Fixture struct {
 	Name    string      `json:"name"`
 	Extends string      `json:"extends,omitempty"`
-	Data    interface{} `json:"data"`
+	Data    any `json:"data"`
 }
 
 type App struct {
@@ -99,8 +99,10 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 	}
 
 	// App-level data [C2 fix: load app-level regions]
-	appID := int64(0)
-	db.QueryRow("SELECT id FROM apps LIMIT 1").Scan(&appID)
+	var appID int64
+	if err := db.QueryRow("SELECT id FROM apps LIMIT 1").Scan(&appID); err != nil {
+		return nil, fmt.Errorf("resolve app id: %w", err)
+	}
 	spec.App.DataTypes = loadDataTypes(db, appID)
 	spec.App.Context = loadContext(db, "app", appID)
 	spec.App.Regions = loadRegions(db, "app", appID, al)
@@ -115,7 +117,9 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 	for rows.Next() {
 		var id int64
 		var s Screen
-		rows.Scan(&id, &s.Name, &s.Description)
+		if err := rows.Scan(&id, &s.Name, &s.Description); err != nil {
+			return nil, fmt.Errorf("scan screen: %w", err)
+		}
 		s.Tags = loadTags(db, "screen", id)
 		s.Context = loadContext(db, "screen", id)
 		s.Regions = loadRegions(db, "screen", id, al)
@@ -143,7 +147,9 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 	for frows.Next() {
 		var f Flow
 		var desc, onEvent sql.NullString
-		frows.Scan(&f.Name, &desc, &onEvent, &f.Sequence)
+		if err := frows.Scan(&f.Name, &desc, &onEvent, &f.Sequence); err != nil {
+			return nil, fmt.Errorf("scan flow: %w", err)
+		}
 		f.Description = desc.String
 		f.OnEvent = onEvent.String
 		spec.Flows = append(spec.Flows, f)

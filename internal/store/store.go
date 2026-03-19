@@ -877,8 +877,7 @@ func (s *Store) MoveRegion(name, newParentName string, inParent ...string) error
 // --- Rename ---
 
 func (s *Store) RenameScreen(old, newName string) error {
-	id, err := s.ResolveScreen(old)
-	if err != nil {
+	if _, err := s.ResolveScreen(old); err != nil {
 		return err
 	}
 	if _, err := s.ResolveScreen(newName); err == nil {
@@ -887,7 +886,6 @@ func (s *Store) RenameScreen(old, newName string) error {
 	if _, err := s.ResolveRegion(newName); err == nil {
 		return fmt.Errorf("name %q already used by a region", newName)
 	}
-	_ = id
 	tx, err := s.DB.Begin()
 	if err != nil {
 		return err
