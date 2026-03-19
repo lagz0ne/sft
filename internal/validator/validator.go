@@ -26,11 +26,21 @@ type rule struct {
 }
 
 // ownerCase resolves owner_type+owner_id to a human-readable name via subquery.
+// Uses table alias "t" — for other aliases, use ownerCaseAlias.
 const ownerCase = `CASE t.owner_type
   WHEN 'screen' THEN (SELECT s.name FROM screens s WHERE s.id = t.owner_id)
   WHEN 'region' THEN (SELECT r.name FROM regions r WHERE r.id = t.owner_id)
   WHEN 'app'    THEN (SELECT a.name FROM apps a WHERE a.id = t.owner_id)
 END`
+
+// ownerCaseAlias is like ownerCase but parameterized on the table alias.
+func ownerCaseAlias(alias string) string {
+	return fmt.Sprintf(`CASE %s.owner_type
+  WHEN 'screen' THEN (SELECT s.name FROM screens s WHERE s.id = %s.owner_id)
+  WHEN 'region' THEN (SELECT r.name FROM regions r WHERE r.id = %s.owner_id)
+  WHEN 'app'    THEN (SELECT a.name FROM apps a WHERE a.id = %s.owner_id)
+END`, alias, alias, alias, alias)
+}
 
 var rules = []rule{
 	{
@@ -84,11 +94,7 @@ var rules = []rule{
 	{
 		id:       "unreachable-state",
 		severity: Error,
-		query: `SELECT DISTINCT t1.from_state, ` + `CASE t1.owner_type
-		  WHEN 'screen' THEN (SELECT s.name FROM screens s WHERE s.id = t1.owner_id)
-		  WHEN 'region' THEN (SELECT r.name FROM regions r WHERE r.id = t1.owner_id)
-		  WHEN 'app'    THEN (SELECT a.name FROM apps a WHERE a.id = t1.owner_id)
-		END` + ` AS owner_name
+		query: `SELECT DISTINCT t1.from_state, ` + ownerCaseAlias("t1") + ` AS owner_name
 		        FROM transitions t1
 		        WHERE t1.from_state IS NOT NULL
 		          AND t1.from_state NOT IN (
@@ -213,6 +219,63 @@ var rules = []rule{
 					Rule:     "orphan-event",
 					Severity: Warning,
 					Message:  fmt.Sprintf("%s handles %q but no region emits it", ns(owner), onEvent),
+				})
+			}
+			return findings, nil
+		},
+	},
+	// Dead-end states — transition targets with no outgoing transitions (terminal)
+	{
+		id:       "dead-end",
+		severity: Warning,
+		query: `SELECT DISTINCT t1.to_state, ` + ownerCaseAlias("t1") + ` AS owner_name
+		        FROM transitions t1
+		        WHERE t1.to_state IS NOT NULL AND t1.to_state != ''
+		          AND t1.to_state NOT IN (
+		            SELECT t2.from_state FROM transitions t2
+		            WHERE t2.owner_type = t1.owner_type AND t2.owner_id = t1.owner_id
+		              AND t2.from_state IS NOT NULL AND t2.from_state != ''
+		          )`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var findings []Finding
+			for rows.Next() {
+				var state string
+				var owner sql.NullString
+				if err := rows.Scan(&state, &owner); err != nil {
+					return nil, err
+				}
+				findings = append(findings, Finding{
+					Rule:     "dead-end",
+					Severity: Warning,
+					Message:  fmt.Sprintf("state %q in %s has no outgoing transitions (terminal)", state, ns(owner)),
+				})
+			}
+			return findings, nil
+		},
+	},
+	// Guard ambiguity — same event+from_state appears 2+ times without guard distinction
+	{
+		id:       "guard-ambiguity",
+		severity: Warning,
+		query: `SELECT ` + ownerCase + ` AS owner_name, t.on_event, t.from_state, COUNT(*) AS cnt
+		        FROM transitions t
+		        WHERE t.from_state IS NOT NULL AND t.from_state != ''
+		          AND (t.action IS NULL OR t.action = '' OR t.action NOT LIKE 'guard(%)')
+		        GROUP BY t.owner_type, t.owner_id, t.on_event, t.from_state
+		        HAVING cnt > 1`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var findings []Finding
+			for rows.Next() {
+				var owner sql.NullString
+				var onEvent, fromState string
+				var cnt int64
+				if err := rows.Scan(&owner, &onEvent, &fromState, &cnt); err != nil {
+					return nil, err
+				}
+				findings = append(findings, Finding{
+					Rule:     "guard-ambiguity",
+					Severity: Warning,
+					Message:  fmt.Sprintf("%dx %q from %q in %s without guard", cnt, onEvent, fromState, ns(owner)),
 				})
 			}
 			return findings, nil

@@ -1,127 +1,118 @@
 app:
-  name: Gmail
+  name: gmail
   description: Google's email client — inbox management, threaded reading, search, and composition
 
   regions:
-    - name: MainNav
+    - name: main_nav
       description: Sidebar with labels, folders, and navigation shortcuts
-    - name: SearchBar
+    - name: search_bar
       description: Global email search with filters and advanced operators
-    - name: ComposeButton
+    - name: compose_button
       description: Persistent action button triggering the compose overlay from any screen
-      events: [start-compose]
-    - name: ChatSidebar
+      events: [start_compose]
+    - name: chat_sidebar
       description: Google Chat integration panel alongside email
-      tags: [chat-enabled]
-    - name: ComposeWindow
+      tags: [chat_enabled]
+    - name: compose_window
       description: Email composition form — survives screen transitions as a floating panel
       tags: [composing, overlay]
-      events: [send-email, discard-draft]
+      events: [send_email, discard_draft]
 
   screens:
-    - name: Inbox
+    - name: inbox
       description: Primary email list with category tabs and optional reading pane
       regions:
-        - name: CategoryTabs
+        - name: category_tabs
           description: Primary / Social / Promotions / Updates tab filter
-          events: [switch-category]
-        - name: EmailList
+          events: [switch_category]
+        - name: email_list
           description: Scrollable thread list supporting individual and bulk interactions
-          events: [select-email, check-email]
-        - name: ReadingPane
+          events: [select_email, check_email]
+        - name: reading_pane
           description: Inline email preview — only exists when preview pane setting is enabled
-          tags: [preview-pane-enabled]
-        - name: BulkActionBar
+          tags: [preview_pane_enabled]
+        - name: bulk_action_bar
           description: Archive, delete, mark read/unread, move, label — appears in selecting state
-          events: [archive-selected, delete-selected]
-      states:
-        - on: select-email
-          from: browsing
-          action: navigate(ThreadView)
-        - on: check-email
-          from: browsing
-          to: selecting
-        - on: check-email
-          from: selecting
-        - on: archive-selected
-          from: selecting
-          to: browsing
-        - on: delete-selected
-          from: selecting
-          to: browsing
-        - on: Escape
-          from: selecting
-          to: browsing
+          events: [archive_selected, delete_selected]
+      state_machine:
+        browsing:
+          on:
+            select_email: navigate(thread_view)
+            check_email: selecting
+        selecting:
+          on:
+            check_email: .
+            archive_selected: browsing
+            delete_selected: browsing
+            escape: browsing
 
-    - name: ThreadView
+    - name: thread_view
       description: Full conversation view with chronological messages and inline reply
       regions:
-        - name: MessageList
+        - name: message_list
           description: Chronological message thread with expand/collapse per message
-        - name: ReplyComposer
+        - name: reply_composer
           description: Rich text reply editor embedded at the bottom of the thread
-          events: [start-reply, send-reply, discard-reply]
-          states:
-            - on: start-reply
-              from: collapsed
-              to: expanded
-            - on: send-reply
-              from: expanded
-              to: collapsed
-              action: emit(reply-sent)
-            - on: discard-reply
-              from: expanded
-              to: collapsed
-      states:
-        - on: reply-sent
-          from: reading
+          events: [start_reply, send_reply, discard_reply]
+          state_machine:
+            collapsed:
+              on:
+                start_reply: expanded
+            expanded:
+              on:
+                send_reply: { to: collapsed, action: "emit(reply_sent)" }
+                discard_reply: collapsed
+      state_machine:
+        reading:
+          on:
+            reply_sent: .
 
-    - name: Settings
+    - name: settings
       description: Account and app configuration
       regions:
-        - name: GeneralSettings
+        - name: general_settings
           description: Language, density, default text style, notifications
-        - name: LabsSettings
+        - name: labs_settings
           description: Experimental features opt-in
-          tags: [labs-enabled]
-        - name: AccountSettings
+          tags: [labs_enabled]
+        - name: account_settings
           description: Connected accounts, POP/IMAP, delegation
 
-    - name: SearchResults
+    - name: search_results
       description: Email results matching a search query with refinement filters
       regions:
-        - name: SearchFilters
+        - name: search_filters
           description: Refine by date, sender, has-attachment, label
-        - name: ResultList
+        - name: result_list
           description: Filtered email threads matching the search query
-          events: [select-result]
-      states:
-        - on: select-result
-          from: browsing
-          action: navigate(ThreadView)
+          events: [select_result]
+      state_machine:
+        browsing:
+          on:
+            select_result: navigate(thread_view)
 
-    - name: LabelView
+    - name: label_view
       description: Emails filtered by a user-created or system label
-      tags: [per-label]
+      tags: [per_label]
       regions:
-        - name: LabelEmailList
+        - name: label_email_list
           description: Thread list scoped to the selected label
-          events: [select-email]
-      states:
-        - on: select-email
-          from: browsing
-          action: navigate(ThreadView)
+          events: [select_email]
+      state_machine:
+        browsing:
+          on:
+            select_email: navigate(thread_view)
 
   flows:
-    - name: EmailFromInbox
+    - name: email_from_inbox
       description: Read an email from the inbox and return with scroll position preserved
-      sequence: "Inbox → ThreadView → [Back] → Inbox(H)"
+      sequence: "inbox → thread_view → [Back] → inbox(H)"
 
-    - name: EmailFromSearch
+    - name: email_from_search
       description: Read a search result and return to the same result set
-      sequence: "SearchResults → ThreadView → [Back] → SearchResults(H)"
+      sequence: "search_results → thread_view → [Back] → search_results(H)"
 
-    - name: ComposeAndSend
+    - name: compose_and_send
       description: Create and send a new email from anywhere in the app
-      on: start-compose
-      sequence: "ComposeWindow activates → fill → send-email"
+      on: start_compose
+      sequence: "compose_window activates → fill → send_email"

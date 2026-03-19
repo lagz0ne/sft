@@ -1,257 +1,241 @@
 app:
-  name: Stripe
+  name: stripe
   description: Payment platform dashboard — payments, customers, subscriptions, disputes, and developer tools
 
   regions:
-    - name: MainNav
+    - name: main_nav
       description: Primary navigation — home, payments, customers, products, billing, reports, developers
-    - name: SearchBar
+    - name: search_bar
       description: Global search across payments, customers, invoices, and subscriptions
-    - name: TestModeBanner
+    - name: test_mode_banner
       description: Warning banner indicating test environment is active
-      tags: [test-mode]
-    - name: NotificationDrawer
+      tags: [test_mode]
+    - name: notification_drawer
       description: Alerts for failed payments, disputes needing response, and compliance actions
       tags: [overlay]
-      events: [select-notification]
+      events: [select_notification]
 
   screens:
-    - name: Home
+    - name: home
       description: Business overview — gross volume, successful payments, new disputes, and net revenue
       regions:
-        - name: VolumeChart
+        - name: volume_chart
           description: Revenue trend for selected period with daily/weekly/monthly toggle
-        - name: MetricsRow
+        - name: metrics_row
           description: Gross volume, successful payments, new customers, active subscriptions
-        - name: RecentPayments
+        - name: recent_payments
           description: Latest payment activity with status and amount
-          events: [select-payment]
+          events: [select_payment]
 
-    - name: PaymentList
+    - name: payment_list
       description: Searchable payment log with filtering and bulk export
       regions:
-        - name: FilterBar
+        - name: filter_bar
           description: Filter by status, amount range, date, payment method, and currency
-        - name: PaymentTable
+        - name: payment_table
           description: Payment rows with amount, status badge, customer, date, and method
-          tags: [has-payments]
-          events: [select-payment, check-payment]
-        - name: EmptyState
+          tags: [has_payments]
+          events: [select_payment, check_payment]
+        - name: empty_state
           description: Illustration and prompt to create first payment or adjust filters
-          tags: [no-payments]
-        - name: LoadingSkeleton
+          tags: [no_payments]
+        - name: loading_skeleton
           description: Animated placeholder rows while payment data loads
           tags: [loading]
-        - name: ErrorBanner
+        - name: error_banner
           description: Error message with retry action when payment data fails to load
           tags: [error]
-          events: [retry-load]
-        - name: BulkActionBar
+          events: [retry_load]
+        - name: bulk_action_bar
           description: Export selected, refund selected — appears in selecting state
-          events: [bulk-export]
-      states:
-        - on: select-payment
-          from: browsing
-          action: navigate(PaymentDetail)
-        - on: check-payment
-          from: browsing
-          to: selecting
-        - on: check-payment
-          from: selecting
-        - on: bulk-export
-          from: selecting
-          to: browsing
-        - on: Escape
-          from: selecting
-          to: browsing
+          events: [bulk_export]
+      state_machine:
+        browsing:
+          on:
+            select_payment: navigate(payment_detail)
+            check_payment: selecting
+        selecting:
+          on:
+            check_payment: .
+            bulk_export: browsing
+            escape: browsing
 
-    - name: PaymentDetail
+    - name: payment_detail
       description: Single payment — amount, timeline, customer, metadata, and available actions
-      tags: [per-payment]
+      tags: [per_payment]
       regions:
-        - name: PaymentHeader
+        - name: payment_header
           description: Amount, status badge, payment ID, and creation timestamp
-        - name: PaymentTimeline
+        - name: payment_timeline
           description: Chronological events — created, processing, succeeded/failed, refunded, disputed
-        - name: CustomerCard
+        - name: customer_card
           description: Linked customer name, email, and payment history summary
-        - name: PaymentMetadata
+        - name: payment_metadata
           description: Key-value metadata attached by the integration
-        - name: RefundArea
+        - name: refund_area
           description: Refund action group — button and confirmation dialog
           tags: [succeeded]
           regions:
-            - name: RefundButton
+            - name: refund_button
               description: Issue full or partial refund
               tags: [primary]
-              events: [start-refund]
-            - name: RefundConfirmation
+              events: [start_refund]
+            - name: refund_confirmation
               description: Confirm refund amount and reason before processing
               tags: [overlay]
-              events: [confirm-refund, cancel-refund]
-          states:
-            - on: start-refund
-              from: idle
-              to: confirming
-            - on: confirm-refund
-              from: confirming
-              to: idle
-            - on: cancel-refund
-              from: confirming
-              to: idle
-        - name: DisputeAlert
+              events: [confirm_refund, cancel_refund]
+          state_machine:
+            idle:
+              on:
+                start_refund: confirming
+            confirming:
+              on:
+                confirm_refund: idle
+                cancel_refund: idle
+        - name: dispute_alert
           description: Warning banner showing dispute reason and evidence submission deadline
           tags: [disputed]
-        - name: RefundSummary
+        - name: refund_summary
           description: Refund details — amount returned, date, and reason
           tags: [refunded]
 
-    - name: CustomerList
+    - name: customer_list
       description: Customer directory with search and segment filtering
       regions:
-        - name: CustomerTable
+        - name: customer_table
           description: Customer rows with name, email, total spend, and subscription count
-          tags: [has-customers]
-          events: [select-customer]
-        - name: EmptyState
+          tags: [has_customers]
+          events: [select_customer]
+        - name: empty_state
           description: Prompt to create first customer or import from CSV
-          tags: [no-customers]
+          tags: [no_customers]
 
-    - name: CustomerDetail
+    - name: customer_detail
       description: Customer profile — payment history, subscriptions, and account management
-      tags: [per-customer]
+      tags: [per_customer]
       regions:
-        - name: CustomerHeader
+        - name: customer_header
           description: Name, email, created date, and lifetime value
-        - name: PaymentHistory
+        - name: payment_history
           description: All payments from this customer with status and amount
-          events: [select-payment]
-        - name: ActiveSubscriptions
+          events: [select_payment]
+        - name: active_subscriptions
           description: Current subscriptions with plan, status, and next billing date
-          events: [select-subscription]
-        - name: DeleteButton
+          events: [select_subscription]
+        - name: delete_button
           description: Permanently remove customer and all associated data
           tags: [destructive]
-          events: [start-delete]
-        - name: DeleteConfirmation
+          events: [start_delete]
+        - name: delete_confirmation
           description: Type customer name to confirm deletion — warns this cannot be undone
           tags: [overlay]
-          events: [confirm-delete, cancel-delete]
-      states:
-        - on: select-payment
-          from: viewing
-          action: navigate(PaymentDetail)
-        - on: select-subscription
-          from: viewing
-          action: navigate(SubscriptionDetail)
-        - on: start-delete
-          from: viewing
-          to: deleting
-        - on: confirm-delete
-          from: deleting
-          to: viewing
-        - on: cancel-delete
-          from: deleting
-          to: viewing
+          events: [confirm_delete, cancel_delete]
+      state_machine:
+        viewing:
+          on:
+            select_payment: navigate(payment_detail)
+            select_subscription: navigate(subscription_detail)
+            start_delete: deleting
+        deleting:
+          on:
+            confirm_delete: viewing
+            cancel_delete: viewing
 
-    - name: SubscriptionDetail
+    - name: subscription_detail
       description: Subscription management — plan, billing cycle, invoices, and cancellation
-      tags: [per-subscription]
+      tags: [per_subscription]
       regions:
-        - name: SubscriptionHeader
+        - name: subscription_header
           description: Plan name, status badge, current period, and next billing date
-        - name: InvoiceHistory
+        - name: invoice_history
           description: Past invoices with amount, status, and PDF download
-        - name: UpcomingInvoice
+        - name: upcoming_invoice
           description: Preview of next invoice with prorated line items
           tags: [active]
-        - name: CancelButton
+        - name: cancel_button
           description: Cancel subscription immediately or at period end
           tags: [active, destructive]
-          events: [start-cancel]
-        - name: CancelConfirmation
+          events: [start_cancel]
+        - name: cancel_confirmation
           description: Choose immediate or end-of-period — shows revenue impact warning
           tags: [overlay]
-          events: [confirm-cancel, abort-cancel]
-      states:
-        - on: start-cancel
-          from: viewing
-          to: cancelling
-        - on: confirm-cancel
-          from: cancelling
-          to: viewing
-        - on: abort-cancel
-          from: cancelling
-          to: viewing
+          events: [confirm_cancel, abort_cancel]
+      state_machine:
+        viewing:
+          on:
+            start_cancel: cancelling
+        cancelling:
+          on:
+            confirm_cancel: viewing
+            abort_cancel: viewing
 
-    - name: DisputeDetail
+    - name: dispute_detail
       description: Dispute evidence submission and resolution tracking
-      tags: [per-dispute]
+      tags: [per_dispute]
       regions:
-        - name: DisputeHeader
+        - name: dispute_header
           description: Dispute amount, reason category, and evidence deadline countdown
-        - name: DisputeTimeline
+        - name: dispute_timeline
           description: Status progression — opened, evidence due, under review, won or lost
-        - name: EvidenceUploader
+        - name: evidence_uploader
           description: Upload receipts, shipping proof, and customer correspondence
-          tags: [needs-evidence]
-          events: [upload-evidence, submit-evidence]
-          states:
-            - on: upload-evidence
-              from: collecting
-              to: collecting
-            - on: submit-evidence
-              from: collecting
-              to: submitted
-              action: emit(evidence-complete)
-        - name: ResolutionSummary
+          tags: [needs_evidence]
+          events: [upload_evidence, submit_evidence]
+          state_machine:
+            collecting:
+              on:
+                upload_evidence: .
+                submit_evidence: { to: submitted, action: "emit(evidence_complete)" }
+            submitted: {}
+        - name: resolution_summary
           description: Outcome — funds returned (won) or permanently deducted (lost)
           tags: [resolved]
-      states:
-        - on: evidence-complete
-          from: responding
-          to: awaiting-resolution
+      state_machine:
+        responding:
+          on:
+            evidence_complete: awaiting_resolution
+        awaiting_resolution: {}
 
-    - name: Developers
+    - name: developers
       description: API keys, webhooks, event logs, and testing tools
       regions:
-        - name: APIKeys
+        - name: api_keys
           description: Publishable and secret keys for test and live modes
-        - name: WebhookEndpoints
+        - name: webhook_endpoints
           description: Configured URLs with event subscriptions and delivery status
-          events: [select-webhook]
-        - name: RecentEvents
+          events: [select_webhook]
+        - name: recent_events
           description: Latest API events with request/response inspection
-          tags: [has-events]
-          events: [select-event]
-        - name: EventsEmpty
+          tags: [has_events]
+          events: [select_event]
+        - name: events_empty
           description: No events yet — shows quickstart integration guide
-          tags: [no-events]
+          tags: [no_events]
 
   flows:
-    - name: RefundPayment
+    - name: refund_payment
       description: Issue a refund with amount and reason confirmation
-      on: start-refund
-      sequence: "PaymentDetail{payment ID} → RefundConfirmation{refund amount + reason} → confirm-refund → PaymentDetail{updated status}"
+      on: start_refund
+      sequence: "payment_detail{payment ID} → refund_confirmation{refund amount + reason} → confirm_refund → payment_detail{updated status}"
 
-    - name: RefundFailed
+    - name: refund_failed
       description: Refund processing fails — user sees error and retries or abandons
-      sequence: "PaymentDetail → RefundConfirmation → confirm-refund → error → retry or cancel-refund"
+      sequence: "payment_detail → refund_confirmation → confirm_refund → error → retry or cancel_refund"
 
-    - name: CancelSubscription
+    - name: cancel_subscription
       description: Cancel a subscription with timing choice and revenue impact warning
-      on: start-cancel
-      sequence: "SubscriptionDetail{subscription ID} → CancelConfirmation{cancellation timing} → confirm-cancel → SubscriptionDetail{updated status}"
+      on: start_cancel
+      sequence: "subscription_detail{subscription ID} → cancel_confirmation{cancellation timing} → confirm_cancel → subscription_detail{updated status}"
 
-    - name: DisputeResponse
+    - name: dispute_response
       description: Collect and submit evidence for a payment dispute before the deadline
-      sequence: "DisputeDetail{dispute ID + deadline} → upload-evidence{evidence files} → submit-evidence → await resolution{submission confirmation}"
+      sequence: "dispute_detail{dispute ID + deadline} → upload_evidence{evidence files} → submit_evidence → await resolution{submission confirmation}"
 
-    - name: PaymentFromList
+    - name: payment_from_list
       description: Inspect a payment and return to the list with position preserved
-      sequence: "PaymentList → PaymentDetail → [Back] → PaymentList(H)"
+      sequence: "payment_list → payment_detail → [Back] → payment_list(H)"
 
-    - name: PaymentFromNotification
+    - name: payment_from_notification
       description: Navigate from a failed payment notification to investigate and resolve
-      on: select-notification
-      sequence: "NotificationDrawer activates → PaymentDetail → refund or retry"
+      on: select_notification
+      sequence: "notification_drawer activates → payment_detail → refund or retry"

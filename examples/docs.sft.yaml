@@ -1,168 +1,151 @@
 app:
-  name: CollabDocs
+  name: collab_docs
   description: Collaborative document editor — real-time editing, sharing, offline sync, and workspace management
 
   regions:
-    - name: TopBar
+    - name: top_bar
       description: Logo, document title (editable inline), share button, and user avatar menu
-    - name: MobileNav
+    - name: mobile_nav
       description: Hamburger menu for responsive sidebar toggle on small viewports
       tags: [responsive, mobile]
-    - name: CommandPalette
+    - name: command_palette
       description: Cmd+K search and action palette — available from any screen
       tags: [overlay]
-    - name: ToastStack
+    - name: toast_stack
       description: Auto-dismissing snackbar notifications — save confirmation, share success, error alerts
       tags: [toast, overlay]
-      events: [dismiss-toast, undo-action]
-    - name: OfflineBanner
+      events: [dismiss_toast, undo_action]
+    - name: offline_banner
       description: Connection status indicator — shows sync state and reconnect progress
       tags: [offline]
-    - name: OnboardingTour
+    - name: onboarding_tour
       description: Step-by-step welcome overlay guiding new users through key features
-      tags: [overlay, onboarding, first-visit]
-      events: [next-step, skip-tour, finish-tour]
-      states:
-        - on: next-step
-          from: active
-          to: active
-        - on: skip-tour
-          from: active
-          to: dismissed
-        - on: finish-tour
-          from: active
-          to: dismissed
+      tags: [overlay, onboarding, first_visit]
+      events: [next_step, skip_tour, finish_tour]
+      state_machine:
+        active:
+          on:
+            next_step: .
+            skip_tour: dismissed
+            finish_tour: dismissed
+        dismissed: {}
 
   screens:
-    - name: Login
+    - name: login
       description: Authentication screen — email/password, SSO, and MFA verification
       regions:
-        - name: LoginForm
+        - name: login_form
           description: Email and password fields with SSO provider buttons
-          events: [submit-login, start-sso]
-        - name: MFAChallenge
+          events: [submit_login, start_sso]
+        - name: mfa_challenge
           description: TOTP or SMS code entry after primary authentication succeeds
-          tags: [mfa-required]
-          events: [submit-mfa, resend-code]
-        - name: ForgotPassword
+          tags: [mfa_required]
+          events: [submit_mfa, resend_code]
+        - name: forgot_password
           description: Password reset flow — enter email, receive link
           tags: [overlay]
-          events: [request-reset, cancel-reset]
-      states:
-        - on: submit-login
-          from: credentials
-          to: verifying
-        - on: submit-mfa
-          from: mfa
-          to: verifying
-        - on: start-sso
-          from: credentials
-          to: verifying
+          events: [request_reset, cancel_reset]
+      state_machine:
+        credentials:
+          on:
+            submit_login: verifying
+            start_sso: verifying
+        mfa:
+          on:
+            submit_mfa: verifying
+        verifying: {}
 
-    - name: Workspace
+    - name: workspace
       description: Document list with folders, recent activity, and workspace settings
       regions:
-        - name: Sidebar
+        - name: sidebar
           description: Folder tree, favorites, shared-with-me, and trash — collapsible on mobile
           tags: [responsive]
-        - name: DocumentGrid
+        - name: document_grid
           description: Document cards with title, last-edited, collaborator avatars
-          events: [select-document, context-menu-document]
-        - name: ContextMenu
+          events: [select_document, context_menu_document]
+        - name: context_menu
           description: Right-click menu — rename, duplicate, move, share, delete
-          tags: [overlay, context-menu]
-          events: [rename-doc, duplicate-doc, delete-doc, share-doc]
-        - name: GettingStarted
+          tags: [overlay, context_menu]
+          events: [rename_doc, duplicate_doc, delete_doc, share_doc]
+        - name: getting_started
           description: Welcome card for new users with template suggestions and import options
-          tags: [onboarding, first-visit]
-      states:
-        - on: select-document
-          from: browsing
-          action: navigate(Editor)
-        - on: context-menu-document
-          from: browsing
-          to: context-open
-        - on: rename-doc
-          from: context-open
-          to: browsing
-        - on: duplicate-doc
-          from: context-open
-          to: browsing
-        - on: delete-doc
-          from: context-open
-          to: browsing
-        - on: share-doc
-          from: context-open
-          to: browsing
-        - on: Escape
-          from: context-open
-          to: browsing
+          tags: [onboarding, first_visit]
+      state_machine:
+        browsing:
+          on:
+            select_document: navigate(editor)
+            context_menu_document: context_open
+        context_open:
+          on:
+            rename_doc: browsing
+            duplicate_doc: browsing
+            delete_doc: browsing
+            share_doc: browsing
+            escape: browsing
 
-    - name: Editor
+    - name: editor
       description: Full document editor with real-time collaboration, commenting, and version history
-      tags: [per-document]
+      tags: [per_document]
       regions:
-        - name: EditorToolbar
+        - name: editor_toolbar
           description: Formatting, insert, undo/redo buttons, and responsive overflow menu
-          events: [undo, redo, insert-block]
-        - name: DocumentCanvas
+          events: [undo, redo, insert_block]
+        - name: document_canvas
           description: Block-based content area with optimistic saves — edits apply instantly, sync in background
-          tags: [optimistic-update]
-          events: [edit-content, save-triggered]
-        - name: CollaboratorCursors
+          tags: [optimistic_update]
+          events: [edit_content, save_triggered]
+        - name: collaborator_cursors
           description: Real-time cursor positions and selections of other users
-          tags: [has-collaborators]
-        - name: SyncIndicator
+          tags: [has_collaborators]
+        - name: sync_indicator
           description: Shows saving / saved / offline-queued / sync-conflict status
           tags: [offline]
-          events: [retry-sync, resolve-conflict]
-          states:
-            - on: edit-content
-              from: synced
-              to: saving
-            - on: save-triggered
-              from: saving
-              to: synced
-            - on: retry-sync
-              from: conflict
-              to: saving
-            - on: resolve-conflict
-              from: conflict
-              to: synced
-        - name: CommentThread
+          events: [retry_sync, resolve_conflict]
+          state_machine:
+            synced:
+              on:
+                edit_content: saving
+            saving:
+              on:
+                save_triggered: synced
+            conflict:
+              on:
+                retry_sync: saving
+                resolve_conflict: synced
+        - name: comment_thread
           description: Inline discussion anchored to a text selection
           tags: [overlay]
-          events: [add-comment, resolve-thread]
-        - name: VersionHistory
+          events: [add_comment, resolve_thread]
+        - name: version_history
           description: Timeline of document versions with diff preview and rollback
           tags: [overlay]
-          events: [select-version, rollback-version]
-      states:
-        - on: undo
-          from: editing
-        - on: redo
-          from: editing
-        - on: rollback-version
-          from: editing
+          events: [select_version, rollback_version]
+      state_machine:
+        editing:
+          on:
+            undo: .
+            redo: .
+            rollback_version: .
 
   flows:
-    - name: LoginToWorkspace
+    - name: login_to_workspace
       description: Authenticate and land in the workspace — includes MFA if required
-      on: submit-login
-      sequence: "Login → verifying → Workspace"
+      on: submit_login
+      sequence: "login → verifying → workspace"
 
-    - name: EditWithUndo
+    - name: edit_with_undo
       description: Edit a document, undo a mistake via toolbar or Cmd+Z, redo if needed
-      sequence: "Editor → edit-content → undo → redo"
+      sequence: "editor → edit_content → undo → redo"
 
-    - name: OfflineSync
+    - name: offline_sync
       description: Edit while offline, reconnect, and resolve any sync conflicts
-      sequence: "Editor{queued edits} → reconnect → SyncIndicator → resolve-conflict → Editor{synced}"
+      sequence: "editor{queued edits} → reconnect → sync_indicator → resolve_conflict → editor{synced}"
 
-    - name: ContextMenuAction
+    - name: context_menu_action
       description: Right-click a document card and perform an action
-      sequence: "Workspace → context-menu-document → ContextMenu activates → rename-doc → Workspace"
+      sequence: "workspace → context_menu_document → context_menu activates → rename_doc → workspace"
 
-    - name: OnboardToEditor
+    - name: onboard_to_editor
       description: New user completes tour then opens first document
-      sequence: "OnboardingTour activates → finish-tour → Workspace → Editor"
+      sequence: "onboarding_tour activates → finish_tour → workspace → editor"

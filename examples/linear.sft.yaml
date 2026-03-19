@@ -1,114 +1,109 @@
 app:
-  name: Linear
+  name: linear
   description: Issue tracking and project management — list, board, and cycle views with global shortcuts
 
   regions:
-    - name: MainSidebar
+    - name: main_sidebar
       description: Workspace navigation — teams, projects, views, cycles
-    - name: CommandPalette
+    - name: command_palette
       description: Cmd+K search and action palette — available from any screen
       tags: [overlay]
-    - name: NotificationCenter
+    - name: notification_center
       description: Activity feed for mentions, assignments, and status changes
       tags: [overlay]
-    - name: CreateIssueModal
+    - name: create_issue_modal
       description: Quick issue creation triggered by C key from any screen
       tags: [overlay]
-      events: [submit-issue]
+      events: [submit_issue]
 
   screens:
-    - name: MyIssues
+    - name: my_issues
       description: Personal issue queue with filtering and bulk selection
       regions:
-        - name: IssueList
+        - name: issue_list
           description: Filterable list of issues assigned to or created by the user
-          events: [select-issue, shift-select-issue]
-        - name: FilterBar
+          events: [select_issue, shift_select_issue]
+        - name: filter_bar
           description: Status, priority, label, and assignee filters
-        - name: BulkActionBar
+        - name: bulk_action_bar
           description: Archive, label, assign, change status — appears in selecting state
-          events: [bulk-action]
-      states:
-        - on: select-issue
-          from: browsing
-          action: navigate(IssueDetail)
-        - on: shift-select-issue
-          from: browsing
-          to: selecting
-        - on: shift-select-issue
-          from: selecting
-        - on: bulk-action
-          from: selecting
-          to: browsing
-        - on: Escape
-          from: selecting
-          to: browsing
+          events: [bulk_action]
+      state_machine:
+        browsing:
+          on:
+            select_issue: navigate(issue_detail)
+            shift_select_issue: selecting
+        selecting:
+          on:
+            shift_select_issue: .
+            bulk_action: browsing
+            escape: browsing
 
-    - name: IssueDetail
+    - name: issue_detail
       description: Full issue view with description, activity, properties, and sub-issues
-      tags: [per-issue]
+      tags: [per_issue]
       regions:
-        - name: IssueHeader
+        - name: issue_header
           description: Title, status badge, priority indicator, and quick actions
-        - name: DescriptionEditor
+        - name: description_editor
           description: Rich text editor for issue description — supports markdown, mentions, slash commands
-          events: [edit-description, save-description]
-          states:
-            - on: edit-description
-              from: viewing
-              to: editing
-            - on: save-description
-              from: editing
-              to: viewing
-        - name: ActivityFeed
+          events: [edit_description, save_description]
+          state_machine:
+            viewing:
+              on:
+                edit_description: editing
+            editing:
+              on:
+                save_description: viewing
+        - name: activity_feed
           description: Chronological log of comments, status changes, and linked activity
-        - name: PropertiesPanel
+        - name: properties_panel
           description: Assignee, status, priority, labels, cycle, project — editable inline
-        - name: SubIssueList
+        - name: sub_issue_list
           description: Child issues linked to this parent issue
 
-    - name: BoardView
+    - name: board_view
       description: Kanban-style board with drag-and-drop columns by status
-      tags: [per-project]
+      tags: [per_project]
       regions:
-        - name: ColumnList
+        - name: column_list
           description: Status columns (Backlog, Todo, In Progress, Done, Cancelled)
-        - name: IssueCards
+        - name: issue_cards
           description: Issue summary cards draggable between columns
-          events: [select-issue, drag-issue]
+          events: [select_issue, drag_issue]
 
-    - name: CycleView
+    - name: cycle_view
       description: Time-boxed iteration view with progress tracking
-      tags: [per-cycle]
+      tags: [per_cycle]
       regions:
-        - name: CycleProgress
+        - name: cycle_progress
           description: Burndown chart and completion percentage
-        - name: CycleIssueList
+        - name: cycle_issue_list
           description: Issues assigned to this cycle
-          events: [select-issue]
+          events: [select_issue]
 
-    - name: Settings
+    - name: settings
       description: Workspace and personal configuration
       regions:
-        - name: WorkspaceSettings
+        - name: workspace_settings
           description: General workspace config, integrations, API keys
           tags: [admin]
-        - name: PersonalSettings
+        - name: personal_settings
           description: Notification preferences, theme, default views
-        - name: TeamSettings
+        - name: team_settings
           description: Team-specific workflow, labels, and automation rules
-          tags: [team-admin]
+          tags: [team_admin]
 
   flows:
-    - name: IssueFromList
+    - name: issue_from_list
       description: Open an issue from the list and return with scroll position preserved
-      sequence: "MyIssues → IssueDetail → [Back] → MyIssues(H)"
+      sequence: "my_issues → issue_detail → [Back] → my_issues(H)"
 
-    - name: IssueFromBoard
+    - name: issue_from_board
       description: Open an issue from the board and return to the same board state
-      sequence: "BoardView → IssueDetail → [Back] → BoardView(H)"
+      sequence: "board_view → issue_detail → [Back] → board_view(H)"
 
-    - name: CreateIssue
+    - name: create_issue
       description: Quick-create an issue from anywhere via keyboard shortcut
-      on: create-issue
-      sequence: "CreateIssueModal activates → fill fields → submit-issue"
+      on: create_issue
+      sequence: "create_issue_modal activates → fill fields → submit_issue"
