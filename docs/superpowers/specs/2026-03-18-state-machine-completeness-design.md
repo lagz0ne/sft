@@ -13,32 +13,26 @@
 
 Every state named, every transition deterministic, every region's data needs met, every state visually demonstrable. CLI enforces. LLM authors.
 
-## Naming Convention
-
-Everything is `lower_snake`. No exceptions. Every named entity is a map key — no `name:` fields.
-
 ## Concept
 
+Everything is `lower_snake`. `extends` is reserved — cannot be used as a state name.
+
 ```
-state_machine  →  WHAT states exist
+enums          →  WHAT values a field can take (named sets)
+data           →  WHAT shapes exist (types with optional fields)
 context        →  WHAT data the screen/app holds
 ambient        →  WHERE each region gets its data: { name: data(source, query) }
-data           →  WHAT the region owns locally
+region data    →  WHAT the region owns locally
+events         →  WHAT happened + what data it carries: event_name(type)
+state_machine  →  WHAT states exist + which regions are active per state
 fixture        →  WHAT the context looks like in each state
+emit(e, target)→  WHO receives cross-machine events (exhaustive)
 component      →  HOW to render (already exists)
 ```
 
-CLI validates the full chain:
-1. Every state named and reachable
-2. Every `ambient` value `data(source, .path)` resolves to a real context field
-3. Every state's fixture provides data for all ambient-dependent regions
-4. Every fixture value matches the declared shape
-5. Navigate params match target screen context
-6. Missing data for a required region = error
-
 ## State Machine
 
-### Format: `states:` list → `state_machine:` map
+### Format
 
 ```yaml
 state_machine:
@@ -54,18 +48,7 @@ state_machine:
   empty: {}                           # terminal — no transitions out
 ```
 
-### Built-in States
-
-| State | Meaning |
-|-------|---------|
-| `start` | initial — where the machine begins |
-| `end` | final — triggers `child_name:done` to parent |
-
-### Built-in Events
-
-| Event | Trigger | Direction |
-|-------|---------|-----------|
-| `child_name:done` | child reaches `end` | bottom-up (auto) |
+Built-in states: `start` (initial), `end` (final — triggers `child_name:done` to parent). `child:done` signals generic completion. Use `emit()` when the parent needs to distinguish between different outcomes.
 
 ### Transition Values
 
@@ -74,75 +57,50 @@ state_machine:
 | Target state | `check_email: selecting` |
 | Stay | `check_email: .` |
 | Action only | `select_email: { action: navigate(thread_view) }` |
-| State + action | `send_reply: { to: start, action: emit(reply_sent) }` |
+| State + action | `send_reply: { to: start, action: emit(reply_sent, target: [thread_view]) }` |
 | Guarded | `submit: [{ guard: "valid", to: saving }, { guard: "invalid", to: . }]` |
 | Navigate with params | `select_order: { action: navigate(order_detail, { order: data(order_list, .selected) }) }` |
 
-### Guards
+Guards are descriptive strings, not executable. CLI validates: same event in same state without distinguishing guards = warning.
 
-Descriptive strings, not executable. CLI validates: same event in same state without distinguishing guards = warning.
+### Templates
 
-```yaml
-state_machine:
-  start:
-    on:
-      submit_pin:
-        - { guard: "pin_correct", to: end, action: navigate(home) }
-        - { guard: "pin_incorrect", to: error }
-        - { guard: "attempts_exceeded", to: locked }
-```
-
-### State Machine Templates (Phase 4)
-
-Reusable patterns via `extends:`:
+Reusable patterns via `extends:`. State overrides replace the template state entirely — `on:`, `fixture:`, and `regions:` are all replaced, not merged:
 
 ```yaml
-app:
-  state_templates:
-    crud_loadable:
-      start:
-        on: { load: loading }
-      loading:
-        on: { load_success: loaded, load_error: error }
-      loaded:
-        on: { edit: editing }
-      editing:
-        on: { save: saving, cancel: loaded }
-      saving:
-        on: { save_success: loaded, save_error: editing }
-      error:
-        on: { retry: loading }
-
-  screens:
-    order_detail:
-      state_machine:
-        extends: crud_loadable
-        loaded:
-          on:
-            delete: { action: navigate(order_list) }
+state_templates:
+  crud_loadable:
+    start:
+      on: { load: loading }
+    loading:
+      on: { load_success: loaded, load_error: error }
+    loaded:
+      on: { edit: editing }
+    editing:
+      on: { save: saving, cancel: loaded }
+    saving:
+      on: { save_success: loaded, save_error: editing }
+    error:
+      on: { retry: loading }
 ```
 
-### No Implicit Reset
+### Reset and Coordination
 
-Parent state changes do NOT auto-reset children. Reset happens through:
+Parent state changes do NOT auto-reset children. Preserves `(H)` history in flows. Reset through:
 1. `child_name:done` — child reaches `end`, parent reacts
 2. `navigate()` — target screen starts at `start`
-3. Explicit `emit()` — parent emits, child handles in its own `on:`
+3. `emit(event, target: [child])` — parent emits to named targets, child handles
 
-Preserves `(H)` history in flows.
-
-### Top-Down Coordination
-
-Parent emits, child handles — same mechanism as bottom-up, reversed:
+Top-down coordination:
 
 ```yaml
-# parent
+# parent screen
 state_machine:
   viewing:
     on:
-      edit: { to: editing, action: emit(enter_edit_mode) }
+      edit: { to: editing, action: emit(enter_edit_mode, target: [toolbar]) }
 
-# child toolbar reacts
+# child toolbar region reacts
 state_machine:
   start:
     on:
@@ -152,47 +110,58 @@ state_machine:
       exit_edit_mode: start
 ```
 
+Bare `emit(event)` without `target:` triggers `emit_missing_target` warning under Phase 5 validation.
+
 ## Data Model
 
-### App-Level Data Vocabulary (Phase 2)
+### Enums
 
-Domain types defined once, referenced everywhere:
+Named sets of valid values. Referenced by name in type fields.
 
 ```yaml
-app:
-  data:
-    email:
-      subject: string
-      sender: contact
-      date: datetime
-      read: boolean
-      body: string
-    contact:
-      name: string
-      email: string
+enums:
+  category: [primary, social, promotions, updates]
+  priority: [urgent, high, medium, low, none]
 ```
 
-Business-level, not DB schema. Composable — shapes reference shapes.
+### Data Types
 
-### Context Hierarchy
+Domain types defined once, referenced everywhere. `?` suffix marks optional/nullable fields.
+
+```yaml
+data:
+  email:
+    subject: string
+    sender: contact
+    date: datetime
+    read: boolean
+    body: string?
+    attachments: string[]?
+  contact:
+    name: string
+    email: string
+```
+
+Suffix order: `type[]?` = optional array. `type?` = optional scalar. `type?[]` is invalid.
+
+### Context
 
 Data containers at app and screen level:
 
 ```yaml
-app:
-  context:
-    current_user: user
-    permissions: permission[]
+context:
+  current_user: user
+  permissions: permission[]
 
-  screens:
-    inbox:
-      context:
-        emails: email[]
-        selected: email[]
-        active_category: string
+screens:
+  inbox:
+    context:
+      emails: email[]
+      selected: email[]
+      active_category: category      # enum type
 ```
 
-### Region Data: `ambient` + `data`
+### Region Data
 
 ```yaml
 regions:
@@ -200,8 +169,8 @@ regions:
     ambient:
       emails: data(inbox, .emails)
     events:
-      select_email:
-      check_email:
+      select_email(email):             # annotation: carries an email
+      check_email(email):
 
   unread_badge:
     ambient:
@@ -213,35 +182,16 @@ regions:
       permissions: data(app, .permissions)
     data:
       action_label: string
-
-  search_bar:
-    data:
-      query: string
-      suggestions: string[]
+    events:
+      archive_selected(email[]):       # annotation: carries email array
+      delete_selected(email[]):
 ```
 
-- **`ambient:`** — map of named data from the environment. Each key is the region's local name, each value is a `data(source, query)` reference.
-- **`data:`** — region's own local state.
-- Parallels **ambient events** (keyboard/system events with no region source).
+Event name is everything before `(` — transitions, emit, and flows reference the bare name. When all events are bare, the list form `events: [a, b]` is equivalent.
 
-### Navigation with Parameters (Phase 4)
+## Fixtures
 
-```yaml
-state_machine:
-  start:
-    on:
-      select_order: { action: navigate(order_detail, { order: data(order_list, .selected) }) }
-
-# target declares what it expects
-screens:
-  order_detail:
-    context:
-      order: order
-```
-
-## Fixtures (Phase 3)
-
-### Named Data Snapshots Bound to States
+Fixture `extends:` merges by context key (`inbox`, `inbox.bulk_action_bar`). Within each key, child fields override parent fields. New keys are added. Fields not mentioned are inherited.
 
 ```yaml
 fixtures:
@@ -250,12 +200,6 @@ fixtures:
       emails:
         - { subject: "Welcome", sender: { name: "HR", email: "hr@acme.co" }, read: false }
         - { subject: "Q1 Report", sender: { name: "Finance" }, read: true }
-      selected: []
-      active_category: "primary"
-
-  inbox_empty:
-    inbox:
-      emails: []
       selected: []
       active_category: "primary"
 
@@ -268,62 +212,59 @@ fixtures:
       action_label: "Archive 1 item"
 ```
 
-### State ↔ Fixture Binding
+### State ↔ Fixture + Region Binding
 
 ```yaml
 state_machine:
   start:
     fixture: inbox_full
+    regions: [category_tabs, email_list, unread_badge]
     on:
       check_email: selecting
   selecting:
     fixture: inbox_selecting
+    regions: [category_tabs, email_list, bulk_action_bar]
     on:
       escape: start
   empty:
     fixture: inbox_empty
+    regions: [category_tabs, empty_state]
 ```
+
+Omitting `regions:` means all child regions are visible (backwards compatible). Listing a region makes it and all its descendants visible. `regions:` is for state-driven visibility. Tags are for orthogonal conditions (feature flags, roles, data presence). Both compose: a region must satisfy its tag AND be in the state's `regions:` list.
 
 ## Validation Rules
 
-**Additive** — new rules join the existing 10.
-
-### Phase 1 Rules (state machine)
-
 | Rule | Severity | Check |
 |------|----------|-------|
-| `undeclared_state` | error | transition target must exist as a state key |
-| `dead_end` | warning | state with no `on:` — CLI infers terminal |
-| `guard_ambiguity` | warning | same event + state without distinguishing guards |
-| `cycle_in_emit` | error | emit chains must be acyclic (low priority) |
-
-### Phase 2 Rules (data model)
-
-| Rule | Severity | Check |
-|------|----------|-------|
-| `undefined_data_type` | error | region data references type not in `app.data` |
+| `missing_description` | error | screen/region has no description |
+| `orphan_emit` | error | emit targets event with no handler |
+| `unreachable_state` | error | state not reachable from initial |
+| `duplicate_transition` | error | same event+from_state appears 2+ times |
+| `nesting_depth` | warning | region nested 3+ levels deep |
+| `invalid_flow_ref` | error | flow step references unknown screen/region/event |
+| `orphan_event` | warning | transition handles event no region emits |
+| `dangling_navigate` | error | navigate targets unknown screen/region |
+| `ambiguous_region_name` | warning | same name used by multiple regions |
+| `unhandled_event` | warning | event emitted but no handler (error when zero coverage) |
+| `undeclared_state` | error | transition target not a state key |
+| `dead_end` | warning | state with no `on:` — infers terminal |
+| `guard_ambiguity` | warning | same event+state without distinguishing guards |
+| `undefined_data_type` | error | field references type not in `app.data` or `app.enums` |
 | `invalid_ambient_path` | error | `data(source, .path)` doesn't resolve |
-
-### Phase 3 Rules (fixtures)
-
-| Rule | Severity | Check |
-|------|----------|-------|
 | `fixture_type_mismatch` | error | fixture data doesn't match declared shape |
 | `data_starved_region` | warning | state's fixture missing data for ambient-dependent region |
 | `orphan_fixture` | warning | fixture not referenced by any state (strict mode only) |
-
-### Phase 4 Rules (templates + navigate)
-
-| Rule | Severity | Check |
-|------|----------|-------|
 | `navigate_params_mismatch` | error | navigate params don't match target screen context |
 | `template_override_invalid` | error | extends overrides non-existent state |
-
-### Existing Rules (kept unchanged)
-
-`missing_description`, `orphan_emit`, `unreachable_state`, `duplicate_transition`, `nesting_depth`, `invalid_flow_ref`, `orphan_event`, `dangling_navigate`, `ambiguous_region_name`, `unhandled_event`
-
-Note: `unhandled_event` absorbs `event_gap` — graduated severity (error when zero coverage, warning when partial).
+| `undefined_enum` | error | field references enum not in `app.enums` |
+| `fixture_missing_required` | warning | fixture omits a non-optional field |
+| `invalid_state_region` | error | state `regions:` references unknown child region |
+| `emit_target_mismatch` | error | `emit(event, target: [x])` but `x` has no handler |
+| `invalid_event_annotation` | warning | event annotation type not in `app.data` or `app.enums` |
+| `enum_data_collision` | warning | same name in both `app.enums` and `app.data` |
+| `reserved_state_name` | error | state named `extends` (reserved key) |
+| `emit_missing_target` | warning | `emit(event)` without `target:` |
 
 ## Full Example: Gmail
 
@@ -332,13 +273,17 @@ app:
   name: gmail
   description: email client
 
+  enums:
+    category: [primary, social, promotions, updates]
+
   data:
     email:
       subject: string
       sender: contact
       date: datetime
       read: boolean
-      body: string
+      body: string?
+      attachments: string[]?
     contact:
       name: string
       email: string
@@ -348,7 +293,7 @@ app:
 
   context:
     current_user: contact
-    compose_draft: email
+    compose_draft: email?
 
   screens:
     inbox:
@@ -356,50 +301,59 @@ app:
       context:
         emails: email[]
         selected: email[]
-        active_category: string
+        active_category: category
 
       regions:
         category_tabs:
+          description: Primary / Social / Promotions / Updates tab filter
           ambient:
             category: data(inbox, .active_category)
           events:
-            switch_category:
+            switch_category(category):
 
         email_list:
+          description: scrollable thread list with individual and bulk interactions
           ambient:
             emails: data(inbox, .emails)
           events:
-            select_email:
-            check_email:
+            select_email(email):
+            check_email(email):
 
         unread_badge:
           ambient:
             count: data(inbox, .emails[?read==false] | length)
 
         reading_pane:
+          description: inline email preview — only when preview pane setting is on
           ambient:
             email: data(inbox, .emails[0])
           tags: [preview_pane_enabled]
 
         bulk_action_bar:
+          description: archive, delete, label — appears in selecting state
           ambient:
             selected: data(inbox, .selected)
             user: data(app, .current_user)
           data:
             action_label: string
           events:
-            archive_selected:
-            delete_selected:
+            archive_selected(email[]):
+            delete_selected(email[]):
+
+        empty_state:
+          description: no emails illustration + prompt to check other categories
 
       state_machine:
         start:
           fixture: inbox_full
+          regions: [category_tabs, email_list, unread_badge, reading_pane]
           on:
             select_email: { action: navigate(thread_view, { email: data(inbox, .emails[0]) }) }
             check_email: selecting
             switch_category: .
         selecting:
           fixture: inbox_selecting
+          regions: [category_tabs, email_list, unread_badge, bulk_action_bar]
           on:
             check_email: .
             archive_selected: start
@@ -407,6 +361,7 @@ app:
             escape: start
         empty:
           fixture: inbox_empty
+          regions: [category_tabs, empty_state]
 
     thread_view:
       description: full conversation view
@@ -415,10 +370,12 @@ app:
 
       regions:
         message_list:
+          description: chronological messages with expand/collapse per message
           ambient:
             email: data(thread_view, .email)
 
         reply_composer:
+          description: rich text reply editor at bottom of thread
           events:
             start_reply:
             send_reply:
@@ -431,7 +388,7 @@ app:
                 start_reply: expanded
             expanded:
               on:
-                send_reply: { to: end, action: emit(reply_sent) }
+                send_reply: { to: end, action: emit(reply_sent, target: [thread_view]) }
                 discard_reply: start
 
       state_machine:
@@ -469,53 +426,6 @@ app:
       sequence: "inbox → thread_view → [Back] → inbox(H)"
 ```
 
-## Migration
+## Out of Scope
 
-1. **Phase 1**: `state_machine:` format + built-in states + Phase 1 validation
-2. **Phase 2**: `app.data:` shapes + context hierarchy + `ambient` + Phase 2 validation
-3. **Phase 3**: fixtures + composition + state-fixture binding + Phase 3 validation
-4. **Phase 4**: state machine templates + navigate params + Phase 4 validation
-
-Each phase independently shippable.
-
-## Decisions Log
-
-| Decision | Rationale | Round |
-|----------|-----------|-------|
-| `lower_snake` everywhere | YAML-friendly, no quoting | 5 |
-| Maps for all named entities | Consistent structure, key = identity, no `name:` fields | 7 |
-| Keep event bubbling | Architecturally sound | 2 |
-| Validation additive | Dropping existing rules = regression | 3 |
-| 5 value forms in `on:` | Real examples need all patterns | 3 |
-| No implicit reset | Breaks 6+ flows using `(H)` history | 4 |
-| `child:done` built-in | Validated by SCXML/XState | 4 |
-| Guards descriptive only | Spec tool, not runtime | 4 |
-| App-level context | Global data accessible everywhere | 5 |
-| `ambient` as map + `data(source, query)` | Regions name their data, express precise contracts | 6 |
-| Navigate with params | Cross-screen data transfer explicit | 5 |
-| State machine templates | CRUD repeats 5+ times | 5 |
-| Fixture `extends:` | Deep wizards duplicate without inheritance | 4 |
-| `unhandled_event` absorbs `event_gap` | Graduated severity instead of separate rule | 6 |
-| `dead_end` infers terminal | Empty `on:` = terminal, no tag needed | 6 |
-| `orphan_fixture` strict-mode only | Noisy during iterative authoring | 6 |
-
-## Appendix: Statechart Equivalences
-
-| SFT | Statechart |
-|-----|-----------|
-| Regions | Parallel states |
-| `emit()` | `sendParent()` |
-| `(H)` in flows | History states |
-| `state_machine:` map | Compound states |
-| `start` / `end` | Initial / final |
-| `child:done` | SCXML `done.state.id` |
-| `guard:` | SCXML `cond` |
-| `app.data:` | XState context |
-| `ambient` + `data()` | Computed/derived |
-| Fixtures | Storybook args |
-
-## Appendix: Patterns Validated
-
-45 patterns tested across 5 rounds. Expressible: loading/retry, optimistic updates, undo/redo, debounced search, error recovery, concurrent machines, branching flows, machine restart, conditional entry, nested forms, dashboards, modal stacks, infinite scroll, role-based views, collaborative editing, tab preservation, wizard with conditional steps, drag-drop, file upload.
-
-Out of scope: time-based transitions, event payloads, intra-state continuous changes, race conditions.
+Time-based transitions, intra-state continuous changes, race conditions, multi-window/detachable panels, drag-and-drop phases, overlay stacking/z-ordering, form validation rules, responsive breakpoints.
