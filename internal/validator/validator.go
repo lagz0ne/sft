@@ -71,7 +71,10 @@ var rules = []rule{
 		query: `SELECT t.action, ` + ownerCase + ` AS owner_name
 		        FROM transitions t
 		        WHERE t.action LIKE 'emit(%)'
-		          AND SUBSTR(t.action, 6, LENGTH(t.action) - 6) NOT IN (
+		          AND SUBSTR(t.action, 6,
+		            CASE WHEN INSTR(SUBSTR(t.action, 6), ',') > 0
+		            THEN INSTR(SUBSTR(t.action, 6), ',') - 1
+		            ELSE INSTR(SUBSTR(t.action, 6), ')') - 1 END) NOT IN (
 		            SELECT t2.on_event FROM transitions t2 WHERE t2.id != t.id
 		          )`,
 		format: func(rows *sql.Rows) ([]Finding, error) {
@@ -371,14 +374,16 @@ var rules = []rule{
 		            WHEN 'screen' THEN (SELECT s.name FROM screens s WHERE s.id = c.owner_id)
 		          END AS owner_name
 		        FROM contexts c
-		        WHERE REPLACE(c.field_type, '[]', '') NOT IN ('string', 'number', 'boolean', 'datetime')
-		          AND REPLACE(c.field_type, '[]', '') NOT IN (SELECT dt.name FROM data_types dt)
+		        WHERE REPLACE(REPLACE(c.field_type, '?', ''), '[]', '') NOT IN ('string', 'number', 'boolean', 'datetime', 'date')
+		          AND REPLACE(REPLACE(c.field_type, '?', ''), '[]', '') NOT IN (SELECT dt.name FROM data_types dt)
+		          AND REPLACE(REPLACE(c.field_type, '?', ''), '[]', '') NOT IN (SELECT e.name FROM enums e)
 		        UNION ALL
 		        SELECT 'region_data' AS source, rd.field_name, rd.field_type,
 		          (SELECT r.name FROM regions r WHERE r.id = rd.region_id) AS owner_name
 		        FROM region_data rd
-		        WHERE REPLACE(rd.field_type, '[]', '') NOT IN ('string', 'number', 'boolean', 'datetime')
-		          AND REPLACE(rd.field_type, '[]', '') NOT IN (SELECT dt.name FROM data_types dt)`,
+		        WHERE REPLACE(REPLACE(rd.field_type, '?', ''), '[]', '') NOT IN ('string', 'number', 'boolean', 'datetime', 'date')
+		          AND REPLACE(REPLACE(rd.field_type, '?', ''), '[]', '') NOT IN (SELECT dt.name FROM data_types dt)
+		          AND REPLACE(REPLACE(rd.field_type, '?', ''), '[]', '') NOT IN (SELECT e.name FROM enums e)`,
 		format: func(rows *sql.Rows) ([]Finding, error) {
 			var findings []Finding
 			for rows.Next() {
@@ -484,6 +489,107 @@ var rules = []rule{
 					Rule:     "invalid-ambient-path",
 					Severity: Error,
 					Message:  msg,
+				})
+			}
+			return findings, nil
+		},
+	},
+	// Invalid event annotation — annotation type not a builtin or defined data type
+	{
+		id:       "invalid-event-annotation",
+		severity: Warning,
+		query: `SELECT e.name, e.annotation, (SELECT r.name FROM regions r WHERE r.id = e.region_id) AS region_name
+		        FROM events e
+		        WHERE e.annotation IS NOT NULL AND e.annotation != ''
+		          AND REPLACE(REPLACE(e.annotation, '?', ''), '[]', '') NOT IN ('string', 'number', 'boolean', 'datetime', 'date')
+		          AND REPLACE(REPLACE(e.annotation, '?', ''), '[]', '') NOT IN (SELECT dt.name FROM data_types dt)
+		          AND REPLACE(REPLACE(e.annotation, '?', ''), '[]', '') NOT IN (SELECT en.name FROM enums en)`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var findings []Finding
+			for rows.Next() {
+				var evName, annotation string
+				var regionName sql.NullString
+				if err := rows.Scan(&evName, &annotation, &regionName); err != nil {
+					return nil, err
+				}
+				findings = append(findings, Finding{
+					Rule:     "invalid-event-annotation",
+					Severity: Warning,
+					Message:  fmt.Sprintf("event %q in %s has unknown annotation type %q", evName, ns(regionName), annotation),
+				})
+			}
+			return findings, nil
+		},
+	},
+	// emit() without target: — may be intentional but worth flagging
+	{
+		id:       "emit-missing-target",
+		severity: Warning,
+		query: `SELECT t.action, ` + ownerCase + ` AS owner_name
+		        FROM transitions t
+		        WHERE t.action LIKE 'emit(%)'
+		          AND t.action NOT LIKE '%target:%'`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var findings []Finding
+			for rows.Next() {
+				var action string
+				var owner sql.NullString
+				if err := rows.Scan(&action, &owner); err != nil {
+					return nil, err
+				}
+				findings = append(findings, Finding{
+					Rule:     "emit-missing-target",
+					Severity: Warning,
+					Message:  fmt.Sprintf("%s in %s has no target: specifier", action, ns(owner)),
+				})
+			}
+			return findings, nil
+		},
+	},
+	// Invalid state-region — state references a region that doesn't exist in the owner's children
+	{
+		id:       "invalid-state-region",
+		severity: Error,
+		query: `SELECT sr.state_name, sr.region_name, ` + ownerCaseAlias("sr") + ` AS owner_name
+		        FROM state_regions sr
+		        WHERE sr.region_name NOT IN (
+		          SELECT r.name FROM regions r WHERE r.parent_type = sr.owner_type AND r.parent_id = sr.owner_id
+		        )`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var findings []Finding
+			for rows.Next() {
+				var stateName, regionName string
+				var ownerName sql.NullString
+				if err := rows.Scan(&stateName, &regionName, &ownerName); err != nil {
+					return nil, err
+				}
+				findings = append(findings, Finding{
+					Rule:     "invalid-state-region",
+					Severity: Error,
+					Message:  fmt.Sprintf("state %q in %s references non-child region %q", stateName, ns(ownerName), regionName),
+				})
+			}
+			return findings, nil
+		},
+	},
+	// Enum-data collision — enum name collides with a data type name
+	{
+		id:       "enum-data-collision",
+		severity: Warning,
+		query: `SELECT e.name
+		        FROM enums e
+		        WHERE e.name IN (SELECT dt.name FROM data_types dt WHERE dt.app_id = e.app_id)`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var findings []Finding
+			for rows.Next() {
+				var name string
+				if err := rows.Scan(&name); err != nil {
+					return nil, err
+				}
+				findings = append(findings, Finding{
+					Rule:     "enum-data-collision",
+					Severity: Warning,
+					Message:  fmt.Sprintf("enum %q has the same name as a data type", name),
 				})
 			}
 			return findings, nil

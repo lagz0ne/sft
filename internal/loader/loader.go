@@ -24,6 +24,7 @@ type yamlApp struct {
 	Name           string                       `yaml:"name"`
 	Description    string                       `yaml:"description"`
 	Data           map[string]map[string]string `yaml:"data,omitempty"`
+	Enums          map[string][]string          `yaml:"enums,omitempty"`
 	Context        map[string]string            `yaml:"context,omitempty"`
 	StateTemplates yaml.Node                    `yaml:"state_templates,omitempty"`
 	Regions        []yamlRegion                 `yaml:"regions,omitempty"`
@@ -54,7 +55,7 @@ type yamlRegion struct {
 	Props        string           `yaml:"props,omitempty"`
 	OnActions    string           `yaml:"on_actions,omitempty"`
 	Visible      string           `yaml:"visible,omitempty"`
-	Events       []string         `yaml:"events,omitempty"`
+	Events       yaml.Node        `yaml:"events,omitempty"`
 	Ambient      map[string]string `yaml:"ambient,omitempty"`
 	Data         map[string]string `yaml:"data,omitempty"`
 	Regions      []yamlRegion     `yaml:"regions,omitempty"`
@@ -132,8 +133,22 @@ func Load(s *store.Store, path string) error {
 		}
 	}
 
+	// Enums
+	for enumName, values := range app.Enums {
+		valuesJSON, err := json.Marshal(values)
+		if err != nil {
+			return fmt.Errorf("enum %s: %w", enumName, err)
+		}
+		if err := s.InsertEnum(&model.Enum{AppID: a.ID, Name: enumName, Values: string(valuesJSON)}); err != nil {
+			return fmt.Errorf("enum %s: %w", enumName, err)
+		}
+	}
+
 	// App context
 	for fieldName, fieldType := range app.Context {
+		if err := validateTypeSuffix(fieldType); err != nil {
+			return fmt.Errorf("app context %s: %w", fieldName, err)
+		}
 		if err := s.InsertContextField(&model.ContextField{OwnerType: "app", OwnerID: a.ID, FieldName: fieldName, FieldType: fieldType}); err != nil {
 			return fmt.Errorf("app context %s: %w", fieldName, err)
 		}
@@ -166,6 +181,9 @@ func Load(s *store.Store, path string) error {
 		}
 		// Screen context
 		for fieldName, fieldType := range sc.Context {
+			if err := validateTypeSuffix(fieldType); err != nil {
+				return fmt.Errorf("screen context %s on %s: %w", fieldName, sc.Name, err)
+			}
 			if err := s.InsertContextField(&model.ContextField{OwnerType: "screen", OwnerID: screen.ID, FieldName: fieldName, FieldType: fieldType}); err != nil {
 				return fmt.Errorf("screen context %s on %s: %w", fieldName, sc.Name, err)
 			}
@@ -255,9 +273,14 @@ func insertRegion(s *store.Store, appID int64, parentType string, parentID int64
 			return fmt.Errorf("component on region %s: %w", r.Name, err)
 		}
 	}
-	for _, ev := range r.Events {
-		if err := s.InsertEvent(&model.Event{RegionID: region.ID, Name: ev}); err != nil {
-			return fmt.Errorf("event %s in %s: %w", ev, r.Name, err)
+	events, err := parseEventsNode(&r.Events)
+	if err != nil {
+		return fmt.Errorf("events in %s: %w", r.Name, err)
+	}
+	for _, ev := range events {
+		ev.RegionID = region.ID
+		if err := s.InsertEvent(&ev); err != nil {
+			return fmt.Errorf("event %s in %s: %w", ev.Name, r.Name, err)
 		}
 	}
 	for _, tag := range r.Tags {
@@ -277,6 +300,9 @@ func insertRegion(s *store.Store, appID int64, parentType string, parentID int64
 	}
 	// Region data
 	for fieldName, fieldType := range r.Data {
+		if err := validateTypeSuffix(fieldType); err != nil {
+			return fmt.Errorf("region data %s in %s: %w", fieldName, r.Name, err)
+		}
 		if err := s.InsertRegionData(&model.RegionData{RegionID: region.ID, FieldName: fieldName, FieldType: fieldType}); err != nil {
 			return fmt.Errorf("region data %s in %s: %w", fieldName, r.Name, err)
 		}
@@ -314,7 +340,7 @@ func insertTransitions(s *store.Store, appID int64, ownerType string, ownerID in
 			smNode = merged
 		}
 
-		transitions, _, stateFixtures, err := ParseStateMachine(*smNode)
+		transitions, _, stateFixtures, stateRegions, err := ParseStateMachine(*smNode)
 		if err != nil {
 			return fmt.Errorf("state_machine in %s %s: %w", ownerType, ownerName, err)
 		}
@@ -332,6 +358,17 @@ func insertTransitions(s *store.Store, appID int64, ownerType string, ownerID in
 				StateName: stateName, FixtureName: fixtureName,
 			}); err != nil {
 				return fmt.Errorf("state fixture %s→%s in %s %s: %w", stateName, fixtureName, ownerType, ownerName, err)
+			}
+		}
+		// Insert state → region visibility bindings
+		for stateName, regionNames := range stateRegions {
+			for _, regionName := range regionNames {
+				if err := s.InsertStateRegion(&model.StateRegion{
+					OwnerType: ownerType, OwnerID: ownerID,
+					StateName: stateName, RegionName: regionName,
+				}); err != nil {
+					return fmt.Errorf("state region %s→%s in %s %s: %w", stateName, regionName, ownerType, ownerName, err)
+				}
 			}
 		}
 		return nil
@@ -526,12 +563,60 @@ func parseDataRef(ref string) (source, query string, err error) {
 	return source, query, nil
 }
 
+// parseEventsNode parses a yaml.Node for events into model.Event slices.
+// Supports SequenceNode (list of strings) and MappingNode (keys are event names).
+// Event strings may contain annotations: "name(type)" -> name="name", annotation="type".
+func parseEventsNode(node *yaml.Node) ([]model.Event, error) {
+	if node == nil || node.Kind == 0 {
+		return nil, nil
+	}
+	switch node.Kind {
+	case yaml.SequenceNode:
+		var events []model.Event
+		for _, item := range node.Content {
+			name, annotation := parseEventName(item.Value)
+			events = append(events, model.Event{Name: name, Annotation: annotation})
+		}
+		return events, nil
+	case yaml.MappingNode:
+		var events []model.Event
+		for i := 0; i < len(node.Content)-1; i += 2 {
+			name, annotation := parseEventName(node.Content[i].Value)
+			events = append(events, model.Event{Name: name, Annotation: annotation})
+		}
+		return events, nil
+	default:
+		return nil, fmt.Errorf("events: expected sequence or mapping, got kind %d", node.Kind)
+	}
+}
+
+// parseEventName splits "name(annotation)" into bare name and annotation.
+func parseEventName(raw string) (name, annotation string) {
+	idx := strings.Index(raw, "(")
+	if idx < 0 {
+		return raw, ""
+	}
+	name = raw[:idx]
+	annotation = strings.TrimSuffix(raw[idx+1:], ")")
+	return name, annotation
+}
+
+// validateTypeSuffix rejects invalid suffix ordering on field types.
+// Valid: "type", "type?", "type[]", "type[]?" -- Invalid: "type?[]"
+func validateTypeSuffix(fieldType string) error {
+	if strings.Contains(fieldType, "?[]") {
+		return fmt.Errorf("invalid type %q: use []? instead of ?[]", fieldType)
+	}
+	return nil
+}
+
 // Export serializes a Spec tree to SFT YAML format.
 func Export(spec *show.Spec, w io.Writer) error {
 	app := yamlApp{
 		Name:        spec.App.Name,
 		Description: spec.App.Description,
 		Data:        spec.App.DataTypes,
+		Enums:       spec.App.Enums,
 		Context:     spec.App.Context,
 		Regions:     exportRegions(spec.App.Regions),
 		Screens:     exportScreens(spec.Screens),
@@ -567,7 +652,7 @@ func exportScreens(screens []show.Screen) []yamlScreen {
 			Visible:     s.ComponentVis,
 			Regions:     exportRegions(s.Regions),
 		}
-		if sm := exportStateMachine(s.Transitions, s.StateFixtures); sm != nil {
+		if sm := exportStateMachine(s.Transitions, s.StateFixtures, s.StateRegions); sm != nil {
 			ys.StateMachine = *sm
 		}
 		out = append(out, ys)
@@ -589,12 +674,12 @@ func exportRegions(regions []show.Region) []yamlRegion {
 			Props:       r.ComponentProps,
 			OnActions:   r.ComponentOn,
 			Visible:     r.ComponentVis,
-			Events:      r.Events,
+			Events:      exportEvents(r.Events),
 			Ambient:     r.Ambient,
 			Data:        r.RegionData,
 			Regions:     exportRegions(r.Regions),
 		}
-		if sm := exportStateMachine(r.Transitions, r.StateFixtures); sm != nil {
+		if sm := exportStateMachine(r.Transitions, r.StateFixtures, r.StateRegions); sm != nil {
 			yr.StateMachine = *sm
 		}
 		out = append(out, yr)
@@ -602,11 +687,45 @@ func exportRegions(regions []show.Region) []yamlRegion {
 	return out
 }
 
+// exportEvents converts event strings (possibly with annotations) to a yaml.Node.
+// If any event has an annotation, uses mapping format. Otherwise, uses sequence format.
+func exportEvents(events []string) yaml.Node {
+	if len(events) == 0 {
+		return yaml.Node{}
+	}
+	// Check if any event has an annotation
+	hasAnnotation := false
+	for _, e := range events {
+		if strings.Contains(e, "(") {
+			hasAnnotation = true
+			break
+		}
+	}
+	if !hasAnnotation {
+		// Simple sequence format
+		node := yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle}
+		for _, e := range events {
+			node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: e, Tag: "!!str"})
+		}
+		return node
+	}
+	// Mapping format: keys are "name(annotation)" or bare "name", values are null
+	node := yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	for _, e := range events {
+		node.Content = append(node.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: e, Tag: "!!str"},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!null"},
+		)
+	}
+	return node
+}
+
 // exportStateMachine converts a flat list of transitions into a state_machine yaml.Node.
 // Groups transitions by FromState, producing ordered mappings. Terminal states (appear
 // only as targets) are included as empty mappings. State fixtures are included as fixture: keys.
-func exportStateMachine(transitions []show.Transition, stateFixtures map[string]string) *yaml.Node {
-	if len(transitions) == 0 && len(stateFixtures) == 0 {
+// State regions are included as regions: keys.
+func exportStateMachine(transitions []show.Transition, stateFixtures map[string]string, stateRegions map[string][]string) *yaml.Node {
+	if len(transitions) == 0 && len(stateFixtures) == 0 && len(stateRegions) == 0 {
 		return nil
 	}
 
@@ -650,15 +769,24 @@ func exportStateMachine(transitions []show.Transition, stateFixtures map[string]
 		}
 	}
 
-	// Include fixture-only states that aren't in stateOrder or terminalStates.
-	var fixtureOnlyStates []string
+	// Include fixture-only or region-only states that aren't in stateOrder or terminalStates.
+	extraStates := map[string]bool{}
 	for s := range stateFixtures {
 		if !seenFrom[s] && !seenTerminal[s] {
-			fixtureOnlyStates = append(fixtureOnlyStates, s)
+			extraStates[s] = true
 		}
 	}
-	slices.Sort(fixtureOnlyStates)
-	terminalStates = append(terminalStates, fixtureOnlyStates...)
+	for s := range stateRegions {
+		if !seenFrom[s] && !seenTerminal[s] {
+			extraStates[s] = true
+		}
+	}
+	var extraList []string
+	for s := range extraStates {
+		extraList = append(extraList, s)
+	}
+	slices.Sort(extraList)
+	terminalStates = append(terminalStates, extraList...)
 
 	// Sort terminal states for deterministic output.
 	slices.Sort(terminalStates)
@@ -681,7 +809,7 @@ func exportStateMachine(transitions []show.Transition, stateFixtures map[string]
 			onMapping.Content = append(onMapping.Content, evKey, evVal)
 		}
 
-		// State value: mapping with optional "fixture" and "on" keys.
+		// State value: mapping with optional "fixture", "regions", and "on" keys.
 		stateVal := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 		if fixtureName, ok := stateFixtures[stateName]; ok {
 			stateVal.Content = append(stateVal.Content,
@@ -689,13 +817,14 @@ func exportStateMachine(transitions []show.Transition, stateFixtures map[string]
 				&yaml.Node{Kind: yaml.ScalarNode, Value: fixtureName, Tag: "!!str"},
 			)
 		}
+		appendRegionsNode(stateVal, stateRegions[stateName])
 		onKey := &yaml.Node{Kind: yaml.ScalarNode, Value: "on", Tag: "!!str"}
 		stateVal.Content = append(stateVal.Content, onKey, onMapping)
 
 		root.Content = append(root.Content, keyNode, stateVal)
 	}
 
-	// Add terminal states as empty mappings (with optional fixture).
+	// Add terminal states as empty mappings (with optional fixture and regions).
 	for _, s := range terminalStates {
 		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Value: s, Tag: "!!str"}
 		valNode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
@@ -705,10 +834,26 @@ func exportStateMachine(transitions []show.Transition, stateFixtures map[string]
 				&yaml.Node{Kind: yaml.ScalarNode, Value: fixtureName, Tag: "!!str"},
 			)
 		}
+		appendRegionsNode(valNode, stateRegions[s])
 		root.Content = append(root.Content, keyNode, valNode)
 	}
 
 	return root
+}
+
+// appendRegionsNode adds a regions: flow-style sequence to a state mapping node.
+func appendRegionsNode(parent *yaml.Node, regionNames []string) {
+	if len(regionNames) == 0 {
+		return
+	}
+	regSeq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle}
+	for _, rn := range regionNames {
+		regSeq.Content = append(regSeq.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: rn, Tag: "!!str"})
+	}
+	parent.Content = append(parent.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Value: "regions", Tag: "!!str"},
+		regSeq,
+	)
 }
 
 // buildTransitionValueNode creates the yaml.Node for a single event's target value.

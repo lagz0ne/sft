@@ -30,9 +30,10 @@ type Tag struct {
 }
 
 type Event struct {
-	ID       int64  `json:"id"`
-	RegionID int64  `json:"region_id"`
-	Name     string `json:"name"`
+	ID         int64  `json:"id"`
+	RegionID   int64  `json:"region_id"`
+	Name       string `json:"name"`
+	Annotation string `json:"annotation,omitempty"`
 }
 
 type Transition struct {
@@ -90,6 +91,25 @@ type StateFixture struct {
 	OwnerID     int64  `json:"owner_id"`
 	StateName   string `json:"state_name"`
 	FixtureName string `json:"fixture_name"`
+}
+
+// Phase 5: State-region visibility
+
+type StateRegion struct {
+	ID         int64  `json:"id"`
+	OwnerType  string `json:"owner_type"`
+	OwnerID    int64  `json:"owner_id"`
+	StateName  string `json:"state_name"`
+	RegionName string `json:"region_name"`
+}
+
+// Phase 5: Enums
+
+type Enum struct {
+	ID     int64  `json:"id"`
+	AppID  int64  `json:"app_id"`
+	Name   string `json:"name"`
+	Values string `json:"values"`
 }
 
 // Phase 2: Data model types

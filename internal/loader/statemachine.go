@@ -9,22 +9,30 @@ import (
 )
 
 // ParseStateMachine parses a state_machine YAML mapping node into transitions.
-// Returns all transitions, ordered state names (first = initial), state→fixture bindings, and any error.
+// Returns all transitions, ordered state names (first = initial), state→fixture bindings,
+// state→region visibility mappings, and any error.
 // OwnerType/OwnerID are left unset — the caller fills those in.
-func ParseStateMachine(node yaml.Node) ([]model.Transition, []string, map[string]string, error) {
+func ParseStateMachine(node yaml.Node) ([]model.Transition, []string, map[string]string, map[string][]string, error) {
 	if node.Kind != yaml.MappingNode {
-		return nil, nil, nil, fmt.Errorf("state_machine: expected mapping, got kind %d", node.Kind)
+		return nil, nil, nil, nil, fmt.Errorf("state_machine: expected mapping, got kind %d", node.Kind)
 	}
 
 	var transitions []model.Transition
 	var states []string
 	stateFixtures := map[string]string{}
+	stateRegions := map[string][]string{}
 
 	// Iterate state-name / state-def pairs.
 	for i := 0; i < len(node.Content)-1; i += 2 {
 		keyNode := node.Content[i]
 		valNode := node.Content[i+1]
 		stateName := keyNode.Value
+
+		// Reject reserved state name
+		if stateName == "extends" {
+			return nil, nil, nil, nil, fmt.Errorf("reserved_state_name: %q is reserved and cannot be used as a state name", stateName)
+		}
+
 		states = append(states, stateName)
 
 		// Terminal or null state: no transitions.
@@ -32,12 +40,25 @@ func ParseStateMachine(node yaml.Node) ([]model.Transition, []string, map[string
 			continue
 		}
 		if valNode.Kind != yaml.MappingNode {
-			return nil, nil, nil, fmt.Errorf("state %q: expected mapping, got kind %d", stateName, valNode.Kind)
+			return nil, nil, nil, nil, fmt.Errorf("state %q: expected mapping, got kind %d", stateName, valNode.Kind)
 		}
 
 		// Check for fixture: key
 		if fixtureNode := findKey(valNode, "fixture"); fixtureNode != nil && fixtureNode.Kind == yaml.ScalarNode {
 			stateFixtures[stateName] = fixtureNode.Value
+		}
+
+		// Check for regions: key
+		if regionsNode := findKey(valNode, "regions"); regionsNode != nil && regionsNode.Kind == yaml.SequenceNode {
+			var regionNames []string
+			for _, item := range regionsNode.Content {
+				if item.Kind == yaml.ScalarNode {
+					regionNames = append(regionNames, item.Value)
+				}
+			}
+			if len(regionNames) > 0 {
+				stateRegions[stateName] = regionNames
+			}
 		}
 
 		// Find the "on" key inside the state definition.
@@ -51,7 +72,7 @@ func ParseStateMachine(node yaml.Node) ([]model.Transition, []string, map[string
 			continue
 		}
 		if onNode.Kind != yaml.MappingNode {
-			return nil, nil, nil, fmt.Errorf("state %q: on: expected mapping, got kind %d", stateName, onNode.Kind)
+			return nil, nil, nil, nil, fmt.Errorf("state %q: on: expected mapping, got kind %d", stateName, onNode.Kind)
 		}
 
 		// Iterate event / target pairs inside on:.
@@ -62,7 +83,7 @@ func ParseStateMachine(node yaml.Node) ([]model.Transition, []string, map[string
 
 			parsed, err := parseTarget(stateName, event, targetNode)
 			if err != nil {
-				return nil, nil, nil, fmt.Errorf("state %q event %q: %w", stateName, event, err)
+				return nil, nil, nil, nil, fmt.Errorf("state %q event %q: %w", stateName, event, err)
 			}
 			transitions = append(transitions, parsed...)
 		}
@@ -71,8 +92,11 @@ func ParseStateMachine(node yaml.Node) ([]model.Transition, []string, map[string
 	if len(stateFixtures) == 0 {
 		stateFixtures = nil
 	}
+	if len(stateRegions) == 0 {
+		stateRegions = nil
+	}
 
-	return transitions, states, stateFixtures, nil
+	return transitions, states, stateFixtures, stateRegions, nil
 }
 
 // findKey returns the value node for a given key in a MappingNode, or nil.

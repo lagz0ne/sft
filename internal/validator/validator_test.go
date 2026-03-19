@@ -397,6 +397,46 @@ func TestNavigateWithParams_DanglingTarget(t *testing.T) {
 	}
 }
 
+func TestUndefinedDataType_OptionalSuffix(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+
+	// Optional primitives should not trigger
+	s.InsertContextField(&model.ContextField{OwnerType: "screen", OwnerID: screenID, FieldName: "name", FieldType: "string?"})
+	s.InsertContextField(&model.ContextField{OwnerType: "screen", OwnerID: screenID, FieldName: "tags", FieldType: "string[]?"})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "undefined-data-type")
+	if len(matched) != 0 {
+		t.Errorf("unexpected undefined-data-type finding for optional types: %v", matched)
+	}
+}
+
+func TestUndefinedDataType_OptionalCustomType(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	// Define a custom type, then reference it with ? — should not trigger
+	s.InsertDataType(&model.DataType{AppID: appID, Name: "email", Fields: `{"address": "string"}`})
+	s.InsertContextField(&model.ContextField{OwnerType: "screen", OwnerID: screenID, FieldName: "primary", FieldType: "email?"})
+	s.InsertContextField(&model.ContextField{OwnerType: "screen", OwnerID: screenID, FieldName: "all", FieldType: "email[]?"})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "undefined-data-type")
+	if len(matched) != 0 {
+		t.Errorf("unexpected undefined-data-type finding for optional custom type: %v", matched)
+	}
+}
+
 func TestOrphanFixture_ExtendedBase(t *testing.T) {
 	s := setup(t)
 	screenID, _ := s.ResolveScreen("Main")

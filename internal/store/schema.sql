@@ -31,9 +31,10 @@ CREATE TABLE IF NOT EXISTS tags (
 );
 
 CREATE TABLE IF NOT EXISTS events (
-  id        INTEGER PRIMARY KEY,
-  region_id INTEGER NOT NULL REFERENCES regions(id),
-  name      TEXT NOT NULL
+  id         INTEGER PRIMARY KEY,
+  region_id  INTEGER NOT NULL REFERENCES regions(id),
+  name       TEXT NOT NULL,
+  annotation TEXT
 );
 
 CREATE TABLE IF NOT EXISTS transitions (
@@ -120,6 +121,15 @@ CREATE TABLE IF NOT EXISTS region_data (
   UNIQUE(region_id, field_name)
 );
 
+-- Enums (Phase 5)
+CREATE TABLE IF NOT EXISTS enums (
+  id      INTEGER PRIMARY KEY,
+  app_id  INTEGER NOT NULL REFERENCES apps(id),
+  name    TEXT NOT NULL,
+  "values" TEXT NOT NULL DEFAULT '[]',
+  UNIQUE(app_id, name)
+);
+
 -- State machine templates (Phase 4)
 CREATE TABLE IF NOT EXISTS state_templates (
   id         INTEGER PRIMARY KEY,
@@ -146,6 +156,16 @@ CREATE TABLE IF NOT EXISTS state_fixtures (
   state_name TEXT NOT NULL,
   fixture_name TEXT NOT NULL,
   UNIQUE(owner_type, owner_id, state_name)
+);
+
+-- State-region visibility (Phase 5)
+CREATE TABLE IF NOT EXISTS state_regions (
+  id          INTEGER PRIMARY KEY,
+  owner_type  TEXT NOT NULL CHECK(owner_type IN ('app','screen','region')),
+  owner_id    INTEGER NOT NULL,
+  state_name  TEXT NOT NULL,
+  region_name TEXT NOT NULL,
+  UNIQUE(owner_type, owner_id, state_name, region_name)
 );
 
 -- Cross-cutting views

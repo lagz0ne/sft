@@ -1113,6 +1113,86 @@ func TestStateTemplateOverrideEvent(t *testing.T) {
 	t.Error("missing idle/click transition")
 }
 
+func TestValidateTypeSuffix(t *testing.T) {
+	tests := []struct {
+		input   string
+		wantErr bool
+	}{
+		{"string", false},
+		{"string?", false},
+		{"string[]", false},
+		{"string[]?", false},
+		{"email?", false},
+		{"email[]?", false},
+		{"string?[]", true},  // invalid ordering
+		{"email?[]", true},   // invalid ordering
+	}
+	for _, tt := range tests {
+		err := validateTypeSuffix(tt.input)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("validateTypeSuffix(%q): err=%v, wantErr=%v", tt.input, err, tt.wantErr)
+		}
+	}
+}
+
+func TestOptionalFieldImport(t *testing.T) {
+	yamlOptional := `app:
+  name: OptionalApp
+  description: Test optional fields
+  context:
+    user: string?
+    tags: string[]?
+  screens:
+    - name: Main
+      description: Main screen
+      context:
+        selected: number?
+      regions:
+        - name: Widget
+          description: A widget
+          data:
+            query: string?
+            results: string[]?
+`
+	s := mustStore(t)
+	importYAML(t, s, yamlOptional)
+
+	// Verify optional types are stored correctly
+	var fieldType string
+	s.DB.QueryRow("SELECT field_type FROM contexts WHERE owner_type = 'app' AND field_name = 'user'").Scan(&fieldType)
+	if fieldType != "string?" {
+		t.Errorf("user type = %q, want string?", fieldType)
+	}
+	s.DB.QueryRow("SELECT field_type FROM contexts WHERE owner_type = 'app' AND field_name = 'tags'").Scan(&fieldType)
+	if fieldType != "string[]?" {
+		t.Errorf("tags type = %q, want string[]?", fieldType)
+	}
+}
+
+func TestInvalidOptionalFieldImport(t *testing.T) {
+	yamlBad := `app:
+  name: BadApp
+  description: Test bad optional
+  context:
+    items: string?[]
+  screens:
+    - name: Main
+      description: Main screen
+`
+	s := mustStore(t)
+	tmp := t.TempDir() + "/bad.sft.yaml"
+	if err := os.WriteFile(tmp, []byte(yamlBad), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := Load(s, tmp)
+	if err == nil {
+		t.Fatal("expected error for ?[] ordering")
+	}
+	if !strings.Contains(err.Error(), "?[]") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
 func TestParseDataRef(t *testing.T) {
 	tests := []struct {
 		input      string

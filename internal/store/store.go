@@ -49,6 +49,8 @@ func Open(path string) (*Store, error) {
 	}
 	// Schema migration: add position column to regions if missing (existing DBs).
 	db.Exec("ALTER TABLE regions ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+	// Schema migration: add annotation column to events if missing (Phase 5).
+	db.Exec("ALTER TABLE events ADD COLUMN annotation TEXT")
 	// Schema migration: scoped region unique constraint (parent_type, parent_id, name) replacing global UNIQUE(name).
 	s.migrateRegionScope()
 	return s, nil
@@ -299,8 +301,8 @@ func (s *Store) InsertTag(t *model.Tag) error {
 }
 
 func (s *Store) InsertEvent(e *model.Event) error {
-	res, err := s.DB.Exec("INSERT INTO events (region_id, name) VALUES (?, ?)",
-		e.RegionID, e.Name)
+	res, err := s.DB.Exec("INSERT INTO events (region_id, name, annotation) VALUES (?, ?, ?)",
+		e.RegionID, e.Name, e.Annotation)
 	if err != nil {
 		return err
 	}
@@ -350,6 +352,30 @@ func (s *Store) InsertFlowStep(fs *model.FlowStep) error {
 		return err
 	}
 	fs.ID, _ = res.LastInsertId()
+	return nil
+}
+
+// --- Phase 5: State-region visibility ---
+
+func (s *Store) InsertStateRegion(sr *model.StateRegion) error {
+	res, err := s.DB.Exec("INSERT INTO state_regions (owner_type, owner_id, state_name, region_name) VALUES (?, ?, ?, ?)",
+		sr.OwnerType, sr.OwnerID, sr.StateName, sr.RegionName)
+	if err != nil {
+		return err
+	}
+	sr.ID, _ = res.LastInsertId()
+	return nil
+}
+
+// --- Phase 5: Enum inserts ---
+
+func (s *Store) InsertEnum(e *model.Enum) error {
+	res, err := s.DB.Exec(`INSERT INTO enums (app_id, name, "values") VALUES (?, ?, ?)`,
+		e.AppID, e.Name, e.Values)
+	if err != nil {
+		return err
+	}
+	e.ID, _ = res.LastInsertId()
 	return nil
 }
 
@@ -705,6 +731,8 @@ func (s *Store) deleteRegionIDs(tx *sql.Tx, ids []int64) {
 		tx.Exec("DELETE FROM events WHERE region_id = ?", id)
 		tx.Exec("DELETE FROM tags WHERE entity_type = 'region' AND entity_id = ?", id)
 		tx.Exec("DELETE FROM transitions WHERE owner_type = 'region' AND owner_id = ?", id)
+		tx.Exec("DELETE FROM state_regions WHERE owner_type = 'region' AND owner_id = ?", id)
+		tx.Exec("DELETE FROM state_fixtures WHERE owner_type = 'region' AND owner_id = ?", id)
 		tx.Exec("DELETE FROM components WHERE entity_type = 'region' AND entity_id = ?", id) // [H3]
 		tx.Exec("DELETE FROM flow_steps WHERE type = 'region' AND name = (SELECT name FROM regions WHERE id = ?)", id)
 		tx.Exec("DELETE FROM regions WHERE id = ?", id)
@@ -729,6 +757,8 @@ func (s *Store) DeleteScreen(name string) error {
 	tx.Exec("DELETE FROM flow_steps WHERE type = 'screen' AND name = ?", name)
 	tx.Exec("DELETE FROM tags WHERE entity_type = 'screen' AND entity_id = ?", id)
 	tx.Exec("DELETE FROM transitions WHERE owner_type = 'screen' AND owner_id = ?", id)
+	tx.Exec("DELETE FROM state_regions WHERE owner_type = 'screen' AND owner_id = ?", id)
+	tx.Exec("DELETE FROM state_fixtures WHERE owner_type = 'screen' AND owner_id = ?", id)
 	tx.Exec("DELETE FROM components WHERE entity_type = 'screen' AND entity_id = ?", id) // [H3]
 	tx.Exec("DELETE FROM attachments WHERE entity = ?", name)                             // [H2]
 	tx.Exec("DELETE FROM transitions WHERE action = ? OR action LIKE ?", "navigate("+name+")", "navigate("+name+",%") // [F2] cascade dangling navigate()

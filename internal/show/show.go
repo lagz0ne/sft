@@ -29,41 +29,44 @@ type App struct {
 	Name        string                       `json:"name"`
 	Description string                       `json:"description"`
 	DataTypes   map[string]map[string]string `json:"data_types,omitempty"`
+	Enums       map[string][]string          `json:"enums,omitempty"`
 	Context     map[string]string            `json:"context,omitempty"`
 	Regions     []Region                     `json:"regions,omitempty"`
 	Transitions []Transition                 `json:"transitions,omitempty"`
 }
 
 type Screen struct {
-	Name           string            `json:"name"`
-	Description    string            `json:"description"`
-	Tags           []string          `json:"tags,omitempty"`
-	Context        map[string]string `json:"context,omitempty"`
-	Component      string            `json:"component,omitempty"`
-	ComponentProps string            `json:"component_props,omitempty"` // [F5]
-	ComponentOn    string            `json:"component_on,omitempty"`    // [F5]
-	ComponentVis   string            `json:"component_visible,omitempty"` // [F5]
-	Regions        []Region          `json:"regions,omitempty"`
-	Transitions    []Transition      `json:"transitions,omitempty"`
-	StateFixtures  map[string]string `json:"state_fixtures,omitempty"`
-	Attachments    []string          `json:"attachments,omitempty"`
+	Name           string              `json:"name"`
+	Description    string              `json:"description"`
+	Tags           []string            `json:"tags,omitempty"`
+	Context        map[string]string   `json:"context,omitempty"`
+	Component      string              `json:"component,omitempty"`
+	ComponentProps string              `json:"component_props,omitempty"` // [F5]
+	ComponentOn    string              `json:"component_on,omitempty"`    // [F5]
+	ComponentVis   string              `json:"component_visible,omitempty"` // [F5]
+	Regions        []Region            `json:"regions,omitempty"`
+	Transitions    []Transition        `json:"transitions,omitempty"`
+	StateFixtures  map[string]string   `json:"state_fixtures,omitempty"`
+	StateRegions   map[string][]string `json:"state_regions,omitempty"`
+	Attachments    []string            `json:"attachments,omitempty"`
 }
 
 type Region struct {
-	Name           string            `json:"name"`
-	Description    string            `json:"description"`
-	Tags           []string          `json:"tags,omitempty"`
-	Component      string            `json:"component,omitempty"`
-	ComponentProps string            `json:"component_props,omitempty"` // [F5]
-	ComponentOn    string            `json:"component_on,omitempty"`    // [F5]
-	ComponentVis   string            `json:"component_visible,omitempty"` // [F5]
-	Events         []string          `json:"events,omitempty"`
-	Ambient        map[string]string `json:"ambient,omitempty"`
-	RegionData     map[string]string `json:"region_data,omitempty"`
-	Regions        []Region          `json:"regions,omitempty"`
-	Transitions    []Transition      `json:"transitions,omitempty"`
-	StateFixtures  map[string]string `json:"state_fixtures,omitempty"`
-	Attachments    []string          `json:"attachments,omitempty"`
+	Name           string              `json:"name"`
+	Description    string              `json:"description"`
+	Tags           []string            `json:"tags,omitempty"`
+	Component      string              `json:"component,omitempty"`
+	ComponentProps string              `json:"component_props,omitempty"` // [F5]
+	ComponentOn    string              `json:"component_on,omitempty"`    // [F5]
+	ComponentVis   string              `json:"component_visible,omitempty"` // [F5]
+	Events         []string            `json:"events,omitempty"`
+	Ambient        map[string]string   `json:"ambient,omitempty"`
+	RegionData     map[string]string   `json:"region_data,omitempty"`
+	Regions        []Region            `json:"regions,omitempty"`
+	Transitions    []Transition        `json:"transitions,omitempty"`
+	StateFixtures  map[string]string   `json:"state_fixtures,omitempty"`
+	StateRegions   map[string][]string `json:"state_regions,omitempty"`
+	Attachments    []string            `json:"attachments,omitempty"`
 }
 
 type Transition struct {
@@ -93,17 +96,13 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 	spec := &Spec{}
 
 	// App
-	row := db.QueryRow("SELECT name, description FROM apps LIMIT 1")
-	if err := row.Scan(&spec.App.Name, &spec.App.Description); err != nil {
+	var appID int64
+	row := db.QueryRow("SELECT id, name, description FROM apps LIMIT 1")
+	if err := row.Scan(&appID, &spec.App.Name, &spec.App.Description); err != nil {
 		return nil, fmt.Errorf("no app found: %w", err)
 	}
-
-	// App-level data [C2 fix: load app-level regions]
-	var appID int64
-	if err := db.QueryRow("SELECT id FROM apps LIMIT 1").Scan(&appID); err != nil {
-		return nil, fmt.Errorf("resolve app id: %w", err)
-	}
 	spec.App.DataTypes = loadDataTypes(db, appID)
+	spec.App.Enums = loadEnums(db, appID)
 	spec.App.Context = loadContext(db, "app", appID)
 	spec.App.Regions = loadRegions(db, "app", appID, al)
 	spec.App.Transitions = loadTransitions(db, "app", appID)
@@ -125,6 +124,7 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 		s.Regions = loadRegions(db, "screen", id, al)
 		s.Transitions = loadTransitions(db, "screen", id)
 		s.StateFixtures = loadStateFixtures(db, "screen", id)
+		s.StateRegions = loadStateRegions(db, "screen", id)
 		if al != nil {
 			s.Attachments = al.AttachmentsFor(s.Name)
 			s.Component = al.ComponentFor("screen", id)
@@ -195,6 +195,7 @@ func loadRegions(db *sql.DB, parentType string, parentID int64, al Enricher) []R
 		r.Regions = loadRegions(db, "region", id, al) // recurse
 		r.Transitions = loadTransitions(db, "region", id)
 		r.StateFixtures = loadStateFixtures(db, "region", id)
+		r.StateRegions = loadStateRegions(db, "region", id)
 		if al != nil {
 			r.Attachments = al.AttachmentsFor(r.Name)
 			r.Component = al.ComponentFor("region", id)
@@ -211,16 +212,21 @@ func loadRegions(db *sql.DB, parentType string, parentID int64, al Enricher) []R
 }
 
 func loadEvents(db *sql.DB, regionID int64) []string {
-	rows, _ := db.Query("SELECT name FROM events WHERE region_id = ?", regionID)
+	rows, _ := db.Query("SELECT name, annotation FROM events WHERE region_id = ?", regionID)
 	if rows == nil {
 		return nil
 	}
 	defer rows.Close()
 	var events []string
 	for rows.Next() {
-		var e string
-		rows.Scan(&e)
-		events = append(events, e)
+		var name string
+		var annotation sql.NullString
+		rows.Scan(&name, &annotation)
+		if annotation.Valid && annotation.String != "" {
+			events = append(events, name+"("+annotation.String+")")
+		} else {
+			events = append(events, name)
+		}
 	}
 	return events
 }
@@ -258,6 +264,26 @@ func loadDataTypes(db *sql.DB, appID int64) map[string]map[string]string {
 		var fields map[string]string
 		json.Unmarshal([]byte(fieldsJSON), &fields)
 		result[name] = fields
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func loadEnums(db *sql.DB, appID int64) map[string][]string {
+	rows, _ := db.Query(`SELECT name, "values" FROM enums WHERE app_id = ? ORDER BY name`, appID)
+	if rows == nil {
+		return nil
+	}
+	defer rows.Close()
+	result := map[string][]string{}
+	for rows.Next() {
+		var name, valuesJSON string
+		rows.Scan(&name, &valuesJSON)
+		var values []string
+		json.Unmarshal([]byte(valuesJSON), &values)
+		result[name] = values
 	}
 	if len(result) == 0 {
 		return nil
@@ -336,6 +362,25 @@ func loadFixtures(db *sql.DB, appID int64) []Fixture {
 		fixtures = append(fixtures, f)
 	}
 	return fixtures
+}
+
+func loadStateRegions(db *sql.DB, ownerType string, ownerID int64) map[string][]string {
+	rows, _ := db.Query("SELECT state_name, region_name FROM state_regions WHERE owner_type = ? AND owner_id = ? ORDER BY state_name, id",
+		ownerType, ownerID)
+	if rows == nil {
+		return nil
+	}
+	defer rows.Close()
+	result := map[string][]string{}
+	for rows.Next() {
+		var stateName, regionName string
+		rows.Scan(&stateName, &regionName)
+		result[stateName] = append(result[stateName], regionName)
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func loadStateFixtures(db *sql.DB, ownerType string, ownerID int64) map[string]string {
