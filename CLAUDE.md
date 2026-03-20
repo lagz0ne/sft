@@ -7,32 +7,48 @@ Go CLI for UI behavioral specs — screens, regions, events, state machines, flo
 ```bash
 go build ./cmd/sft               # build
 go test ./...                     # test all
-go test ./internal/store          # test store only
 ```
 
-Cross-platform binaries: `bash scripts/build.sh`
-npm packages: `bash scripts/build-npm.sh`
+Tests use in-memory SQLite with `t.Cleanup()`. Example specs in `examples/*.sft.yaml`.
 
-## Architecture
+## `/c3` is the authority
 
-C3 docs in `.c3/`. Use `/c3` for architecture questions, changes, audits, impact analysis.
+**All work starts with `/c3`.** It is the canonical source for how things work, why they work that way, component boundaries, dependencies, schema, extension patterns, refs, and ADRs. No guessing — `/c3` first, then act.
 
 **1 container** (cli) · **11 components** · **4 refs**
 
-| Component | Package | Role |
-|-----------|---------|------|
-| model (c3-101) | `internal/model` | Domain types — no logic |
-| store (c3-102) | `internal/store` | SQLite CRUD, resolve, impact, migrations |
-| format (c3-103) | `internal/format` | JSON/table/ANSI output |
-| loader (c3-110) | `internal/loader` | YAML import/export |
-| show (c3-111) | `internal/show` | Spec tree assembly + text render |
-| query (c3-112) | `internal/query` | Named queries + raw SQL |
-| validator (c3-113) | `internal/validator` | Rule-based spec validation |
-| diff (c3-114) | `internal/diff` | Spec comparison |
-| render (c3-115) | `internal/render` | json-render output |
-| flow (c3-116) | `internal/flow` | Flow sequence parsing |
-| entrypoint (c3-117) | `cmd/sft` | Command dispatch |
+### Data Flow
 
-**Refs:** sqlite-persistence, yaml-format, entity-resolution, event-model
+```
+YAML ──import──→ loader ──→ store (SQLite .sft/db)
+                               ↕
+                  ┌────────────┼────────────┐
+                  ↓            ↓            ↓
+                show         query      validator
+                ↕  ↘           ↓
+              diff  render   format ──→ stdout
+```
 
-File lookup: `c3x lookup <file-or-glob>` maps files to components + refs.
+### Dependency Direction
+
+```
+entrypoint → store, loader, show, query, validator, diff, render, format, diagram, view
+loader → store, show, model       diff → show, store, loader
+show → store                      render → show, store
+query → store                     validator → store (SQL only)
+store → model, flow               flow → model
+```
+
+`model` and `format` are leaves.
+
+## Domain Vocabulary
+
+- **Regions** nest recursively (region → region → screen → app). Scoped naming: unique per parent, not globally
+- **Events** belong to regions, optionally typed: `select_email(email)` → annotation
+- **Transitions** fire on events: `{on_event, from_state?, to_state?, action?}`. Actions: `navigate(screen)`, `emit(event, target:[...])`, or freeform
+- **State machines** on screens/regions: first state = initial. `.` = self-transition. Null to_state = terminal
+- **Flows** are token sequences: `Screen → Region → event → [Back] → Screen(H)` — parsed into typed FlowStep rows
+- **Fixtures** bind sample data to states. Support `extends:` inheritance
+- **State regions** — which child regions are visible per state
+- **Ambient refs** — `data(source, .query)` links region to screen context
+- **Type system** — scalars (string, number, boolean, date, datetime) + data type refs + `[]` arrays + `?` optionals. Enums standalone

@@ -45,6 +45,10 @@ Any input starting with `SELECT` is passed through directly.
 | IN (uses) | DB handle | c3-102 |
 | OUT (provides) | Query results | c3-117 |
 
+### Extension Pattern
+
+To add a named query: add an entry to the `namedQueries` map in `query.go` (name → SQL string). SQL typically targets views (`event_index`, `state_machines`, `tag_index`, `region_tree`, `flow_steps`) or base tables (`screens`, `flows`). If the query needs a parameter, add a dedicated exported function (like `States` or `Steps`) that calls `execQuery` with bind args. If new columns appear in results, add a matching table schema in the format package so `--json` and table output render correctly.
+
 ## Related Refs
 
 | Ref | Relevance |

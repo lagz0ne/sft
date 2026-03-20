@@ -37,4 +37,23 @@ Switch on `os.Args[1]`: show, query, validate, import, export, diff, add, set, r
 Custom `flagVal`/`flagIndex` helpers. `--json` extracted globally. Per-command: `--in`, `--on`, `--from`, `--to`, `--action`, `--description`, `--props`, `--props-file`, `--as`, `--rm`.
 
 ### Aliases
-q=query, check=validate, ls=list, comp=component.
+q=query, check=validate, ls=list, comp=component, diag=diagram.
+
+### Dispatch Mechanism
+
+No flag library. `--json` is stripped globally from `os.Args` before dispatch and sets `format.JSONMode`. The remaining `os.Args[1]` is matched via a `switch`/`case` in `main()`, routing to `runX(s *store.Store, rest []string)` handler functions. Custom helpers:
+
+| Helper | Signature | Purpose |
+|--------|-----------|---------|
+| `flagVal` | `(args, "--flag") string` | Extract value after a flag, or `""` |
+| `flagIndex` | `(args, "--flag") int` | Index of flag in args, or `-1` |
+| `need` | `(args, n, usage)` | Die if `len(args) < n` |
+| `must` | `(err)` | Die if err non-nil |
+| `die` | `(msg, args...)` | Fprintf to stderr + exit 1 |
+| `ok` | `(msg, args...)` | Fprintf to stderr (success message) |
+
+`format.JSONMode` branches output between structured JSON and human-readable tables/text.
+
+### Extension Pattern
+
+To add a CLI command: (1) add a `case "mycmd":` to the switch in `main()` → (2) write a `runMycmd(s *store.Store, rest []string)` function → (3) use `need`/`flagVal`/`must`/`die`/`ok` helpers for arg parsing and error handling → (4) use `format` package for output.

@@ -54,6 +54,17 @@ Detect spec inconsistencies via rule-based validation — each rule is a SQL que
 | IN (uses) | DB handle | c3-102 |
 | OUT (provides) | Findings | c3-117 |
 
+### Extension Pattern
+
+To add a validation rule: append a `rule` struct to the `var rules` slice. Each rule has:
+
+- **`id`** — kebab-case name (e.g. `"orphan-emit"`)
+- **`severity`** — `Error` or `Warning`
+- **`query`** — SQL string run against the schema + views
+- **`format`** — `func(rows *sql.Rows) ([]Finding, error)` that scans rows into `Finding` structs
+
+Rules are pure SQL — no Go logic beyond row scanning. Use the `ownerCase` constant (assumes table alias `t`) or `ownerCaseAlias(alias)` helper to resolve polymorphic `owner_type`+`owner_id` to a human-readable entity name in your SQL.
+
 ## Related Refs
 
 | Ref | Relevance |

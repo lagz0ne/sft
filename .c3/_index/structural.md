@@ -1,5 +1,5 @@
 # C3 Structural Index
-<!-- hash: sha256:0cfea410521f83555f46efb8597d586a4bc61d796f8cf6e14ef488fbd401afd8 -->
+<!-- hash: sha256:7dd204624bfefc2f4bf5a16bcc62a4cf82fe60f78cf5b704fc41a651cec08e83 -->
 
 ## adr-00000000-c3-adoption — C3 Architecture Documentation Adoption (adr)
 blocks: Goal ✓
@@ -8,6 +8,9 @@ blocks: Goal ✓
 blocks: Goal ✓
 
 ## adr-20260318-frontend-react-migration — Replace vanilla JS frontend with React + TanStack Router via better-t-stack (adr)
+blocks: Goal ✓
+
+## adr-20260318-sft-view-canvas-redesign — sft view: canvas + overlay redesign (adr)
 blocks: Goal ✓
 
 ## c3-0 — SFT (context)
@@ -59,14 +62,14 @@ container: c3-1 | context: c3-0
 reverse deps: adr-20260317-sft-view-nats-backbone, ref-sqlite-persistence
 files: internal/query/**
 constraints from: c3-0, c3-1
-blocks: Container Connection ✓, Dependencies ✓, Goal ✓, Related Refs ✓
+blocks: Container Connection ✓, Dependencies ○, Goal ✓, Related Refs ✓
 
 ## c3-113 — validator (component)
 container: c3-1 | context: c3-0
 reverse deps: ref-event-model, ref-sqlite-persistence
 files: internal/validator/**
 constraints from: c3-0, c3-1
-blocks: Container Connection ✓, Dependencies ✓, Goal ✓, Related Refs ✓
+blocks: Container Connection ✓, Dependencies ○, Goal ✓, Related Refs ✓
 
 ## c3-114 — diff (component)
 container: c3-1 | context: c3-0
