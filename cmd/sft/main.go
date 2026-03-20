@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/lagz0ne/sft/internal/diagram"
 	"github.com/lagz0ne/sft/internal/diff"
 	"github.com/lagz0ne/sft/internal/format"
 	"github.com/lagz0ne/sft/internal/loader"
@@ -85,6 +86,8 @@ func main() {
 		runCat(s, rest)
 	case "view":
 		runView(s, rest)
+	case "diagram", "diag":
+		runDiagram(s, rest)
 	default:
 		die("unknown command %q\n%s", cmd, usage)
 	}
@@ -174,10 +177,15 @@ Common Patterns:
   sft query events --json
   sft validate
 
+Diagrams (Mermaid):
+  diagram states <name>            state machine diagram for a screen/region
+  diagram nav                      screen-to-screen navigation graph
+  diagram flow <name>              flow sequence diagram
+
 View (browser):
   view [--port N] [--web-dir DIR]  open spec in browser (embedded NATS + HTTP)
 
-Aliases: q=query, check=validate, ls=list, comp=component`
+Aliases: q=query, check=validate, ls=list, comp=component, diag=diagram`
 
 // --- show ---
 
@@ -774,6 +782,32 @@ func runView(s *store.Store, args []string) {
 	if err := srv.Start(); err != nil {
 		die("view: %v", err)
 	}
+}
+
+// --- diagram ---
+
+func runDiagram(s *store.Store, args []string) {
+	if len(args) == 0 {
+		die("usage: sft diagram <states <name> | nav | flow <name>>")
+	}
+	var out string
+	var err error
+	switch args[0] {
+	case "states", "state":
+		need(args, 2, "sft diagram states <name>")
+		out, err = diagram.States(s.DB, args[1])
+	case "nav":
+		out, err = diagram.Nav(s.DB)
+	case "flow":
+		need(args, 2, "sft diagram flow <name>")
+		out, err = diagram.Flow(s.DB, args[1])
+	default:
+		die("unknown diagram type %q (available: states, nav, flow)", args[0])
+	}
+	if err != nil {
+		die("%v", err)
+	}
+	fmt.Print(out)
 }
 
 // --- helpers ---
