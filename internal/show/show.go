@@ -78,11 +78,20 @@ type Transition struct {
 	Action    string `json:"action,omitempty"`
 }
 
+type FlowStep struct {
+	Position int    `json:"position"`
+	Type     string `json:"type"`
+	Name     string `json:"name"`
+	History  int    `json:"history,omitempty"`
+	Data     string `json:"data,omitempty"`
+}
+
 type Flow struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	OnEvent     string `json:"on_event,omitempty"`
-	Sequence    string `json:"sequence"`
+	Name        string     `json:"name"`
+	Description string     `json:"description,omitempty"`
+	OnEvent     string     `json:"on_event,omitempty"`
+	Sequence    string     `json:"sequence"`
+	Steps       []FlowStep `json:"steps,omitempty"`
 }
 
 // Enricher provides attachment and component data during spec loading.
@@ -142,19 +151,21 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 	}
 
 	// Flows
-	frows, err := db.Query("SELECT name, description, on_event, sequence FROM flows ORDER BY id")
+	frows, err := db.Query("SELECT id, name, description, on_event, sequence FROM flows ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
 	defer frows.Close()
 	for frows.Next() {
 		var f Flow
+		var flowID int64
 		var desc, onEvent sql.NullString
-		if err := frows.Scan(&f.Name, &desc, &onEvent, &f.Sequence); err != nil {
+		if err := frows.Scan(&flowID, &f.Name, &desc, &onEvent, &f.Sequence); err != nil {
 			return nil, fmt.Errorf("scan flow: %w", err)
 		}
 		f.Description = desc.String
 		f.OnEvent = onEvent.String
+		f.Steps, _ = loadFlowSteps(db, flowID)
 		spec.Flows = append(spec.Flows, f)
 	}
 
@@ -430,6 +441,25 @@ func loadStateFixtures(db *sql.DB, ownerType string, ownerID int64) map[string]s
 		return nil
 	}
 	return result
+}
+
+func loadFlowSteps(db *sql.DB, flowID int64) ([]FlowStep, error) {
+	rows, err := db.Query(`SELECT position, type, name, history, data FROM flow_steps WHERE flow_id = ? ORDER BY position`, flowID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var steps []FlowStep
+	for rows.Next() {
+		var s FlowStep
+		var data sql.NullString
+		if err := rows.Scan(&s.Position, &s.Type, &s.Name, &s.History, &data); err != nil {
+			return nil, fmt.Errorf("scan flow_step: %w", err)
+		}
+		s.Data = data.String
+		steps = append(steps, s)
+	}
+	return steps, nil
 }
 
 // --- Text rendering ---

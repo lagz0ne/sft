@@ -178,6 +178,33 @@ func TestActionOnlyTransitions(t *testing.T) {
 	}
 }
 
+func TestFlowSteps(t *testing.T) {
+	s := mustStore(t)
+	app := seedApp(t, s)
+	addScreen(t, s, app.ID, "inbox", "email inbox")
+
+	// Insert flow and steps via raw SQL (no store helper for flows)
+	s.DB.Exec(`INSERT INTO flows(app_id, name, sequence) VALUES(?, 'read', 'inbox → thread → inbox')`, app.ID)
+	s.DB.Exec(`INSERT INTO flow_steps(flow_id, position, raw, type, name, history, data) VALUES(1, 1, 'inbox', 'screen', 'inbox', 0, '')`)
+	s.DB.Exec(`INSERT INTO flow_steps(flow_id, position, raw, type, name, history, data) VALUES(1, 2, 'thread', 'screen', 'thread', 0, NULL)`)
+	s.DB.Exec(`INSERT INTO flow_steps(flow_id, position, raw, type, name, history, data) VALUES(1, 3, 'inbox', 'screen', 'inbox', 1, '')`)
+
+	spec, err := Load(s.DB, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flow := spec.Flows[0]
+	if len(flow.Steps) != 3 {
+		t.Fatalf("expected 3 steps, got %d", len(flow.Steps))
+	}
+	if flow.Steps[0].Type != "screen" || flow.Steps[0].Name != "inbox" {
+		t.Fatalf("unexpected first step: %+v", flow.Steps[0])
+	}
+	if flow.Steps[2].History != 1 {
+		t.Fatal("expected history=1 on step 3")
+	}
+}
+
 func TestDeriveStatesDedup(t *testing.T) {
 	// Direct unit test of deriveStates
 	transitions := []Transition{
