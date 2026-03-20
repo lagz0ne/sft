@@ -46,6 +46,7 @@ type Screen struct {
 	ComponentVis   string              `json:"component_visible,omitempty"` // [F5]
 	Regions        []Region            `json:"regions,omitempty"`
 	Transitions    []Transition        `json:"transitions,omitempty"`
+	States         []string            `json:"states,omitempty"`
 	StateFixtures  map[string]string   `json:"state_fixtures,omitempty"`
 	StateRegions   map[string][]string `json:"state_regions,omitempty"`
 	Attachments    []string            `json:"attachments,omitempty"`
@@ -64,6 +65,7 @@ type Region struct {
 	RegionData     map[string]string   `json:"region_data,omitempty"`
 	Regions        []Region            `json:"regions,omitempty"`
 	Transitions    []Transition        `json:"transitions,omitempty"`
+	States         []string            `json:"states,omitempty"`
 	StateFixtures  map[string]string   `json:"state_fixtures,omitempty"`
 	StateRegions   map[string][]string `json:"state_regions,omitempty"`
 	Attachments    []string            `json:"attachments,omitempty"`
@@ -123,6 +125,7 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 		s.Context = loadContext(db, "screen", id)
 		s.Regions = loadRegions(db, "screen", id, al)
 		s.Transitions = loadTransitions(db, "screen", id)
+		s.States = deriveStates(s.Transitions)
 		s.StateFixtures = loadStateFixtures(db, "screen", id)
 		s.StateRegions = loadStateRegions(db, "screen", id)
 		if al != nil {
@@ -194,6 +197,7 @@ func loadRegions(db *sql.DB, parentType string, parentID int64, al Enricher) []R
 		r.RegionData = loadRegionData(db, id)
 		r.Regions = loadRegions(db, "region", id, al) // recurse
 		r.Transitions = loadTransitions(db, "region", id)
+		r.States = deriveStates(r.Transitions)
 		r.StateFixtures = loadStateFixtures(db, "region", id)
 		r.StateRegions = loadStateRegions(db, "region", id)
 		if al != nil {
@@ -229,6 +233,32 @@ func loadEvents(db *sql.DB, regionID int64) []string {
 		}
 	}
 	return events
+}
+
+// deriveStates extracts an ordered, deduplicated list of states from transitions.
+// The first from_state of the first transition (by rowid) is the initial state.
+// Remaining states appear in encounter order (from_state then to_state per transition).
+func deriveStates(transitions []Transition) []string {
+	if len(transitions) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var states []string
+	add := func(s string) {
+		if s == "" || s == "." || seen[s] {
+			return
+		}
+		seen[s] = true
+		states = append(states, s)
+	}
+	for _, t := range transitions {
+		add(t.FromState)
+		add(t.ToState)
+	}
+	if len(states) == 0 {
+		return nil
+	}
+	return states
 }
 
 func loadTransitions(db *sql.DB, ownerType string, ownerID int64) []Transition {
