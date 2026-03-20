@@ -6,7 +6,7 @@ type: component
 category: feature
 parent: c3-1
 goal: Detect spec inconsistencies via rule-based validation
-summary: 10 validation rules as SQL queries checking orphan events, unreachable states, dangling navigates, etc.
+summary: 20 validation rules as SQL queries checking orphan events, unreachable states, dangling navigates, invalid annotations, state-region visibility, enum collisions, emit targets, etc.
 uses: [ref-event-model, ref-sqlite-persistence]
 ---
 
@@ -33,9 +33,19 @@ Detect spec inconsistencies via rule-based validation — each rule is a SQL que
 | nesting-depth | warning | Regions nested 3+ levels |
 | invalid-flow-ref | error | Flow steps referencing nonexistent entities |
 | orphan-event | warning | Transitions handling undeclared events |
+| dead-end | warning | Terminal states with no outgoing transitions |
+| guard-ambiguity | warning | Same event+from_state 2+ times without guard |
 | dangling-navigate | error | `navigate(X)` targeting unknown entities |
 | ambiguous-region-name | warning | Same region name in multiple parents |
 | unhandled-event | warning | Events emitted but never handled |
+| undefined-data-type | error | Context/region_data field type not in data_types or enums |
+| fixture-not-found | error | State references undefined fixture |
+| orphan-fixture | warning | Fixture not referenced by any state |
+| invalid-ambient-path | error | Ambient ref with bad source or query path |
+| invalid-event-annotation | warning | Event annotation type not a builtin or defined type/enum |
+| emit-missing-target | warning | `emit()` without `target:` specifier |
+| invalid-state-region | error | State references non-child region |
+| enum-data-collision | warning | Enum name collides with data type name |
 
 ## Dependencies
 

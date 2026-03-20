@@ -6,7 +6,7 @@ type: component
 category: foundation
 parent: c3-1
 goal: Persist and query all entities in SQLite with CRUD, impact analysis, and migrations
-summary: SQLite store with embedded schema, resolve helpers, cascade deletes, component/attachment support
+summary: SQLite store with embedded schema, resolve helpers, cascade deletes, component/attachment support, enums + state_regions tables
 uses: [ref-sqlite-persistence, ref-entity-resolution]
 ---
 
@@ -26,7 +26,7 @@ Persist and query all entities in SQLite with CRUD operations, impact analysis, 
 ## Key Aspects
 
 ### Schema
-Embedded via `//go:embed schema.sql`. 10 tables + 4 views. Auto-migration for position column and scoped region uniqueness.
+Embedded via `//go:embed schema.sql`. 14 tables + 4 views. Auto-migration for position column, annotation column on events, and scoped region uniqueness. InsertEnum, InsertStateRegion for Phase 5 entities.
 
 ### Entity Resolution
 `ResolveParent(name)`: apps → screens → regions. `ResolveRegion`: handles ambiguity with `--in` scoping. Cross-table collision checks on insert.

@@ -2,15 +2,29 @@ app:
   name: stripe
   description: Payment platform dashboard — payments, customers, subscriptions, disputes, and developer tools
 
+  enums:
+    payment_status: [succeeded, failed, processing, refunded, disputed]
+    currency: [usd, eur, gbp, jpy, cad, aud]
+    payment_method: [card, bank_transfer, wallet, link]
+    subscription_status: [active, canceled, past_due, trialing, unpaid]
+    invoice_status: [paid, open, void, draft, uncollectible]
+    dispute_status: [needs_response, under_review, won, lost]
+    dispute_reason: [fraudulent, not_received, product_not_as_described, duplicate, subscription_canceled, unrecognized]
+    refund_status: [pending, succeeded, failed]
+    refund_reason: [duplicate, fraudulent, requested_by_customer]
+    webhook_status: [enabled, disabled]
+    notification_type: [payment_failed, dispute_opened, compliance_action]
+    cancel_timing: [immediate, end_of_period]
+
   data:
     payment:
       id: string
       amount: number
-      currency: string
-      status: string
-      customer: customer
-      payment_method: string
-      metadata: string
+      currency: currency
+      status: payment_status
+      customer: customer?
+      payment_method: payment_method
+      metadata: string?
       created_at: datetime
     customer:
       id: string
@@ -22,44 +36,44 @@ app:
     subscription:
       id: string
       plan_name: string
-      status: string
+      status: subscription_status
       current_period_start: date
       current_period_end: date
-      next_billing_date: date
+      next_billing_date: date?
       customer: customer
     invoice:
       id: string
       amount: number
-      status: string
+      status: invoice_status
       period_start: date
       period_end: date
-      pdf_url: string
+      pdf_url: string?
     dispute:
       id: string
       amount: number
-      reason: string
-      status: string
-      evidence_deadline: datetime
+      reason: dispute_reason
+      status: dispute_status
+      evidence_deadline: datetime?
       payment: payment
     refund:
       amount: number
-      reason: string
-      status: string
+      reason: refund_reason?
+      status: refund_status
       created_at: datetime
     webhook_endpoint:
       url: string
       events: string[]
-      status: string
+      status: webhook_status
     api_event:
       id: string
       type: string
       created_at: datetime
-      request_body: string
-      response_body: string
+      request_body: string?
+      response_body: string?
     notification:
       title: string
       body: string
-      type: string
+      type: notification_type
       created_at: datetime
 
   context:
@@ -77,7 +91,12 @@ app:
     - name: notification_drawer
       description: Alerts for failed payments, disputes needing response, and compliance actions
       tags: [overlay]
-      events: [select_notification]
+      events:
+        select_notification: (notification)
+      state_machine:
+        viewing:
+          on:
+            select_notification: navigate(payment_detail)
 
   screens:
     - name: home
@@ -98,7 +117,8 @@ app:
             successful_payments: "data(home, .successful_payments)"
         - name: recent_payments
           description: Latest payment activity with status and amount
-          events: [select_payment]
+          events:
+            select_payment: (payment)
           ambient:
             payments: "data(home, .recent_payments)"
 
@@ -111,17 +131,20 @@ app:
         - name: filter_bar
           description: Filter by status, amount range, date, payment method, and currency
           data:
-            status_filter: string
+            status_filter: payment_status?
             amount_min: number
             amount_max: number
             date_range: string
         - name: payment_table
           description: Payment rows with amount, status badge, customer, date, and method
           tags: [has_payments]
-          events: [select_payment, check_payment]
+          events:
+            select_payment: (payment)
+            check_payment: (payment)
+            escape:
           ambient:
             payments: "data(payment_list, .payments)"
-        - name: empty_state
+        - name: payment_empty_state
           description: Illustration and prompt to create first payment or adjust filters
           tags: [no_payments]
         - name: loading_skeleton
@@ -138,10 +161,13 @@ app:
             selected: "data(payment_list, .selected)"
       state_machine:
         browsing:
+          regions: [filter_bar, payment_table, payment_empty_state, loading_skeleton, error_banner]
           on:
             select_payment: navigate(payment_detail)
             check_payment: selecting
+            retry_load: .
         selecting:
+          regions: [filter_bar, payment_table, bulk_action_bar]
           on:
             check_payment: .
             bulk_export: browsing
@@ -181,15 +207,19 @@ app:
             - name: refund_confirmation
               description: Confirm refund amount and reason before processing
               tags: [overlay]
-              events: [confirm_refund, cancel_refund]
+              events:
+                confirm_refund: (refund)
+                cancel_refund:
               data:
                 refund_amount: number
-                refund_reason: string
+                refund_reason: refund_reason?
           state_machine:
             idle:
+              regions: [refund_button]
               on:
                 start_refund: confirming
             confirming:
+              regions: [refund_button, refund_confirmation]
               on:
                 confirm_refund: idle
                 cancel_refund: idle
@@ -208,12 +238,18 @@ app:
         - name: customer_table
           description: Customer rows with name, email, total spend, and subscription count
           tags: [has_customers]
-          events: [select_customer]
+          events:
+            select_customer: (customer)
           ambient:
             customers: "data(customer_list, .customers)"
-        - name: empty_state
+        - name: customer_empty_state
           description: Prompt to create first customer or import from CSV
           tags: [no_customers]
+      state_machine:
+        browsing:
+          regions: [customer_table, customer_empty_state]
+          on:
+            select_customer: navigate(customer_detail)
 
     - name: customer_detail
       description: Customer profile — payment history, subscriptions, and account management
@@ -229,12 +265,14 @@ app:
             customer: "data(customer_detail, .customer)"
         - name: payment_history
           description: All payments from this customer with status and amount
-          events: [select_payment]
+          events:
+            select_payment: (payment)
           ambient:
             payments: "data(customer_detail, .payments)"
         - name: active_subscriptions
           description: Current subscriptions with plan, status, and next billing date
-          events: [select_subscription]
+          events:
+            select_subscription: (subscription)
           ambient:
             subscriptions: "data(customer_detail, .subscriptions)"
         - name: delete_button
@@ -249,11 +287,13 @@ app:
             confirmation_name: string
       state_machine:
         viewing:
+          regions: [customer_header, payment_history, active_subscriptions, delete_button]
           on:
             select_payment: navigate(payment_detail)
             select_subscription: navigate(subscription_detail)
             start_delete: deleting
         deleting:
+          regions: [customer_header, payment_history, active_subscriptions, delete_button, delete_confirmation]
           on:
             confirm_delete: viewing
             cancel_delete: viewing
@@ -283,14 +323,18 @@ app:
         - name: cancel_confirmation
           description: Choose immediate or end-of-period — shows revenue impact warning
           tags: [overlay]
-          events: [confirm_cancel, abort_cancel]
+          events:
+            confirm_cancel: (cancel_timing)
+            abort_cancel:
           data:
-            cancel_timing: string
+            cancel_timing: cancel_timing
       state_machine:
         viewing:
+          regions: [subscription_header, invoice_history, upcoming_invoice, cancel_button]
           on:
             start_cancel: cancelling
         cancelling:
+          regions: [subscription_header, invoice_history, upcoming_invoice, cancel_button, cancel_confirmation]
           on:
             confirm_cancel: viewing
             abort_cancel: viewing
@@ -319,16 +363,19 @@ app:
             collecting:
               on:
                 upload_evidence: .
-                submit_evidence: { to: submitted, action: "emit(evidence_complete)" }
-            submitted: {}
+                submit_evidence: { to: submitted, action: "emit(evidence_complete, target: [dispute_detail])" }
+            submitted:
+              fixture: evidence_submitted
         - name: resolution_summary
           description: Outcome — funds returned (won) or permanently deducted (lost)
           tags: [resolved]
       state_machine:
         responding:
+          regions: [dispute_header, dispute_timeline, evidence_uploader]
           on:
             evidence_complete: awaiting_resolution
-        awaiting_resolution: {}
+        awaiting_resolution:
+          regions: [dispute_header, dispute_timeline, resolution_summary]
 
     - name: developers
       description: API keys, webhooks, event logs, and testing tools
@@ -340,18 +387,31 @@ app:
           description: Publishable and secret keys for test and live modes
         - name: webhook_endpoints
           description: Configured URLs with event subscriptions and delivery status
-          events: [select_webhook]
+          events:
+            select_webhook: (webhook_endpoint)
           ambient:
             webhooks: "data(developers, .webhooks)"
         - name: recent_events
           description: Latest API events with request/response inspection
           tags: [has_events]
-          events: [select_event]
+          events:
+            select_event: (api_event)
           ambient:
             events: "data(developers, .events)"
         - name: events_empty
           description: No events yet — shows quickstart integration guide
           tags: [no_events]
+      state_machine:
+        browsing:
+          regions: [api_keys, webhook_endpoints, recent_events, events_empty]
+          on:
+            select_webhook: .
+            select_event: .
+
+  fixtures:
+    evidence_submitted:
+      dispute_detail.evidence_uploader:
+        uploaded_files: ["receipt.pdf", "tracking.png"]
 
   flows:
     - name: refund_payment

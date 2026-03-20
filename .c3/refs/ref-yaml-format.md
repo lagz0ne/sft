@@ -27,6 +27,11 @@ YAML via `gopkg.in/yaml.v3`. Schema: `app:` top-level key containing name, descr
 | Guideline | Detail |
 |-----------|--------|
 | Single vs multi-app | `app:` as mapping = single, as sequence = list (first imported, rest warned) |
+| Enums | `enums:` mapping at app level — name → list of values |
+| Optional fields | `?` suffix marks optional, `[]` suffix marks array, `[]?` valid, `?[]` rejected |
+| Event annotations | `events:` as sequence (`[name(type)]`) or mapping (`name(type):`) — annotation = payload type |
+| State regions | `regions:` list inside state_machine states — controls child region visibility per state |
+| Emit targets | `emit(event-name, target:[...])` — explicit target routing for emitted events |
 | Component bindings | `component`, `props`, `on_actions`, `visible` fields on screens/regions |
 | Round-trip fidelity | Export uses same yaml types as import — `import → export` must be lossless |
 | Indent | `yaml.NewEncoder` with `SetIndent(2)` |

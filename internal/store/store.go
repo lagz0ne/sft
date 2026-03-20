@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/lagz0ne/sft/internal/flow"
 	"github.com/lagz0ne/sft/internal/model"
@@ -57,12 +58,12 @@ func Open(path string) (*Store, error) {
 }
 
 // memSeq ensures unique shared-cache names for concurrent in-memory stores.
-var memSeq int64
+var memSeq atomic.Int64
 
 // OpenMemory opens an in-memory SQLite store (same schema, no persistence).
 func OpenMemory() (*Store, error) {
-	memSeq++
-	dsn := fmt.Sprintf("file:sft_mem_%d?mode=memory&cache=shared", memSeq)
+	seq := memSeq.Add(1)
+	dsn := fmt.Sprintf("file:sft_mem_%d?mode=memory&cache=shared", seq)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open memory db: %w", err)

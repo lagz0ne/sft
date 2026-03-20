@@ -168,6 +168,13 @@ CREATE TABLE IF NOT EXISTS state_regions (
   UNIQUE(owner_type, owner_id, state_name, region_name)
 );
 
+-- Indexes for frequent queries
+CREATE INDEX IF NOT EXISTS idx_events_region ON events(region_id);
+CREATE INDEX IF NOT EXISTS idx_transitions_owner ON transitions(owner_type, owner_id);
+CREATE INDEX IF NOT EXISTS idx_transitions_on_event ON transitions(on_event);
+CREATE INDEX IF NOT EXISTS idx_tags_entity ON tags(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_flow_steps_type_name ON flow_steps(type, name);
+
 -- Cross-cutting views
 CREATE VIEW IF NOT EXISTS event_index AS
 SELECT

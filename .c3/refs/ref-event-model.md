@@ -27,11 +27,13 @@ Hierarchical event bubbling: events declared on regions, bubble up Sub-Region �
 | Concept | Mechanism |
 |---------|-----------|
 | Event declaration | `events:` list on Region |
+| Event annotations | `name(type)` — payload type annotation on events (validated against data types + enums) |
 | Bubbling | Unhandled events propagate up: Sub-Region → Region → Screen → App |
 | Handling | `transitions.on_event` matches; handled = consumed |
 | Emit | `action: emit(event-name)` — handle locally, send named event to parent |
+| Emit targets | `emit(event-name, target:[...])` — explicit target routing; validated by `emit-missing-target` rule |
 | Ambient events | Keyboard shortcuts appear in `states` without Region declaration |
-| Validation | `orphan-emit`, `orphan-event`, `unhandled-event` rules enforce invariants |
+| Validation | `orphan-emit`, `orphan-event`, `unhandled-event`, `invalid-event-annotation`, `emit-missing-target` rules enforce invariants |
 
 ## Scope
 

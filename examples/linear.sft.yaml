@@ -2,19 +2,25 @@ app:
   name: linear
   description: Issue tracking and project management — list, board, and cycle views with global shortcuts
 
+  enums:
+    issue_status: [Backlog, Todo, "In Progress", Done, Cancelled]
+    project_status: [Planned, Started, Paused, Completed, Cancelled]
+    priority: [Urgent, High, Medium, Low, "No Priority"]
+    label_color: [red, orange, yellow, green, blue, purple, gray]
+
   data:
     issue:
       identifier: string
       title: string
-      description: string
-      status: string
-      priority: string
-      assignee: user
-      labels: label[]
-      project: project
-      cycle: cycle
-      parent: issue
-      sub_issues: issue[]
+      description?: string
+      status: issue_status
+      priority: priority
+      assignee?: user
+      labels?: label[]
+      project?: project
+      cycle?: cycle
+      parent?: issue
+      sub_issues?: issue[]
       created_at: datetime
       updated_at: datetime
     user:
@@ -23,9 +29,9 @@ app:
       avatar_url: string
     project:
       name: string
-      description: string
-      lead: user
-      status: string
+      description?: string
+      lead?: user
+      status: project_status
     cycle:
       name: string
       start_date: date
@@ -33,7 +39,7 @@ app:
       progress: number
     label:
       name: string
-      color: string
+      color: label_color
     comment:
       author: user
       body: string
@@ -46,6 +52,7 @@ app:
   regions:
     - name: main_sidebar
       description: Workspace navigation — teams, projects, views, cycles
+      events: [create_issue]
     - name: command_palette
       description: Cmd+K search and action palette — available from any screen
       tags: [overlay]
@@ -55,14 +62,22 @@ app:
     - name: create_issue_modal
       description: Quick issue creation triggered by C key from any screen
       tags: [overlay]
-      events: [submit_issue]
+      events:
+        submit_issue(issue):
       data:
         title: string
-        description: string
-        status: string
-        priority: string
-        assignee_id: string
-        label_ids: string[]
+        description?: string
+        status: issue_status
+        priority: priority
+        assignee_id?: string
+        label_ids?: string[]
+      state_machine:
+        hidden:
+          on:
+            create_issue: filling
+        filling:
+          on:
+            submit_issue: hidden
 
   screens:
     - name: my_issues
@@ -74,7 +89,10 @@ app:
       regions:
         - name: issue_list
           description: Filterable list of issues assigned to or created by the user
-          events: [select_issue, shift_select_issue]
+          events:
+            select_issue(issue):
+            shift_select_issue(issue):
+            escape:
           ambient:
             issues: "data(my_issues, .issues)"
         - name: filter_bar
@@ -83,15 +101,18 @@ app:
             active_filters: "data(my_issues, .active_filters)"
         - name: bulk_action_bar
           description: Archive, label, assign, change status — appears in selecting state
-          events: [bulk_action]
+          events:
+            bulk_action(issue[]):
           ambient:
             selected: "data(my_issues, .selected)"
       state_machine:
         browsing:
+          regions: [issue_list, filter_bar]
           on:
             select_issue: navigate(issue_detail)
             shift_select_issue: selecting
         selecting:
+          regions: [issue_list, filter_bar, bulk_action_bar]
           on:
             shift_select_issue: .
             bulk_action: browsing
@@ -110,11 +131,13 @@ app:
             issue: "data(issue_detail, .issue)"
         - name: description_editor
           description: Rich text editor for issue description — supports markdown, mentions, slash commands
-          events: [edit_description, save_description]
+          events:
+            edit_description:
+            save_description(string):
           ambient:
             issue: "data(issue_detail, .issue)"
           data:
-            draft_description: string
+            draft_description?: string
           state_machine:
             viewing:
               on:
@@ -148,9 +171,17 @@ app:
             issues_by_status: "data(board_view, .issues_by_status)"
         - name: issue_cards
           description: Issue summary cards draggable between columns
-          events: [select_issue, drag_issue]
+          events:
+            select_issue(issue):
+            drag_issue(issue):
           ambient:
             issues_by_status: "data(board_view, .issues_by_status)"
+      state_machine:
+        viewing:
+          regions: [column_list, issue_cards]
+          on:
+            select_issue: navigate(issue_detail)
+            drag_issue: .
 
     - name: cycle_view
       description: Time-boxed iteration view with progress tracking
@@ -165,7 +196,8 @@ app:
             cycle: "data(cycle_view, .cycle)"
         - name: cycle_issue_list
           description: Issues assigned to this cycle
-          events: [select_issue]
+          events:
+            select_issue(issue):
           ambient:
             issues: "data(cycle_view, .issues)"
 

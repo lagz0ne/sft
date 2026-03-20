@@ -781,14 +781,9 @@ func exportStateMachine(transitions []show.Transition, stateFixtures map[string]
 			extraStates[s] = true
 		}
 	}
-	var extraList []string
 	for s := range extraStates {
-		extraList = append(extraList, s)
+		terminalStates = append(terminalStates, s)
 	}
-	slices.Sort(extraList)
-	terminalStates = append(terminalStates, extraList...)
-
-	// Sort terminal states for deterministic output.
 	slices.Sort(terminalStates)
 
 	// Build the top-level state_machine mapping node.

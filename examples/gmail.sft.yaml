@@ -2,14 +2,17 @@ app:
   name: gmail
   description: Google's email client — inbox management, threaded reading, search, and composition
 
+  enums:
+    category: [primary, social, promotions, updates]
+
   data:
     email:
       subject: string
       sender: contact
       date: datetime
       read: boolean
-      body: string
-      attachments: string[]
+      body: string?
+      attachments: string[]?
     contact:
       name: string
       email: string
@@ -38,9 +41,19 @@ app:
     - name: compose_window
       description: Email composition form — survives screen transitions as a floating panel
       tags: [composing, overlay]
-      events: [send_email, discard_draft]
+      events:
+        send_email(draft):
+        discard_draft:
       data:
         draft: draft
+      state_machine:
+        hidden:
+          on:
+            start_compose: composing
+        composing:
+          on:
+            send_email: hidden
+            discard_draft: hidden
 
   screens:
     - name: inbox
@@ -48,16 +61,20 @@ app:
       context:
         emails: email[]
         selected: email[]
-        active_category: string
+        active_category: category
       regions:
         - name: category_tabs
           description: Primary / Social / Promotions / Updates tab filter
-          events: [switch_category]
+          events:
+            switch_category(category):
           ambient:
             active: "data(inbox, .active_category)"
         - name: email_list
           description: Scrollable thread list supporting individual and bulk interactions
-          events: [select_email, check_email]
+          events:
+            select_email(email):
+            check_email(email):
+            escape:
           ambient:
             emails: "data(inbox, .emails)"
         - name: reading_pane
@@ -71,15 +88,18 @@ app:
           ambient:
             selected: "data(inbox, .selected)"
           data:
-            action_label: string
+            action_label: string?
       state_machine:
         browsing:
           fixture: inbox_full
+          regions: [category_tabs, email_list, reading_pane]
           on:
             select_email: navigate(thread_view)
             check_email: selecting
+            switch_category: .
         selecting:
           fixture: inbox_selecting
+          regions: [category_tabs, email_list, bulk_action_bar]
           on:
             check_email: .
             archive_selected: browsing
@@ -87,6 +107,7 @@ app:
             escape: browsing
         empty:
           fixture: inbox_empty
+          regions: [category_tabs, email_list]
 
     - name: thread_view
       description: Full conversation view with chronological messages and inline reply
@@ -100,17 +121,20 @@ app:
             thread: "data(thread_view, .thread)"
         - name: reply_composer
           description: Rich text reply editor embedded at the bottom of the thread
-          events: [start_reply, send_reply, discard_reply]
+          events:
+            start_reply:
+            send_reply(draft):
+            discard_reply:
           data:
-            draft_body: string
-            draft_to: string[]
+            draft_body: string?
+            draft_to: string[]?
           state_machine:
             collapsed:
               on:
                 start_reply: expanded
             expanded:
               on:
-                send_reply: { to: collapsed, action: "emit(reply_sent)" }
+                send_reply: { to: collapsed, action: "emit(reply_sent, target: thread_view)" }
                 discard_reply: collapsed
       state_machine:
         reading:
@@ -141,7 +165,8 @@ app:
             query: "data(search_results, .query)"
         - name: result_list
           description: Filtered email threads matching the search query
-          events: [select_result]
+          events:
+            select_result(email):
           ambient:
             results: "data(search_results, .results)"
       state_machine:
@@ -159,7 +184,8 @@ app:
       regions:
         - name: label_email_list
           description: Thread list scoped to the selected label
-          events: [select_email]
+          events:
+            select_email(email):
           ambient:
             emails: "data(label_view, .emails)"
       state_machine:

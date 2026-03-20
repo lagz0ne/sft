@@ -2,34 +2,49 @@ app:
   name: bank_app
   description: Retail banking — accounts, transactions, transfers, cards, loans, and security settings
 
+  enums:
+    account_type: [checking, savings, credit, loan]
+    account_status: [active, frozen, closed]
+    currency: [USD, EUR, GBP, CAD, AUD]
+    transaction_category: [groceries, dining, transport, entertainment, utilities, health, shopping, other]
+    transaction_status: [pending, settled, declined, disputed, refunded]
+    card_type: [debit, credit, virtual]
+    card_status: [active, frozen, expired, stolen]
+    loan_status: [active, paid_off, defaulted]
+    application_status: [draft, submitted, under_review, approved, rejected]
+    transfer_status: [pending, processing, completed, failed]
+    pending_type: [unsigned_loan, incomplete_transfer, expiring_card]
+    employment_status: [employed, self_employed, unemployed, retired]
+    repayment_frequency: [monthly, biweekly, weekly]
+
   data:
     account:
       name: string
       number_masked: string
-      type: string
+      type: account_type
       balance: number
       available_balance: number
-      currency: string
-      status: string
-      interest_rate: number
+      currency: currency
+      status: account_status
+      interest_rate: number?
     transaction:
       merchant: string
       amount: number
-      currency: string
+      currency: currency
       date: datetime
-      category: string
-      status: string
-      reference: string
-      card_used: card
+      category: transaction_category
+      status: transaction_status
+      reference: string?
+      card_used: card?
     transfer:
       from_account: account
       to_recipient: recipient
       amount: number
-      currency: string
-      fee: number
-      reference: string
-      estimated_arrival: datetime
-      status: string
+      currency: currency
+      fee: number?
+      reference: string?
+      estimated_arrival: datetime?
+      status: transfer_status
     recipient:
       name: string
       account_number: string
@@ -37,8 +52,8 @@ app:
       bank_name: string
     card:
       number_masked: string
-      type: string
-      status: string
+      type: card_type
+      status: card_status
       expiry_date: date
       daily_atm_limit: number
       daily_pos_limit: number
@@ -51,19 +66,19 @@ app:
       monthly_payment: number
       next_payment_date: date
       term_months: number
-      status: string
+      status: loan_status
     loan_application:
       amount: number
       term_months: number
       rate: number
       monthly_payment: number
-      status: string
-      application_id: string
+      status: application_status
+      application_id: string?
     pending_item:
-      type: string
+      type: pending_type
       description: string
-      deadline: datetime
-      action_url: string
+      deadline: datetime?
+      action_url: string?
     user:
       name: string
       email: string
@@ -80,14 +95,32 @@ app:
       description: Inactivity warning overlay with countdown — extends or logs out
       tags: [overlay, inactive]
       events: [extend_session, logout]
+      state_machine:
+        waiting:
+          on:
+            extend_session: .
+            logout: navigate(login)
     - name: biometric_prompt
       description: Face ID / fingerprint prompt for sensitive actions — transfer, card lock, loan sign
       tags: [overlay, biometric_enabled]
       events: [biometric_success, biometric_fail, fallback_pin]
+      state_machine:
+        prompting:
+          on:
+            biometric_success: .
+            biometric_fail: .
+            fallback_pin: .
     - name: push_notification_banner
       description: In-app alert for incoming transfers, fraud alerts, and payment reminders
       tags: [overlay, toast]
-      events: [tap_notification, dismiss_notification]
+      events:
+        tap_notification:
+        dismiss_notification:
+      state_machine:
+        showing:
+          on:
+            tap_notification: .
+            dismiss_notification: .
 
   screens:
     - name: login
@@ -97,7 +130,8 @@ app:
       regions:
         - name: pin_pad
           description: 6-digit PIN entry with biometric shortcut
-          events: [submit_pin]
+          events:
+            submit_pin(string):
           data:
             pin_entry: string
         - name: biometric_login
@@ -112,10 +146,13 @@ app:
           tags: [maintenance_window]
       state_machine:
         entering:
+          regions: [pin_pad, biometric_login, maintenance_banner]
           on:
             submit_pin: verifying
             biometric_success: navigate(home)
             biometric_fail: .
+        verifying:
+          regions: [locked_account]
 
     - name: home
       description: Dashboard — aggregated balance, recent activity, and quick actions
@@ -133,7 +170,8 @@ app:
           description: Transfer, Pay Bill, Top Up, QR Pay — contextual based on account types
         - name: recent_transactions
           description: Last 5 transactions across all accounts with merchant icons
-          events: [select_transaction]
+          events:
+            select_transaction(transaction):
           ambient:
             transactions: "data(home, .recent_transactions)"
         - name: spending_insights
@@ -142,7 +180,8 @@ app:
         - name: pending_actions
           description: Items requiring attention — unsigned loans, incomplete transfers, expiring cards
           tags: [has_pending]
-          events: [select_pending]
+          events:
+            select_pending(pending_item):
           ambient:
             items: "data(home, .pending_items)"
         - name: fraud_alert
@@ -151,10 +190,13 @@ app:
           events: [block_card, dismiss_alert]
       state_machine:
         idle:
+          regions: [balance_card, quick_actions, recent_transactions, spending_insights, pending_actions]
           on:
             select_transaction: navigate(transaction_detail)
             select_pending: navigate(pending_detail)
             block_card: .
+            toggle_balance: .
+            dismiss_alert: .
 
     - name: account_list
       description: All accounts — checking, savings, credit, loan — each with balance and status
@@ -164,31 +206,36 @@ app:
         - name: checking_accounts
           description: Checking accounts with available balance and pending holds
           tags: [has_checking]
-          events: [select_account]
+          events:
+            select_account(account):
           ambient:
             accounts: "data(account_list, .accounts)"
         - name: savings_accounts
           description: Savings accounts with interest rate and goal progress
           tags: [has_savings]
-          events: [select_account]
+          events:
+            select_account(account):
           ambient:
             accounts: "data(account_list, .accounts)"
         - name: credit_accounts
           description: Credit cards with available credit, current balance, and minimum due
           tags: [has_credit]
-          events: [select_account]
+          events:
+            select_account(account):
           ambient:
             accounts: "data(account_list, .accounts)"
         - name: loan_accounts
           description: Active loans with remaining balance, next payment, and payoff date
           tags: [has_loans]
-          events: [select_account]
+          events:
+            select_account(account):
           ambient:
             accounts: "data(account_list, .accounts)"
         - name: closed_accounts
           description: Previously closed accounts — view-only with historical statements
           tags: [has_closed]
-          events: [select_account]
+          events:
+            select_account(account):
         - name: empty_state
           description: No accounts — prompt to open first account or contact support
           tags: [no_accounts]
@@ -210,7 +257,9 @@ app:
             account: "data(account_detail, .account)"
         - name: transaction_list
           description: Scrollable transaction history with search and date filter
-          events: [select_transaction, filter_transactions]
+          events:
+            select_transaction(transaction):
+            filter_transactions(string):
           ambient:
             transactions: "data(account_detail, .transactions)"
           data:
@@ -222,10 +271,11 @@ app:
         - name: scheduled_payments
           description: Upcoming recurring payments and transfers from this account
           tags: [has_scheduled]
-          events: [select_scheduled, cancel_scheduled]
+          events: [select_scheduled, cancel_scheduled, escape]
         - name: statement_download
           description: Monthly PDF statements with date range picker
-          events: [download_statement]
+          events:
+            download_statement(date):
           data:
             date_range: string
         - name: interest_summary
@@ -251,9 +301,13 @@ app:
           tags: [frozen]
       state_machine:
         viewing:
+          regions: [account_header, transaction_list, pending_transactions, scheduled_payments, statement_download]
           on:
             select_transaction: navigate(transaction_detail)
             cancel_scheduled: confirming_cancel
+            filter_transactions: .
+            select_scheduled: .
+            download_statement: .
         confirming_cancel:
           on:
             escape: viewing
@@ -291,6 +345,10 @@ app:
         - name: receipt_image
           description: Attached receipt photo or merchant-provided receipt
           tags: [has_receipt]
+      state_machine:
+        viewing:
+          on:
+            start_dispute: .
 
     - name: transfer
       description: Multi-step money transfer — recipient, amount, review, authenticate, confirm
@@ -301,19 +359,22 @@ app:
       regions:
         - name: recipient_picker
           description: Search saved recipients, enter new account/routing, or scan QR code
-          events: [select_recipient, add_recipient]
+          events:
+            select_recipient(recipient):
+            add_recipient:
           ambient:
             recipients: "data(transfer, .recipients)"
           data:
             search_query: string
         - name: amount_input
           description: Transfer amount with currency, source account selector, and available balance
-          events: [set_amount]
+          events:
+            set_amount(number):
           ambient:
             from_account: "data(transfer, .from_account)"
           data:
             amount: number
-            currency: string
+            currency: currency
         - name: transfer_review
           description: Summary of transfer — from, to, amount, fee, estimated arrival
           tags: [overlay]
@@ -341,23 +402,30 @@ app:
           tags: [insufficient]
       state_machine:
         picking_recipient:
+          regions: [recipient_picker]
           on:
             select_recipient: entering_amount
+            add_recipient: .
         entering_amount:
+          regions: [recipient_picker, amount_input]
           on:
             set_amount: reviewing
         reviewing:
+          regions: [transfer_review]
           on:
             confirm_transfer: authenticating
             edit_transfer: entering_amount
         authenticating:
+          regions: [transfer_review, auth_challenge]
           on:
             auth_success: completed
-            auth_fail: reviewing
+            auth_fail: failed
         failed:
+          regions: [transfer_failed]
           on:
             retry_transfer: reviewing
-        completed: {}
+        completed:
+          regions: [transfer_success]
 
     - name: card_management
       description: Physical and virtual cards — freeze, replace, PIN, limits, and contactless settings
@@ -376,7 +444,8 @@ app:
             card: "data(card_management, .card)"
         - name: freeze_toggle
           description: Instant card freeze/unfreeze — blocks all new transactions
-          events: [toggle_freeze]
+          events:
+            toggle_freeze(boolean):
         - name: spending_limits
           description: Daily ATM, POS, and online transaction limits — adjustable
           events: [edit_limits, save_limits]
@@ -412,6 +481,13 @@ app:
         - name: stolen_notice
           description: Card reported stolen — permanently blocked, replacement in progress
           tags: [stolen]
+      state_machine:
+        viewing:
+          on:
+            reveal_number: .
+            toggle_freeze: .
+            start_pin_change: .
+            request_replacement: .
 
     - name: loan_application
       description: Multi-step loan application — eligibility, terms, documents, review, sign
@@ -420,24 +496,28 @@ app:
       regions:
         - name: eligibility_check
           description: Pre-qualification based on income, credit score, and existing obligations
-          events: [check_eligibility]
+          events:
+            check_eligibility(loan_application):
           data:
             annual_income: number
-            employment_status: string
+            employment_status: employment_status
         - name: not_eligible
           description: Declined with reason — credit score too low, debt-to-income too high
           tags: [not_eligible]
         - name: terms_selector
           description: Choose loan amount, duration, and repayment frequency — shows monthly payment
           tags: [eligible]
-          events: [select_terms]
+          events:
+            select_terms(loan_application):
           data:
             loan_amount: number
             term_months: number
-            repayment_frequency: string
+            repayment_frequency: repayment_frequency
         - name: document_upload
           description: Upload income proof, ID, and address verification
-          events: [upload_document, remove_document]
+          events:
+            upload_document(string):
+            remove_document(string):
           data:
             uploaded_files: string[]
         - name: application_review
@@ -458,24 +538,32 @@ app:
           tags: [has_decision]
       state_machine:
         starting:
+          regions: [eligibility_check]
           on:
             check_eligibility: checking
         terms:
+          regions: [terms_selector]
           on:
             select_terms: documents
         documents:
+          regions: [document_upload]
           on:
             upload_document: .
+            remove_document: .
         reviewing:
+          regions: [application_review]
           on:
             submit_application: signing
             edit_application: terms
         signing:
+          regions: [application_review, digital_signature]
           on:
             sign_agreement: submitted
             decline_agreement: reviewing
-        checking: {}
-        submitted: {}
+        checking:
+          regions: [eligibility_check]
+        submitted:
+          regions: [application_submitted]
 
     - name: pending_detail
       description: Pending action detail — unsigned loan, incomplete transfer, or expiring card
@@ -491,6 +579,11 @@ app:
           description: Resume, complete, or dismiss the pending item
           tags: [primary]
           events: [resume_action, dismiss_pending]
+      state_machine:
+        viewing:
+          on:
+            resume_action: .
+            dismiss_pending: .
 
     - name: settings
       description: Security, notifications, and account preferences

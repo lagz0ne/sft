@@ -209,7 +209,23 @@ var rules = []rule{
 		severity: Warning,
 		query: `SELECT DISTINCT t.on_event, ` + ownerCase + ` AS owner_name
 		        FROM transitions t
-		        WHERE t.on_event NOT IN (SELECT e.name FROM events e)`,
+		        WHERE t.on_event NOT IN (SELECT e.name FROM events e)
+		          AND t.on_event NOT IN (
+		            SELECT CASE
+		              WHEN INSTR(SUBSTR(t2.action, 6), ',') > 0
+		              THEN SUBSTR(t2.action, 6, INSTR(SUBSTR(t2.action, 6), ',') - 1)
+		              ELSE SUBSTR(t2.action, 6, INSTR(SUBSTR(t2.action, 6), ')') - 1)
+		            END
+		            FROM transitions t2 WHERE t2.action LIKE 'emit(%)'
+		          )
+		          AND t.on_event NOT IN (
+		            SELECT CASE
+		              WHEN INSTR(SUBSTR(t3.action, INSTR(t3.action, 'emit(') + 5), ',') > 0
+		              THEN SUBSTR(t3.action, INSTR(t3.action, 'emit(') + 5, INSTR(SUBSTR(t3.action, INSTR(t3.action, 'emit(') + 5), ',') - 1)
+		              ELSE SUBSTR(t3.action, INSTR(t3.action, 'emit(') + 5, INSTR(SUBSTR(t3.action, INSTR(t3.action, 'emit(') + 5), ')') - 1)
+		            END
+		            FROM transitions t3 WHERE t3.action LIKE '%emit(%'
+		          )`,
 		format: func(rows *sql.Rows) ([]Finding, error) {
 			var findings []Finding
 			for rows.Next() {
@@ -238,6 +254,16 @@ var rules = []rule{
 		            SELECT t2.from_state FROM transitions t2
 		            WHERE t2.owner_type = t1.owner_type AND t2.owner_id = t1.owner_id
 		              AND t2.from_state IS NOT NULL AND t2.from_state != ''
+		          )
+		          AND NOT EXISTS (
+		            SELECT 1 FROM state_fixtures sf
+		            WHERE sf.owner_type = t1.owner_type AND sf.owner_id = t1.owner_id
+		              AND sf.state_name = t1.to_state
+		          )
+		          AND NOT EXISTS (
+		            SELECT 1 FROM state_regions sr
+		            WHERE sr.owner_type = t1.owner_type AND sr.owner_id = t1.owner_id
+		              AND sr.state_name = t1.to_state
 		          )`,
 		format: func(rows *sql.Rows) ([]Finding, error) {
 			var findings []Finding

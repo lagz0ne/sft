@@ -2,13 +2,22 @@ app:
   - name: shopify_admin
     description: Merchant-facing administration — products, orders, analytics, and settings
 
+    enums:
+      product_status: [active, draft, archived]
+      payment_status: [paid, pending, refunded, partially_refunded]
+      fulfillment_status: [unfulfilled, fulfilled, partially_fulfilled]
+      carrier: [usps, ups, fedex, dhl, other]
+      date_range: [today, yesterday, last_7_days, last_30_days, last_90_days, last_year, custom]
+      comparison_period: [previous_period, previous_year, none]
+      inbox_category: [primary, social, promotions, updates]
+
     data:
       product:
         title: string
         description: string
         vendor: string
         product_type: string
-        status: string
+        status: product_status
         variants: variant[]
         images: string[]
         tags: string[]
@@ -16,7 +25,7 @@ app:
         name: string
         sku: string
         price: number
-        compare_at_price: number
+        compare_at_price: number?
         inventory_quantity: number
         option_values: string[]
       order:
@@ -24,29 +33,29 @@ app:
         customer: customer
         line_items: line_item[]
         total_price: number
-        payment_status: string
-        fulfillment_status: string
+        payment_status: payment_status
+        fulfillment_status: fulfillment_status
         created_at: datetime
       line_item:
         product: product
         variant: variant
         quantity: number
         price: number
-        discount: number
+        discount: number?
       customer:
         name: string
         email: string
         total_orders: number
         total_spent: number
       fulfillment:
-        tracking_number: string
-        carrier: string
+        tracking_number: string?
+        carrier: carrier
         notify_customer: boolean
-        status: string
+        status: fulfillment_status
       report:
         name: string
-        date_range: string
-        comparison_period: string
+        date_range: date_range
+        comparison_period: comparison_period?
 
     context:
       current_merchant: customer
@@ -81,11 +90,16 @@ app:
               order_count: "data(dashboard, .order_count)"
           - name: order_activity
             description: Recent order feed with status indicators
-            events: [select_order]
+            events:
+              select_order: (order)
             ambient:
               orders: "data(dashboard, .recent_orders)"
           - name: analytics_cards
             description: Key performance indicators — sessions, returning customers, average order value
+        state_machine:
+          browsing:
+            on:
+              select_order: navigate(order_detail)
 
       - name: product_detail
         description: Full product editor — info, media, variants, SEO, and inventory
@@ -103,7 +117,10 @@ app:
               product: "data(product_detail, .product)"
           - name: variant_editor
             description: Size/color/material variant matrix with per-variant pricing and inventory
-            events: [edit_variant, save_variant, cancel_edit]
+            events:
+              edit_variant: (variant)
+              save_variant: (variant)
+              cancel_edit: ~
             ambient:
               product: "data(product_detail, .product)"
             data:
@@ -153,16 +170,20 @@ app:
               - name: fulfillment_confirmation
                 description: Confirm shipment details — tracking number, carrier, and notify customer
                 tags: [overlay]
-                events: [confirm_fulfillment, cancel_fulfillment]
+                events:
+                  confirm_fulfillment: (fulfillment)
+                  cancel_fulfillment: ~
                 data:
-                  tracking_number: string
-                  carrier: string
+                  tracking_number: string?
+                  carrier: carrier
                   notify_customer: boolean
             state_machine:
               idle:
+                regions: [fulfillment_actions]
                 on:
                   start_fulfillment: confirming
               confirming:
+                regions: [fulfillment_actions, fulfillment_confirmation]
                 on:
                   confirm_fulfillment: idle
                   cancel_fulfillment: idle
@@ -181,26 +202,30 @@ app:
         regions:
           - name: product_table
             description: Product rows with thumbnail, title, status, inventory, and vendor
-            events: [select_product, check_product]
+            events:
+              select_product: (product)
+              check_product: (product)
             ambient:
               products: "data(product_list, .products)"
           - name: filter_bar
             description: Status, vendor, product type, and tag filters
             data:
-              status_filter: string
-              vendor_filter: string
-              type_filter: string
+              status_filter: product_status?
+              vendor_filter: string?
+              type_filter: string?
           - name: bulk_action_bar
             description: Bulk edit, publish, unpublish — appears in selecting state
-            events: [bulk_edit]
+            events: [bulk_edit, escape]
             ambient:
               selected: "data(product_list, .selected)"
         state_machine:
           browsing:
+            regions: [product_table, filter_bar]
             on:
               select_product: navigate(product_detail)
               check_product: selecting
           selecting:
+            regions: [product_table, filter_bar, bulk_action_bar]
             on:
               check_product: .
               bulk_edit: browsing
@@ -217,7 +242,7 @@ app:
             data:
               start_date: date
               end_date: date
-              comparison: string
+              comparison: comparison_period?
           - name: chart_area
             description: Visualizations — line charts, bar charts, funnels
             ambient:
@@ -253,11 +278,15 @@ app:
   - name: shopify_storefront
     description: Customer-facing shop — browse products, manage cart, and checkout
 
+    enums:
+      payment_method: [credit_card, shop_pay, apple_pay, google_pay]
+      delivery_method: [standard, express, overnight]
+
     data:
       storefront_product:
         title: string
         price: number
-        compare_at_price: number
+        compare_at_price: number?
         images: string[]
         available: boolean
         variants: storefront_variant[]
@@ -274,9 +303,9 @@ app:
       cart:
         items: cart_item[]
         subtotal: number
-        estimated_shipping: number
-        estimated_tax: number
-        discount_code: string
+        estimated_shipping: number?
+        estimated_tax: number?
+        discount_code: string?
       collection:
         name: string
         description: string
@@ -285,11 +314,11 @@ app:
         order_number: string
         total: number
         items: cart_item[]
-        estimated_delivery: date
+        estimated_delivery: date?
       shipping_address:
         name: string
         address_line_1: string
-        address_line_2: string
+        address_line_2: string?
         city: string
         state: string
         zip: string
@@ -322,12 +351,14 @@ app:
             description: Full-width promotional hero image with CTA
           - name: featured_products
             description: Curated product grid selected by the merchant
-            events: [select_product]
+            events:
+              select_product: (storefront_product)
             ambient:
               products: "data(home, .featured_products)"
           - name: collection_grid
             description: Category cards linking to collection pages
-            events: [select_collection]
+            events:
+              select_collection: (collection)
             ambient:
               collections: "data(home, .collections)"
 
@@ -348,13 +379,15 @@ app:
               product: "data(product_page, .product)"
           - name: variant_selector
             description: Size, color, and material options with stock-aware disabling
-            events: [select_variant]
+            events:
+              select_variant: (storefront_variant)
             ambient:
               product: "data(product_page, .product)"
               selected: "data(product_page, .selected_variant)"
           - name: add_to_cart_button
             description: Primary purchase action — triggers CartDrawer on success
-            events: [add_to_cart]
+            events:
+              add_to_cart: (cart_item)
             ambient:
               selected: "data(product_page, .selected_variant)"
           - name: review_section
@@ -367,7 +400,9 @@ app:
         regions:
           - name: cart_items
             description: Line items with quantity adjustment and remove controls
-            events: [update_quantity, remove_item]
+            events:
+              update_quantity: (cart_item)
+              remove_item: (cart_item)
             ambient:
               cart: "data(cart, .cart)"
           - name: order_summary
@@ -375,7 +410,7 @@ app:
             ambient:
               cart: "data(cart, .cart)"
             data:
-              discount_code: string
+              discount_code: string?
           - name: checkout_button
             description: Proceed to checkout — validates cart contents before navigating
             events: [start_checkout]
@@ -391,17 +426,17 @@ app:
             data:
               name: string
               address_line_1: string
-              address_line_2: string
+              address_line_2: string?
               city: string
               state: string
               zip: string
               country: string
-              delivery_method: string
+              delivery_method: delivery_method
           - name: payment_form
             description: Credit card, shop pay, or alternative payment methods
             events: [submit_payment]
             data:
-              payment_method: string
+              payment_method: payment_method
               card_number: string
               card_expiry: string
               card_cvc: string

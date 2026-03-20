@@ -6,7 +6,7 @@ type: component
 category: foundation
 parent: c3-1
 goal: Define the domain vocabulary as Go structs shared by all packages
-summary: Pure data types — App, Screen, Region, Tag, Event, Transition, Flow, FlowStep — with no behavior
+summary: Pure data types — App, Screen, Region, Tag, Event (with Annotation), Transition, Flow, FlowStep, Enum, StateRegion — with no behavior
 uses: [ref-event-model]
 ---
 
@@ -30,10 +30,12 @@ Define the domain vocabulary as Go structs shared by all packages. No methods, n
 | Screen | name, description, app_id | Viewport grouping of regions |
 | Region | name, description, parent_type, parent_id | Hierarchical building block |
 | Tag | entity_type, entity_id, tag | Bracket annotations on screens/regions |
-| Event | region_id, name | Declared on emitting region |
+| Event | region_id, name, annotation | Declared on emitting region (annotation = payload type) |
 | Transition | owner_type, owner_id, on_event, from/to_state, action | State machine rule |
 | Flow | name, description, on_event, sequence | Named user journey |
 | FlowStep | flow_id, position, raw, type, name, history, data | Parsed flow token |
+| Enum | app_id, name, values (JSON) | Named set of allowed values |
+| StateRegion | owner_type, owner_id, state_name, region_name | State-driven region visibility |
 
 ## Dependencies
 

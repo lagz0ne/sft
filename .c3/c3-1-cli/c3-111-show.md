@@ -6,7 +6,7 @@ type: component
 category: feature
 parent: c3-1
 goal: Assemble full spec tree from DB and render as text
-summary: Load Spec tree from SQLite with enrichment (attachments, components); text rendering for sft show
+summary: Load Spec tree from SQLite with enrichment (attachments, components); loads Enums, StateRegions on Screen/Region, event annotations via loadEvents; text rendering for sft show
 uses: [ref-entity-resolution]
 ---
 
@@ -26,7 +26,7 @@ Assemble the full spec tree from the database and render it as human-readable te
 ## Key Aspects
 
 ### Spec Tree
-Nested: `Spec { App { Regions }, Screens[] { Regions[], Transitions[] }, Flows[] }`. Mirrors YAML structure.
+Nested: `Spec { App { Regions, Enums }, Screens[] { Regions[], Transitions[], StateRegions }, Flows[] }`. Mirrors YAML structure. `loadEvents` reconstructs `name(annotation)` format from DB columns.
 
 ### Enricher Interface
 `show.Load(db, enricher)` — `Enricher` provides attachments and components. Store implements it; nil accepted (diff's in-memory store).
