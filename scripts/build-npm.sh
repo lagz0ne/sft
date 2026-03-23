@@ -24,7 +24,7 @@ for target in "${TARGETS[@]}"; do
 
   echo "  ${GOOS}/${GOARCH} → npm/${DIR}/bin/${BIN}"
   CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" go build \
-    -ldflags="-s -w" \
+    -ldflags="-s -w -X main.version=${VERSION}" \
     -o "$OUT" \
     "$CLI_DIR"
 done

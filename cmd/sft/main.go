@@ -18,6 +18,8 @@ import (
 	"github.com/lagz0ne/sft/internal/view"
 )
 
+var version = "dev"
+
 func main() {
 	jsonMode := false
 	args := make([]string, 0, len(os.Args))
@@ -34,6 +36,11 @@ func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(1)
+	}
+
+	if os.Args[1] == "version" || os.Args[1] == "--version" {
+		fmt.Printf("sft %s\n", version)
+		return
 	}
 
 	s, err := store.Open(store.DefaultPath())
@@ -148,6 +155,11 @@ Diagrams:
 
 View:
   view [--port N]                 open spec in browser
+
+Version:
+  version                         show sft version
+  # If outdated, export your spec with 'sft show --json > backup.json'
+  # then update sft and use an LLM to migrate if needed
 
 Aliases: q=query, check=validate, ls=list, comp=component, diag=diagram`
 
