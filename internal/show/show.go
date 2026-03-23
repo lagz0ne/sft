@@ -36,6 +36,8 @@ type App struct {
 }
 
 type Screen struct {
+	ID             int64               `json:"id"`
+	Ref            string              `json:"ref"`
 	Name           string              `json:"name"`
 	Description    string              `json:"description"`
 	Tags           []string            `json:"tags,omitempty"`
@@ -53,6 +55,8 @@ type Screen struct {
 }
 
 type Region struct {
+	ID             int64               `json:"id"`
+	Ref            string              `json:"ref"`
 	Name           string              `json:"name"`
 	Description    string              `json:"description"`
 	Tags           []string            `json:"tags,omitempty"`
@@ -87,6 +91,8 @@ type FlowStep struct {
 }
 
 type Flow struct {
+	ID          int64      `json:"id"`
+	Ref         string     `json:"ref"`
 	Name        string     `json:"name"`
 	Description string     `json:"description,omitempty"`
 	OnEvent     string     `json:"on_event,omitempty"`
@@ -130,6 +136,8 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 		if err := rows.Scan(&id, &s.Name, &s.Description); err != nil {
 			return nil, fmt.Errorf("scan screen: %w", err)
 		}
+		s.ID = id
+		s.Ref = fmt.Sprintf("@s%d", id)
 		s.Tags = loadTags(db, "screen", id)
 		s.Context = loadContext(db, "screen", id)
 		s.Regions = loadRegions(db, "screen", id, al)
@@ -163,6 +171,8 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 		if err := frows.Scan(&flowID, &f.Name, &desc, &onEvent, &f.Sequence); err != nil {
 			return nil, fmt.Errorf("scan flow: %w", err)
 		}
+		f.ID = flowID
+		f.Ref = fmt.Sprintf("@f%d", flowID)
 		f.Description = desc.String
 		f.OnEvent = onEvent.String
 		f.Steps, _ = loadFlowSteps(db, flowID)
@@ -202,6 +212,8 @@ func loadRegions(db *sql.DB, parentType string, parentID int64, al Enricher) []R
 		var id int64
 		var r Region
 		rows.Scan(&id, &r.Name, &r.Description)
+		r.ID = id
+		r.Ref = fmt.Sprintf("@r%d", id)
 		r.Tags = loadTags(db, "region", id)
 		r.Events = loadEvents(db, id)
 		r.Ambient = loadAmbientRefs(db, id)
@@ -482,7 +494,7 @@ func Render(w io.Writer, spec *Spec) {
 
 	for _, s := range spec.Screens {
 		fmt.Fprintln(w)
-		fmt.Fprintf(w, "%s", s.Name)
+		fmt.Fprintf(w, "%s %s", s.Ref, s.Name)
 		if s.Component != "" {
 			fmt.Fprintf(w, " (%s)", s.Component)
 		}
@@ -513,7 +525,7 @@ func Render(w io.Writer, spec *Spec) {
 		fmt.Fprintln(w)
 		fmt.Fprintf(w, "flows:\n")
 		for _, f := range spec.Flows {
-			fmt.Fprintf(w, "  %s", f.Name)
+			fmt.Fprintf(w, "  %s %s", f.Ref, f.Name)
 			if f.OnEvent != "" {
 				fmt.Fprintf(w, " (on %s)", f.OnEvent)
 			}
@@ -532,7 +544,7 @@ func renderRegions(w io.Writer, regions []Region, indent string) {
 	}
 	fmt.Fprintln(w)
 	for _, r := range regions {
-		fmt.Fprintf(w, "%s%s", indent, r.Name)
+		fmt.Fprintf(w, "%s%s %s", indent, r.Ref, r.Name)
 		if r.Component != "" {
 			fmt.Fprintf(w, " (%s)", r.Component)
 		}

@@ -367,6 +367,13 @@ func runAdd(s *store.Store, args []string) {
 // --- set [H6 fix] ---
 
 func runSet(s *store.Store, args []string) {
+	if len(args) > 0 && store.IsRef(args[0]) {
+		entityType, _, entityName, err := s.ResolveRef(args[0])
+		if err != nil {
+			die("%v", err)
+		}
+		args = append([]string{entityType, entityName}, args[1:]...)
+	}
 	if len(args) < 2 {
 		die("usage: sft set <screen|region> <name> --description <new> [--in <parent>]")
 	}
@@ -488,6 +495,13 @@ func runReorder(s *store.Store, args []string) {
 // --- rm [H7 fix: extended to all entity types] ---
 
 func runRm(s *store.Store, args []string) {
+	if len(args) > 0 && store.IsRef(args[0]) {
+		entityType, _, entityName, err := s.ResolveRef(args[0])
+		if err != nil {
+			die("%v", err)
+		}
+		args = append([]string{entityType, entityName}, args[1:]...)
+	}
 	if len(args) < 2 {
 		die("usage: sft rm <screen|region|event|transition|tag|flow> <name> [--in/--on <parent>]")
 	}

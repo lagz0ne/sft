@@ -205,6 +205,61 @@ func TestFlowSteps(t *testing.T) {
 	}
 }
 
+func TestRefs(t *testing.T) {
+	s := mustStore(t)
+	app := seedApp(t, s)
+
+	sc1 := addScreen(t, s, app.ID, "inbox", "email inbox")
+	addScreen(t, s, app.ID, "settings", "app settings")
+	addRegion(t, s, app.ID, "screen", sc1.ID, "email_list", "list of emails")
+
+	// Add a flow via raw SQL
+	s.DB.Exec(`INSERT INTO flows(app_id, name, sequence) VALUES(?, 'read_flow', 'inbox → settings')`, app.ID)
+
+	spec, err := Load(s.DB, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Screen refs
+	if spec.Screens[0].Ref != "@s1" {
+		t.Fatalf("expected @s1, got %s", spec.Screens[0].Ref)
+	}
+	if spec.Screens[1].Ref != "@s2" {
+		t.Fatalf("expected @s2, got %s", spec.Screens[1].Ref)
+	}
+	// Screen IDs
+	if spec.Screens[0].ID != 1 {
+		t.Fatalf("expected ID 1, got %d", spec.Screens[0].ID)
+	}
+	if spec.Screens[1].ID != 2 {
+		t.Fatalf("expected ID 2, got %d", spec.Screens[1].ID)
+	}
+
+	// Region refs
+	inbox := spec.Screens[0]
+	if len(inbox.Regions) != 1 {
+		t.Fatalf("expected 1 region, got %d", len(inbox.Regions))
+	}
+	if inbox.Regions[0].Ref != "@r1" {
+		t.Fatalf("expected @r1, got %s", inbox.Regions[0].Ref)
+	}
+	if inbox.Regions[0].ID != 1 {
+		t.Fatalf("expected region ID 1, got %d", inbox.Regions[0].ID)
+	}
+
+	// Flow refs
+	if len(spec.Flows) != 1 {
+		t.Fatalf("expected 1 flow, got %d", len(spec.Flows))
+	}
+	if spec.Flows[0].Ref != "@f1" {
+		t.Fatalf("expected @f1, got %s", spec.Flows[0].Ref)
+	}
+	if spec.Flows[0].ID != 1 {
+		t.Fatalf("expected flow ID 1, got %d", spec.Flows[0].ID)
+	}
+}
+
 func TestDeriveStatesDedup(t *testing.T) {
 	// Direct unit test of deriveStates
 	transitions := []Transition{
