@@ -52,10 +52,10 @@ func main() {
 		runQuery(s, rest)
 	case "validate", "check":
 		runValidate(s)
+	case "init":
+		runInit(s, rest)
 	case "import":
-		runImport(s, rest)
-	case "export":
-		runExport(s, rest)
+		runInit(s, rest) // legacy alias
 	case "diff":
 		runDiff(s, rest)
 	case "add":
@@ -93,97 +93,61 @@ func main() {
 	}
 }
 
-const usage = `sft — SQLite-backed behavioral spec tool for UI screens, regions, events, flows, and components.
+const usage = `sft — behavioral spec tool for UI screens, regions, events, flows, and components.
 
-All output supports --json for structured data. The spec lives in .sft/db (auto-created).
+All output includes @refs (e.g. @s1, @r3) for stable entity addressing.
+All output supports --json. The spec lives in .sft/db.
 
-Core Workflow:
-  sft import spec.yaml           # load a YAML spec into the local DB
-  sft show                       # render full spec tree (human + LLM readable)
-  sft show --json                # structured JSON — best for programmatic use
-  sft query screens              # list all screens
-  sft validate                   # check for issues (orphans, dead events, cycles)
-  sft export updated.yaml        # round-trip back to YAML
+Workflow:
+  sft init spec.yaml             # bootstrap from YAML (one-time, empty DB only)
+  sft show                       # full spec tree with @refs
+  sft query screens              # list screens, regions, events, flows
+  sft validate                   # check for issues
+  sft view                       # open in browser
 
 Reading:
-  show                             full spec tree (text or --json)
+  show                             full spec tree with @refs (text or --json)
   query  <type>                    screens | regions | events | flows | tags | steps <flow>
   query  states <name>             transitions for a screen/region
   query  <SELECT ...>              raw SQL against the spec DB
   impact <screen|region> <name>    what depends on this entity
+  render                           json-render element tree
 
-Mutating:
+Mutating (use @refs or names):
   add app <name> <desc>
   add screen <name> <desc>
-  add region <name> <desc> --in <parent>
-  add event <name> --in <region>
-  add transition --on <event> --in <owner> [--from <s>] [--to <s>] [--action <a>]
-  add tag <tag> --on <entity>
+  add region <name> <desc> --in <@ref|parent>
+  add event <name> --in <@ref|region>
+  add transition --on <event> --in <@ref|owner> [--from <s>] [--to <s>] [--action <a>]
+  add tag <tag> --on <@ref|entity>
   add flow <name> <sequence> [--description <d>] [--on <event>]
-  set <screen|region> <name> --description <new> [--in <parent>]
+  set <@ref> --description <new>
   rename <screen|region|flow> <old> <new> [--in <parent>]
-  rm <screen|region|event|transition|tag|flow> <name> [--in/--on <parent>]
-  mv region <name> --to <parent> [--in <current-parent>]
+  rm <@ref>
+  mv region <name> --to <@ref|parent> [--in <current-parent>]
   reorder <parent> <child1> <child2> ...
 
 Components:
-  component <entity>                          show bound component (JSON)
-  component <entity> <Type> [--props <json>]  bind a UI component
-  component <entity> <Type> --props-file <f>  bind with props from file
-  component <entity> --rm                     unbind component
-
-Import / Export / Diff:
-  import <file.yaml>              load YAML into fresh DB
-  export [file.yaml]              serialize spec to YAML (stdout if no file)
-  diff <file.yaml>                compare current spec vs a YAML file
+  component <@ref|entity>                     show bound component
+  component <@ref|entity> <Type> [--props {}] bind a component
+  component <@ref|entity> --rm                unbind
 
 Attachments:
-  attach <entity> <file> [--as <name>]
-  detach <entity> <name>
+  attach <@ref|entity> <file> [--as <name>]
+  detach <@ref|entity> <name>
   list [entity]
-  cat <entity> <name>
+  cat <@ref|entity> <name>
 
-Rendering (json-render):
-  render                          generate json-render element tree from spec
-  # screens → Card, regions → Stack, components override type/props/on/visible
-  # pipe to jq: sft render | jq '.elements.Home'
+Diff:
+  diff <file.yaml>                compare current spec vs a YAML file
 
-Scoped Regions:
-  Region names can repeat across parents. Use --in <parent> to disambiguate:
-    sft add region Header "Top bar" --in Settings
-    sft rm region Header --in Settings
-    sft rename region Header TopBar --in Settings
+Diagrams:
+  diagram states <name>           state machine for a screen/region
+  diagram nav                     navigation graph
+  diagram flow <name>             flow sequence
 
-Common Patterns:
-  # Build a spec from scratch
-  sft add app MyApp "Description"
-  sft add screen Home "Landing page"
-  sft add region Hero "Hero section" --in Home
-  sft add event cta-click --in Hero
-  sft add transition --on cta-click --in Home --action "navigate(Detail)"
-  sft add flow Onboarding "Home → Detail → [Back] → Home(H)"
-
-  # Inspect before deleting
-  sft impact screen Home
-  sft rm screen Home
-
-  # Diff after local edits
-  sft export /tmp/before.yaml
-  # ... make changes ...
-  sft diff /tmp/before.yaml
-
-  # Attach a wireframe, query events, validate
-  sft attach Home mockup.png
-  sft query events --json
-  sft validate
-
-Diagrams (Mermaid):
-  diagram states <name>            state machine diagram for a screen/region
-  diagram nav                      screen-to-screen navigation graph
-  diagram flow <name>              flow sequence diagram
-
-View (browser):
-  view [--port N] [--web-dir DIR]  open spec in browser (embedded NATS + HTTP)
+View:
+  view [--port N]                 open spec in browser
 
 Aliases: q=query, check=validate, ls=list, comp=component, diag=diagram`
 
@@ -396,9 +360,9 @@ func runSet(s *store.Store, args []string) {
 
 // --- import ---
 
-func runImport(s *store.Store, args []string) {
+func runInit(s *store.Store, args []string) {
 	if len(args) == 0 {
-		die("usage: sft import <file.yaml>")
+		die("usage: sft init <file.yaml>")
 	}
 	if err := loader.Load(s, args[0]); err != nil {
 		die("import: %v", err)
@@ -406,25 +370,6 @@ func runImport(s *store.Store, args []string) {
 	ok("imported %s", args[0])
 }
 
-// --- export ---
-
-func runExport(s *store.Store, args []string) {
-	spec, err := show.Load(s.DB, s)
-	if err != nil {
-		die("%v", err)
-	}
-	if len(args) > 0 {
-		f, err := os.Create(args[0])
-		if err != nil {
-			die("create %s: %v", args[0], err)
-		}
-		defer f.Close()
-		must(loader.Export(spec, f))
-		ok("exported to %s", args[0])
-	} else {
-		must(loader.Export(spec, os.Stdout))
-	}
-}
 
 // --- diff ---
 
