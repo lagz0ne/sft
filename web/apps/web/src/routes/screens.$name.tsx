@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSpecContext } from '../context/spec-context'
 import { RegionList } from '../components/region-list'
+import { StateMachineStrip } from '../components/state-machine-strip'
 import { useState } from 'react'
 
 export const Route = createFileRoute('/screens/$name')({
@@ -35,11 +36,13 @@ function ScreenDetail() {
       <h1 className="text-2xl font-bold mb-1">{screen.name}</h1>
       {screen.description && <p className="text-neutral-500 mb-6">{screen.description}</p>}
 
-      {/* State machine strip placeholder — Task 7 will replace this */}
-      {screen.states && screen.states.length > 0 && (
-        <div className="mb-6 p-3 border border-neutral-200 rounded-lg bg-white text-sm text-neutral-400">
-          States: {screen.states.join(' → ')}
-        </div>
+      {screen.states && screen.states.length > 0 && effectiveState && (
+        <StateMachineStrip
+          states={screen.states}
+          transitions={screen.transitions ?? []}
+          currentState={effectiveState}
+          onStateChange={setCurrentState}
+        />
       )}
 
       {mockup && (
