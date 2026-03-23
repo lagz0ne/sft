@@ -23,6 +23,11 @@ jobs:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
 
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Build web
+        run: cd web && bun install --frozen-lockfile && bun run --filter 'web' build
+
       - name: Test
         run: go test ./...
 

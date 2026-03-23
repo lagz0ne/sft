@@ -8,6 +8,10 @@ NPM_DIR="$ROOT/npm"
 VERSION=$(node -p "require('$NPM_DIR/sft-cli/package.json').version")
 echo "Building sft-cli v${VERSION}"
 
+# Build web SPA (required for go:embed)
+echo "Building web assets..."
+(cd "$ROOT/web" && bun install --frozen-lockfile && bun run --filter 'web' build)
+
 # npm-dir:GOOS:GOARCH:binary-name
 TARGETS=(
   "linux-x64:linux:amd64:sft"

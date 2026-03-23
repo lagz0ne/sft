@@ -10,6 +10,10 @@ VERSION=$(tr -d '[:space:]' < "$BIN_DIR/VERSION")
 
 echo "Building sft v${VERSION}"
 
+# Build web SPA (required for go:embed)
+echo "Building web assets..."
+(cd "$ROOT/web" && bun install --frozen-lockfile && bun run --filter 'web' build)
+
 TARGETS=(
   "linux:amd64"
   "linux:arm64"

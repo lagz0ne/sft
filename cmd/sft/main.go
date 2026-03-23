@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/lagz0ne/sft/internal/store"
 	"github.com/lagz0ne/sft/internal/validator"
 	"github.com/lagz0ne/sft/internal/view"
+	"github.com/lagz0ne/sft/web"
 )
 
 var version = "dev"
@@ -734,22 +736,29 @@ func runView(s *store.Store, args []string) {
 		die("no spec found in %s — import one first:\n  sft import spec.yaml\n  sft add app MyApp \"description\"", store.DefaultPath())
 	}
 
-	var opts view.Options
+	var port int
+	var webDir string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--port":
 			if i+1 < len(args) {
-				fmt.Sscanf(args[i+1], "%d", &opts.Port)
+				fmt.Sscanf(args[i+1], "%d", &port)
 				i++
 			}
 		case "--web-dir":
 			if i+1 < len(args) {
-				opts.WebDir = args[i+1]
+				webDir = args[i+1]
 				i++
 			}
 		}
 	}
-	srv := view.NewServer(s, opts)
+
+	var clientFS fs.FS = web.ClientFS
+	if webDir != "" {
+		clientFS = os.DirFS(webDir)
+	}
+
+	srv := view.NewServer(s, view.Options{Port: port, ClientFS: clientFS})
 	if err := srv.Start(); err != nil {
 		die("view: %v", err)
 	}

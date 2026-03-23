@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -23,8 +23,8 @@ import (
 )
 
 type Options struct {
-	Port   int
-	WebDir string
+	Port    int
+	ClientFS fs.FS // SPA assets root (contains _shell.html + assets/)
 }
 
 type Server struct {
@@ -39,9 +39,6 @@ type Server struct {
 func NewServer(s *store.Store, opts Options) *Server {
 	if opts.Port == 0 {
 		opts.Port = 51741
-	}
-	if opts.WebDir == "" {
-		opts.WebDir = findWebDir()
 	}
 	return &Server{store: s, opts: opts, wsPort: opts.Port + 1}
 }
@@ -88,14 +85,18 @@ func (srv *Server) Start() error {
 	mux.HandleFunc("GET /nats", srv.proxyNatsWS) // WS upgrade → internal NATS
 	mux.HandleFunc("GET /a/{entity}/{name}", srv.handleAttachment)
 
-	// Serve built client assets from dist/client/
-	clientDir := filepath.Join(srv.opts.WebDir, "apps", "web", "dist", "client")
-	assetsDir := filepath.Join(clientDir, "assets")
-	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir(assetsDir))))
-	// SPA fallback — all other routes serve the prerendered shell
-	shellHTML := filepath.Join(clientDir, "_shell.html")
+	assetsFS, err := fs.Sub(srv.opts.ClientFS, "assets")
+	if err != nil {
+		return fmt.Errorf("assets dir: %w", err)
+	}
+	mux.Handle("GET /assets/", http.StripPrefix("/assets/", http.FileServerFS(assetsFS)))
+	shell, err := fs.ReadFile(srv.opts.ClientFS, "_shell.html")
+	if err != nil {
+		return fmt.Errorf("shell html: %w", err)
+	}
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, shellHTML)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(shell)
 	})
 
 	srv.httpServer = &http.Server{
@@ -258,18 +259,4 @@ func (srv *Server) watchChanges(stop chan struct{}) {
 func errJSON(err error) []byte {
 	data, _ := json.Marshal(map[string]string{"error": err.Error()})
 	return data
-}
-
-// findWebDir locates the web/ directory relative to the binary.
-func findWebDir() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return "web"
-	}
-	dir := filepath.Dir(exe)
-	webDir := filepath.Join(dir, "web")
-	if info, err := os.Stat(webDir); err == nil && info.IsDir() {
-		return webDir
-	}
-	return "web"
 }
