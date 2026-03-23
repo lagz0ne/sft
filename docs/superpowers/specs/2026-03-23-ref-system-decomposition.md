@@ -240,10 +240,56 @@ Pure SQL projection of existing + new data. Zero new logic.
 - `components.props` field — now supports `$token` references
 - Every output function — includes refs
 
+## Output: The Skeleton
+
+`sft query interfaces --json` produces the complete skeleton — self-contained per component, machine-readable, everything a designer or LLM needs to generate a visual implementation.
+
+```json
+{
+  "ref": "@r2",
+  "name": "email_list",
+  "component": "List",
+  "variant": "scrollable",
+  "props": {
+    "spacing": "$space-4",
+    "divider": "$color-border"
+  },
+  "tokens_resolved": {
+    "space-4": "16px",
+    "color-border": "#dadce0"
+  },
+  "events": [
+    { "name": "select_email", "payload": "email", "handler": "navigate(@s2)" },
+    { "name": "check_email", "payload": "email" },
+    { "name": "escape" }
+  ],
+  "data_in": {
+    "emails": { "type": "email[]", "source": "inbox.emails" }
+  },
+  "slots": {
+    "item": { "ref": "@r7", "component": "EmailRow" },
+    "empty": { "ref": "@r8", "component": "EmptyState:inbox" }
+  },
+  "visible_in": ["browsing", "selecting", "empty"],
+  "fixture": {
+    "browsing": {
+      "emails": [
+        { "subject": "Meeting tomorrow", "sender": "alice", "read": false }
+      ]
+    }
+  }
+}
+```
+
+The designer hands this to an LLM: "generate a React component for this List:scrollable, use Tailwind, make it feel like Linear." The LLM has everything — props, events, data shape, fixture data, tokens, slots. Different prompt = different visual treatment. Same contract.
+
+This is the iteration surface. The skeleton stays stable while the visual implementation varies. Skins, theming, and template systems are future work built on top of this output.
+
 ## Principles
 
 1. **CLI is the sole write path** — database is source of truth, not YAML
 2. **Refs everywhere** — every entity, every output, every input
 3. **Top-down decomposition** — reference before declaring, layers are independently valuable
 4. **Validate at mutation time** — warnings on write, not batch-validate-after-import
-5. **The spec IS the handoff** — decomposition + refs + tokens = everything a dev needs
+5. **The skeleton IS the handoff** — decomposition output is complete enough to generate a UI from
+6. **Skins are deferred** — the skeleton contract comes first, visual implementations build on it later
