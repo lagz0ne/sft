@@ -46,6 +46,7 @@ type Screen struct {
 	ComponentVis   string              `json:"component_visible,omitempty"` // [F5]
 	Regions        []Region            `json:"regions,omitempty"`
 	Transitions    []Transition        `json:"transitions,omitempty"`
+	States         []string            `json:"states,omitempty"`
 	StateFixtures  map[string]string   `json:"state_fixtures,omitempty"`
 	StateRegions   map[string][]string `json:"state_regions,omitempty"`
 	Attachments    []string            `json:"attachments,omitempty"`
@@ -64,6 +65,7 @@ type Region struct {
 	RegionData     map[string]string   `json:"region_data,omitempty"`
 	Regions        []Region            `json:"regions,omitempty"`
 	Transitions    []Transition        `json:"transitions,omitempty"`
+	States         []string            `json:"states,omitempty"`
 	StateFixtures  map[string]string   `json:"state_fixtures,omitempty"`
 	StateRegions   map[string][]string `json:"state_regions,omitempty"`
 	Attachments    []string            `json:"attachments,omitempty"`
@@ -76,11 +78,20 @@ type Transition struct {
 	Action    string `json:"action,omitempty"`
 }
 
+type FlowStep struct {
+	Position int    `json:"position"`
+	Type     string `json:"type"`
+	Name     string `json:"name"`
+	History  int    `json:"history,omitempty"`
+	Data     string `json:"data,omitempty"`
+}
+
 type Flow struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	OnEvent     string `json:"on_event,omitempty"`
-	Sequence    string `json:"sequence"`
+	Name        string     `json:"name"`
+	Description string     `json:"description,omitempty"`
+	OnEvent     string     `json:"on_event,omitempty"`
+	Sequence    string     `json:"sequence"`
+	Steps       []FlowStep `json:"steps,omitempty"`
 }
 
 // Enricher provides attachment and component data during spec loading.
@@ -123,6 +134,7 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 		s.Context = loadContext(db, "screen", id)
 		s.Regions = loadRegions(db, "screen", id, al)
 		s.Transitions = loadTransitions(db, "screen", id)
+		s.States = deriveStates(s.Transitions)
 		s.StateFixtures = loadStateFixtures(db, "screen", id)
 		s.StateRegions = loadStateRegions(db, "screen", id)
 		if al != nil {
@@ -139,19 +151,21 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 	}
 
 	// Flows
-	frows, err := db.Query("SELECT name, description, on_event, sequence FROM flows ORDER BY id")
+	frows, err := db.Query("SELECT id, name, description, on_event, sequence FROM flows ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
 	defer frows.Close()
 	for frows.Next() {
 		var f Flow
+		var flowID int64
 		var desc, onEvent sql.NullString
-		if err := frows.Scan(&f.Name, &desc, &onEvent, &f.Sequence); err != nil {
+		if err := frows.Scan(&flowID, &f.Name, &desc, &onEvent, &f.Sequence); err != nil {
 			return nil, fmt.Errorf("scan flow: %w", err)
 		}
 		f.Description = desc.String
 		f.OnEvent = onEvent.String
+		f.Steps, _ = loadFlowSteps(db, flowID)
 		spec.Flows = append(spec.Flows, f)
 	}
 
@@ -194,6 +208,7 @@ func loadRegions(db *sql.DB, parentType string, parentID int64, al Enricher) []R
 		r.RegionData = loadRegionData(db, id)
 		r.Regions = loadRegions(db, "region", id, al) // recurse
 		r.Transitions = loadTransitions(db, "region", id)
+		r.States = deriveStates(r.Transitions)
 		r.StateFixtures = loadStateFixtures(db, "region", id)
 		r.StateRegions = loadStateRegions(db, "region", id)
 		if al != nil {
@@ -229,6 +244,32 @@ func loadEvents(db *sql.DB, regionID int64) []string {
 		}
 	}
 	return events
+}
+
+// deriveStates extracts an ordered, deduplicated list of states from transitions.
+// The first from_state of the first transition (by rowid) is the initial state.
+// Remaining states appear in encounter order (from_state then to_state per transition).
+func deriveStates(transitions []Transition) []string {
+	if len(transitions) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var states []string
+	add := func(s string) {
+		if s == "" || s == "." || seen[s] {
+			return
+		}
+		seen[s] = true
+		states = append(states, s)
+	}
+	for _, t := range transitions {
+		add(t.FromState)
+		add(t.ToState)
+	}
+	if len(states) == 0 {
+		return nil
+	}
+	return states
 }
 
 func loadTransitions(db *sql.DB, ownerType string, ownerID int64) []Transition {
@@ -400,6 +441,25 @@ func loadStateFixtures(db *sql.DB, ownerType string, ownerID int64) map[string]s
 		return nil
 	}
 	return result
+}
+
+func loadFlowSteps(db *sql.DB, flowID int64) ([]FlowStep, error) {
+	rows, err := db.Query(`SELECT position, type, name, history, data FROM flow_steps WHERE flow_id = ? ORDER BY position`, flowID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var steps []FlowStep
+	for rows.Next() {
+		var s FlowStep
+		var data sql.NullString
+		if err := rows.Scan(&s.Position, &s.Type, &s.Name, &s.History, &data); err != nil {
+			return nil, fmt.Errorf("scan flow_step: %w", err)
+		}
+		s.Data = data.String
+		steps = append(steps, s)
+	}
+	return steps, nil
 }
 
 // --- Text rendering ---

@@ -2,7 +2,6 @@ import { Toaster } from "@sft-web/ui/components/sonner";
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
 
 import { SpecProvider } from "../context/spec-context";
-import { ViewProvider } from "../context/view-context";
 import { Lightbox } from "../components/lightbox";
 
 import appCss from "../index.css?url";
@@ -39,9 +38,7 @@ function RootDocument() {
 			</head>
 			<body className="h-svh overflow-hidden font-sans antialiased">
 				<SpecProvider>
-					<ViewProvider>
-						<Outlet />
-					</ViewProvider>
+					<Outlet />
 				</SpecProvider>
 				<Lightbox />
 				<Toaster richColors />
