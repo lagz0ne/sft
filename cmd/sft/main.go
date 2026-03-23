@@ -116,7 +116,7 @@ Workflow:
 
 Reading:
   show                             full spec tree with @refs (text or --json)
-  query  <type>                    screens | regions | events | flows | tags | steps <flow>
+  query  <type>                    screens | regions | events | flows | tags | types | enums | fixtures | contexts | steps <flow>
   query  states <name>             transitions for a screen/region
   query  <SELECT ...>              raw SQL against the spec DB
   impact <screen|region> <name>    what depends on this entity
@@ -126,15 +126,34 @@ Mutating (use @refs or names):
   add app <name> <desc>
   add screen <name> <desc>
   add region <name> <desc> --in <@ref|parent>
-  add event <name> --in <@ref|region>
+  add event <name(annotation)> --in <@ref|region>
   add transition --on <event> --in <@ref|owner> [--from <s>] [--to <s>] [--action <a>]
   add tag <tag> --on <@ref|entity>
   add flow <name> <sequence> [--description <d>] [--on <event>]
-  set <@ref> --description <new>
-  rename <screen|region|flow> <old> <new> [--in <parent>]
-  rm <@ref>
+  set <screen|region> <name> --description <new> [--in <parent>]
+  set type <name> --fields <json>
+  set enum <name> --values <json>
+  set context <field> --type <t> [--on <screen>]
+  set field <name> --type <t> --in <region>
+  set ambient <name> --ref <data_ref> --in <region>
+  set fixture <name> --data <json> [--extends <f>]
+  set state-fixture --in <owner> --state <s> --fixture <f>
+  rename <screen|region|flow|type|enum|fixture> <old> <new> [--in <parent>]
+  rm <type> <name> [--in/--on <parent>]
   mv region <name> --to <@ref|parent> [--in <current-parent>]
   reorder <parent> <child1> <child2> ...
+
+Domain & Data:
+  add type <name> <fields_json>
+  add enum <name> <values_json>
+  add context <field> <type> [--on <screen>]
+  add field <name> <type> --in <region>
+  add ambient <name> <data_ref> --in <region>
+
+States & Fixtures:
+  add fixture <name> <data_json> [--extends <f>]
+  add state-fixture <fixture> --in <owner> --state <s>
+  add state-region <region> --in <owner> --state <s>
 
 Components:
   component <@ref|entity>                     show bound component
@@ -183,7 +202,7 @@ func runShow(s *store.Store) {
 
 func runQuery(s *store.Store, args []string) {
 	if len(args) == 0 {
-		die("usage: sft query <screens|events|states|flows|tags|regions|SELECT ...>")
+		die("usage: sft query <screens|events|states|flows|tags|regions|types|enums|fixtures|contexts|SELECT ...>")
 	}
 	name := args[0]
 	var results []map[string]any
@@ -202,7 +221,8 @@ func runQuery(s *store.Store, args []string) {
 	} else {
 		results, err = query.Run(s.DB, name)
 		if name != "screens" && name != "regions" && name != "events" &&
-			name != "flows" && name != "tags" {
+			name != "flows" && name != "tags" && name != "types" &&
+			name != "enums" && name != "fixtures" && name != "contexts" {
 			queryKey = ""
 		}
 	}
@@ -279,9 +299,10 @@ func runAdd(s *store.Store, args []string) {
 		if err != nil {
 			die("%v", err)
 		}
-		e := &model.Event{RegionID: regionID, Name: args[0]}
+		evName, annotation := loader.ParseEventName(args[0])
+		e := &model.Event{RegionID: regionID, Name: evName, Annotation: annotation}
 		must(s.InsertEvent(e))
-		ok("event %s in %s", e.Name, regionName)
+		ok("event %s in %s", args[0], regionName)
 
 	case "transition":
 		on := flagVal(args, "--on")
@@ -337,8 +358,99 @@ func runAdd(s *store.Store, args []string) {
 		must(s.InsertFlow(f))
 		ok("flow %s", f.Name)
 
+	case "type":
+		need(args, 2, "sft add type <name> <fields_json>")
+		appID := mustResolveApp(s)
+		dt := &model.DataType{AppID: appID, Name: args[0], Fields: args[1]}
+		must(s.InsertDataType(dt))
+		ok("type %s", dt.Name)
+
+	case "enum":
+		need(args, 2, "sft add enum <name> <values_json>")
+		appID := mustResolveApp(s)
+		e := &model.Enum{AppID: appID, Name: args[0], Values: args[1]}
+		must(s.InsertEnum(e))
+		ok("enum %s", e.Name)
+
+	case "context":
+		need(args, 2, "sft add context <field> <type> [--on <screen>]")
+		on := flagVal(args, "--on")
+		ownerType, ownerID := resolveContextOwner(s, on)
+		cf := &model.ContextField{OwnerType: ownerType, OwnerID: ownerID, FieldName: args[0], FieldType: args[1]}
+		must(s.InsertContextField(cf))
+		if on != "" {
+			ok("context %s on %s", args[0], on)
+		} else {
+			ok("context %s", args[0])
+		}
+
+	case "field":
+		in := flagVal(args, "--in")
+		if in == "" || len(args) < 2 {
+			die("usage: sft add field <name> <type> --in <region>")
+		}
+		regionID, err := s.ResolveRegion(in)
+		if err != nil {
+			die("%v", err)
+		}
+		rd := &model.RegionData{RegionID: regionID, FieldName: args[0], FieldType: args[1]}
+		must(s.InsertRegionData(rd))
+		ok("field %s in %s", rd.FieldName, in)
+
+	case "ambient":
+		in := flagVal(args, "--in")
+		if in == "" || len(args) < 2 {
+			die("usage: sft add ambient <name> <data_ref> --in <region>")
+		}
+		regionID, err := s.ResolveRegion(in)
+		if err != nil {
+			die("%v", err)
+		}
+		source, query, err := loader.ParseDataRef(args[1])
+		if err != nil {
+			die("%v", err)
+		}
+		ar := &model.AmbientRef{RegionID: regionID, LocalName: args[0], Source: source, Query: query}
+		must(s.InsertAmbientRef(ar))
+		ok("ambient %s in %s", ar.LocalName, in)
+
+	case "fixture":
+		need(args, 2, "sft add fixture <name> <data_json> [--extends <f>]")
+		appID := mustResolveApp(s)
+		f := &model.Fixture{AppID: appID, Name: args[0], Data: args[1], Extends: flagVal(args, "--extends")}
+		must(s.InsertFixture(f))
+		ok("fixture %s", f.Name)
+
+	case "state-fixture":
+		in := flagVal(args, "--in")
+		state := flagVal(args, "--state")
+		if in == "" || state == "" {
+			die("usage: sft add state-fixture <fixture> --in <owner> --state <s>")
+		}
+		ownerType, ownerID, err := s.ResolveOwner(in)
+		if err != nil {
+			die("%v", err)
+		}
+		sf := &model.StateFixture{OwnerType: ownerType, OwnerID: ownerID, StateName: state, FixtureName: args[0]}
+		must(s.InsertStateFixture(sf))
+		ok("state-fixture %s → %s/%s", sf.FixtureName, in, state)
+
+	case "state-region":
+		in := flagVal(args, "--in")
+		state := flagVal(args, "--state")
+		if in == "" || state == "" {
+			die("usage: sft add state-region <region> --in <owner> --state <s>")
+		}
+		ownerType, ownerID, err := s.ResolveOwner(in)
+		if err != nil {
+			die("%v", err)
+		}
+		sr := &model.StateRegion{OwnerType: ownerType, OwnerID: ownerID, StateName: state, RegionName: args[0]}
+		must(s.InsertStateRegion(sr))
+		ok("state-region %s → %s/%s", sr.RegionName, in, state)
+
 	default:
-		die("unknown entity %q (use: app, screen, region, event, transition, tag, flow)", entity)
+		die("unknown entity %q (use: app, screen, region, event, transition, tag, flow, type, enum, context, field, ambient, fixture, state-fixture, state-region)", entity)
 	}
 }
 
@@ -353,21 +465,103 @@ func runSet(s *store.Store, args []string) {
 		args = append([]string{entityType, entityName}, args[1:]...)
 	}
 	if len(args) < 2 {
-		die("usage: sft set <screen|region> <name> --description <new> [--in <parent>]")
+		die("usage: sft set <entity> <name> --<field> <value>")
 	}
 	entity, name := args[0], args[1]
-	desc := flagVal(args, "--description")
-	if desc == "" {
-		die("usage: sft set <screen|region> <name> --description <new> [--in <parent>]")
-	}
-	in := flagVal(args, "--in")
+
 	switch entity {
 	case "screen":
+		desc := flagVal(args, "--description")
+		if desc == "" {
+			die("usage: sft set screen <name> --description <new>")
+		}
 		must(s.UpdateScreen(name, desc))
+
 	case "region":
+		desc := flagVal(args, "--description")
+		if desc == "" {
+			die("usage: sft set region <name> --description <new> [--in <parent>]")
+		}
+		in := flagVal(args, "--in")
 		must(s.UpdateRegion(name, desc, in))
+
+	case "type":
+		fields := flagVal(args, "--fields")
+		if fields == "" {
+			die("usage: sft set type <name> --fields <json>")
+		}
+		must(s.UpdateDataType(name, fields))
+
+	case "enum":
+		values := flagVal(args, "--values")
+		if values == "" {
+			die("usage: sft set enum <name> --values <json>")
+		}
+		must(s.UpdateEnum(name, values))
+
+	case "context":
+		newType := flagVal(args, "--type")
+		if newType == "" {
+			die("usage: sft set context <field> --type <t> [--on <screen>]")
+		}
+		on := flagVal(args, "--on")
+		ownerType, ownerID := resolveContextOwner(s, on)
+		must(s.UpdateContextField(name, ownerType, ownerID, newType))
+
+	case "field":
+		newType := flagVal(args, "--type")
+		in := flagVal(args, "--in")
+		if newType == "" || in == "" {
+			die("usage: sft set field <name> --type <t> --in <region>")
+		}
+		regionID, err := s.ResolveRegion(in)
+		if err != nil {
+			die("%v", err)
+		}
+		must(s.UpdateRegionData(name, regionID, newType))
+
+	case "ambient":
+		ref := flagVal(args, "--ref")
+		in := flagVal(args, "--in")
+		if ref == "" || in == "" {
+			die("usage: sft set ambient <name> --ref <data_ref> --in <region>")
+		}
+		regionID, err := s.ResolveRegion(in)
+		if err != nil {
+			die("%v", err)
+		}
+		source, query, err := loader.ParseDataRef(ref)
+		if err != nil {
+			die("%v", err)
+		}
+		must(s.UpdateAmbientRef(name, regionID, source, query))
+
+	case "fixture":
+		data := flagVal(args, "--data")
+		if data == "" {
+			die("usage: sft set fixture <name> --data <json> [--extends <f>]")
+		}
+		extends := flagVal(args, "--extends")
+		must(s.UpdateFixture(name, data, extends))
+
+	case "state-fixture":
+		in := flagVal(args, "--in")
+		state := flagVal(args, "--state")
+		fixture := flagVal(args, "--fixture")
+		if in == "" || state == "" || fixture == "" {
+			die("usage: sft set state-fixture --in <owner> --state <s> --fixture <f>")
+		}
+		ownerType, ownerID, err := s.ResolveOwner(in)
+		if err != nil {
+			die("%v", err)
+		}
+		must(s.UpdateStateFixture(ownerType, ownerID, state, fixture))
+		// name is the first positional arg but state-fixture uses flags only
+		ok("updated state-fixture %s/%s → %s", in, state, fixture)
+		return
+
 	default:
-		die("set supports: screen, region")
+		die("set supports: screen, region, type, enum, context, field, ambient, fixture, state-fixture")
 	}
 	ok("updated %s %s", entity, name)
 }
@@ -422,7 +616,7 @@ func runDiff(s *store.Store, args []string) {
 
 func runRename(s *store.Store, args []string) {
 	if len(args) < 3 {
-		die("usage: sft rename <screen|region|flow> <old> <new> [--in <parent>]")
+		die("usage: sft rename <screen|region|flow|type|enum|fixture> <old> <new> [--in <parent>]")
 	}
 	entity, old, newName := args[0], args[1], args[2]
 	in := flagVal(args, "--in")
@@ -433,8 +627,14 @@ func runRename(s *store.Store, args []string) {
 		must(s.RenameRegion(old, newName, in))
 	case "flow":
 		must(s.RenameFlow(old, newName))
+	case "type":
+		must(s.RenameDataType(old, newName))
+	case "enum":
+		must(s.RenameEnum(old, newName))
+	case "fixture":
+		must(s.RenameFixture(old, newName))
 	default:
-		die("rename supports: screen, region, flow")
+		die("rename supports: screen, region, flow, type, enum, fixture")
 	}
 	ok("renamed %s %s → %s", entity, old, newName)
 }
@@ -513,8 +713,80 @@ func runRm(s *store.Store, args []string) {
 		must(s.DeleteFlow(name))
 		ok("deleted flow %s", name)
 
+	case "type":
+		must(s.DeleteDataType(name))
+		ok("deleted type %s", name)
+
+	case "enum":
+		must(s.DeleteEnum(name))
+		ok("deleted enum %s", name)
+
+	case "context":
+		on := flagVal(args, "--on")
+		ownerType, ownerID := resolveContextOwner(s, on)
+		must(s.DeleteContextField(name, ownerType, ownerID))
+		if on != "" {
+			ok("deleted context %s from %s", name, on)
+		} else {
+			ok("deleted context %s", name)
+		}
+
+	case "field":
+		in := flagVal(args, "--in")
+		if in == "" {
+			die("usage: sft rm field <name> --in <region>")
+		}
+		regionID, err := s.ResolveRegion(in)
+		if err != nil {
+			die("%v", err)
+		}
+		must(s.DeleteRegionData(name, regionID))
+		ok("deleted field %s from %s", name, in)
+
+	case "ambient":
+		in := flagVal(args, "--in")
+		if in == "" {
+			die("usage: sft rm ambient <name> --in <region>")
+		}
+		regionID, err := s.ResolveRegion(in)
+		if err != nil {
+			die("%v", err)
+		}
+		must(s.DeleteAmbientRef(name, regionID))
+		ok("deleted ambient %s from %s", name, in)
+
+	case "fixture":
+		must(s.DeleteFixture(name))
+		ok("deleted fixture %s", name)
+
+	case "state-fixture":
+		in := flagVal(args, "--in")
+		state := flagVal(args, "--state")
+		if in == "" || state == "" {
+			die("usage: sft rm state-fixture --in <owner> --state <state>")
+		}
+		ownerType, ownerID, err := s.ResolveOwner(in)
+		if err != nil {
+			die("%v", err)
+		}
+		must(s.DeleteStateFixture(ownerType, ownerID, state))
+		ok("deleted state-fixture %s/%s", in, state)
+
+	case "state-region":
+		in := flagVal(args, "--in")
+		state := flagVal(args, "--state")
+		if in == "" || state == "" {
+			die("usage: sft rm state-region <region> --in <owner> --state <state>")
+		}
+		ownerType, ownerID, err := s.ResolveOwner(in)
+		if err != nil {
+			die("%v", err)
+		}
+		must(s.DeleteStateRegion(name, ownerType, ownerID, state))
+		ok("deleted state-region %s from %s/%s", name, in, state)
+
 	default:
-		die("rm supports: screen, region, event, transition, tag, flow")
+		die("rm supports: screen, region, event, transition, tag, flow, type, enum, context, field, ambient, fixture, state-fixture, state-region")
 	}
 }
 
@@ -836,4 +1108,15 @@ func flagVal(args []string, flag string) string {
 		return ""
 	}
 	return args[i+1]
+}
+
+func resolveContextOwner(s *store.Store, on string) (string, int64) {
+	if on != "" {
+		ownerType, ownerID, err := s.ResolveOwner(on)
+		if err != nil {
+			die("%v", err)
+		}
+		return ownerType, ownerID
+	}
+	return "app", mustResolveApp(s)
 }

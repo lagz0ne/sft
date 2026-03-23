@@ -290,7 +290,7 @@ func insertRegion(s *store.Store, appID int64, parentType string, parentID int64
 	}
 	// Ambient refs
 	for localName, ref := range r.Ambient {
-		source, query, err := parseDataRef(ref)
+		source, query, err := ParseDataRef(ref)
 		if err != nil {
 			return fmt.Errorf("ambient %s in %s: %w", localName, r.Name, err)
 		}
@@ -549,8 +549,8 @@ func mergeStateNodes(base, override *yaml.Node) *yaml.Node {
 	return result
 }
 
-// parseDataRef parses "data(source, query)" into source and query parts.
-func parseDataRef(ref string) (source, query string, err error) {
+// ParseDataRef parses "data(source, query)" into source and query parts.
+func ParseDataRef(ref string) (source, query string, err error) {
 	inner, ok := strings.CutPrefix(ref, "data(")
 	if !ok || !strings.HasSuffix(inner, ")") {
 		return "", "", fmt.Errorf("invalid data reference %q: must be data(source, query)", ref)
@@ -574,14 +574,14 @@ func parseEventsNode(node *yaml.Node) ([]model.Event, error) {
 	case yaml.SequenceNode:
 		var events []model.Event
 		for _, item := range node.Content {
-			name, annotation := parseEventName(item.Value)
+			name, annotation := ParseEventName(item.Value)
 			events = append(events, model.Event{Name: name, Annotation: annotation})
 		}
 		return events, nil
 	case yaml.MappingNode:
 		var events []model.Event
 		for i := 0; i < len(node.Content)-1; i += 2 {
-			name, annotation := parseEventName(node.Content[i].Value)
+			name, annotation := ParseEventName(node.Content[i].Value)
 			events = append(events, model.Event{Name: name, Annotation: annotation})
 		}
 		return events, nil
@@ -590,8 +590,8 @@ func parseEventsNode(node *yaml.Node) ([]model.Event, error) {
 	}
 }
 
-// parseEventName splits "name(annotation)" into bare name and annotation.
-func parseEventName(raw string) (name, annotation string) {
+// ParseEventName splits "name(annotation)" into bare name and annotation.
+func ParseEventName(raw string) (name, annotation string) {
 	idx := strings.Index(raw, "(")
 	if idx < 0 {
 		return raw, ""

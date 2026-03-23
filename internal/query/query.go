@@ -7,11 +7,15 @@ import (
 )
 
 var namedQueries = map[string]string{
-	"screens": "SELECT id, app_id, name, description FROM screens",
-	"events":  "SELECT event, emitted_by, parent_type, handled_at, from_state, to_state, action FROM event_index",
-	"flows":   "SELECT id, name, description, on_event, sequence FROM flows",
-	"tags":    "SELECT tag, entity_type, entity_name FROM tag_index",
-	"regions": "SELECT id, name, description, parent_type, parent_name, event_count, has_states FROM region_tree",
+	"screens":  "SELECT id, app_id, name, description FROM screens",
+	"events":   "SELECT event, emitted_by, parent_type, handled_at, from_state, to_state, action FROM event_index",
+	"flows":    "SELECT id, name, description, on_event, sequence FROM flows",
+	"tags":     "SELECT tag, entity_type, entity_name FROM tag_index",
+	"regions":  "SELECT id, name, description, parent_type, parent_name, event_count, has_states FROM region_tree",
+	"types":    "SELECT name, fields FROM data_types",
+	"enums":    `SELECT name, "values" FROM enums`,
+	"fixtures": "SELECT name, extends, data FROM fixtures",
+	"contexts": `SELECT c.field_name, c.field_type, c.owner_type, CASE c.owner_type WHEN 'app' THEN (SELECT a.name FROM apps a WHERE a.id = c.owner_id) WHEN 'screen' THEN (SELECT s.name FROM screens s WHERE s.id = c.owner_id) END AS owner_name FROM contexts c`,
 }
 
 // Run executes a named query or raw SQL and returns rows as []map[string]any.
@@ -21,7 +25,7 @@ func Run(db *sql.DB, input string, args ...string) ([]map[string]any, error) {
 		if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(input)), "SELECT") {
 			q = input
 		} else {
-			return nil, fmt.Errorf("unknown query %q (available: screens, events, flows, tags, regions, or raw SELECT)", input)
+			return nil, fmt.Errorf("unknown query %q (available: screens, events, flows, tags, regions, types, enums, fixtures, contexts, or raw SELECT)", input)
 		}
 	}
 

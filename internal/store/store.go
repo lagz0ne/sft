@@ -489,6 +489,107 @@ func (s *Store) UpdateRegion(name, newDesc string, inParent ...string) error {
 	return err
 }
 
+func (s *Store) UpdateDataType(name, fields string) error {
+	appID, err := s.ResolveApp()
+	if err != nil {
+		return err
+	}
+	res, err := s.DB.Exec("UPDATE data_types SET fields = ? WHERE name = ? AND app_id = ?", fields, name, appID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("data type %q not found", name)
+	}
+	return nil
+}
+
+func (s *Store) UpdateEnum(name, values string) error {
+	appID, err := s.ResolveApp()
+	if err != nil {
+		return err
+	}
+	res, err := s.DB.Exec(`UPDATE enums SET "values" = ? WHERE name = ? AND app_id = ?`, values, name, appID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("enum %q not found", name)
+	}
+	return nil
+}
+
+func (s *Store) UpdateContextField(field, ownerType string, ownerID int64, newType string) error {
+	res, err := s.DB.Exec("UPDATE contexts SET field_type = ? WHERE field_name = ? AND owner_type = ? AND owner_id = ?",
+		newType, field, ownerType, ownerID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("context field %q not found", field)
+	}
+	return nil
+}
+
+func (s *Store) UpdateRegionData(field string, regionID int64, newType string) error {
+	res, err := s.DB.Exec("UPDATE region_data SET field_type = ? WHERE field_name = ? AND region_id = ?",
+		newType, field, regionID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("field %q not found", field)
+	}
+	return nil
+}
+
+func (s *Store) UpdateAmbientRef(name string, regionID int64, source, query string) error {
+	res, err := s.DB.Exec("UPDATE ambient_refs SET source = ?, query = ? WHERE local_name = ? AND region_id = ?",
+		source, query, name, regionID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("ambient ref %q not found", name)
+	}
+	return nil
+}
+
+func (s *Store) UpdateFixture(name, data, extends string) error {
+	appID, err := s.ResolveApp()
+	if err != nil {
+		return err
+	}
+	res, err := s.DB.Exec("UPDATE fixtures SET data = ?, extends = ? WHERE name = ? AND app_id = ?",
+		data, extends, name, appID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("fixture %q not found", name)
+	}
+	return nil
+}
+
+func (s *Store) UpdateStateFixture(ownerType string, ownerID int64, state, fixture string) error {
+	res, err := s.DB.Exec("UPDATE state_fixtures SET fixture_name = ? WHERE owner_type = ? AND owner_id = ? AND state_name = ?",
+		fixture, ownerType, ownerID, state)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("state fixture for state %q not found", state)
+	}
+	return nil
+}
+
 // --- Impact analysis [H3 fix: add components + attachments] ---
 
 type Impact struct {
@@ -866,6 +967,119 @@ func (s *Store) DeleteFlow(name string) error {
 	return nil
 }
 
+func (s *Store) DeleteDataType(name string) error {
+	appID, err := s.ResolveApp()
+	if err != nil {
+		return err
+	}
+	res, err := s.DB.Exec("DELETE FROM data_types WHERE name = ? AND app_id = ?", name, appID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("data type %q not found", name)
+	}
+	return nil
+}
+
+func (s *Store) DeleteEnum(name string) error {
+	appID, err := s.ResolveApp()
+	if err != nil {
+		return err
+	}
+	res, err := s.DB.Exec("DELETE FROM enums WHERE name = ? AND app_id = ?", name, appID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("enum %q not found", name)
+	}
+	return nil
+}
+
+func (s *Store) DeleteContextField(fieldName, ownerType string, ownerID int64) error {
+	res, err := s.DB.Exec("DELETE FROM contexts WHERE field_name = ? AND owner_type = ? AND owner_id = ?",
+		fieldName, ownerType, ownerID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("context field %q not found", fieldName)
+	}
+	return nil
+}
+
+func (s *Store) DeleteRegionData(fieldName string, regionID int64) error {
+	res, err := s.DB.Exec("DELETE FROM region_data WHERE field_name = ? AND region_id = ?",
+		fieldName, regionID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("field %q not found", fieldName)
+	}
+	return nil
+}
+
+func (s *Store) DeleteAmbientRef(localName string, regionID int64) error {
+	res, err := s.DB.Exec("DELETE FROM ambient_refs WHERE local_name = ? AND region_id = ?",
+		localName, regionID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("ambient ref %q not found", localName)
+	}
+	return nil
+}
+
+func (s *Store) DeleteFixture(name string) error {
+	appID, err := s.ResolveApp()
+	if err != nil {
+		return err
+	}
+	res, err := s.DB.Exec("DELETE FROM fixtures WHERE name = ? AND app_id = ?", name, appID)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("fixture %q not found", name)
+	}
+	return nil
+}
+
+func (s *Store) DeleteStateFixture(ownerType string, ownerID int64, stateName string) error {
+	res, err := s.DB.Exec("DELETE FROM state_fixtures WHERE owner_type = ? AND owner_id = ? AND state_name = ?",
+		ownerType, ownerID, stateName)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("state fixture for state %q not found", stateName)
+	}
+	return nil
+}
+
+func (s *Store) DeleteStateRegion(regionName, ownerType string, ownerID int64, stateName string) error {
+	res, err := s.DB.Exec("DELETE FROM state_regions WHERE region_name = ? AND owner_type = ? AND owner_id = ? AND state_name = ?",
+		regionName, ownerType, ownerID, stateName)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("state region %q for state %q not found", regionName, stateName)
+	}
+	return nil
+}
+
 // [H4 fix] MoveRegion with cycle detection
 func (s *Store) MoveRegion(name, newParentName string, inParent ...string) error {
 	id, err := s.resolveRegionWithScope(name, inParent...)
@@ -973,6 +1187,86 @@ func (s *Store) RenameFlow(old, newName string) error {
 		return fmt.Errorf("flow %q not found", old)
 	}
 	return nil
+}
+
+// renameTypeInFields cascades a type/enum rename through contexts.field_type and region_data.field_type.
+// Handles decorated names: "email", "email[]", "email?", "email[]?".
+func (s *Store) renameTypeInFields(tx *sql.Tx, old, newName string) {
+	// Cascade through contexts.field_type
+	tx.Exec("UPDATE contexts SET field_type = ? WHERE field_type = ?", newName, old)
+	tx.Exec("UPDATE contexts SET field_type = ? WHERE field_type = ?", newName+"[]", old+"[]")
+	tx.Exec("UPDATE contexts SET field_type = ? WHERE field_type = ?", newName+"?", old+"?")
+	tx.Exec("UPDATE contexts SET field_type = ? WHERE field_type = ?", newName+"[]?", old+"[]?")
+	// Cascade through region_data.field_type
+	tx.Exec("UPDATE region_data SET field_type = ? WHERE field_type = ?", newName, old)
+	tx.Exec("UPDATE region_data SET field_type = ? WHERE field_type = ?", newName+"[]", old+"[]")
+	tx.Exec("UPDATE region_data SET field_type = ? WHERE field_type = ?", newName+"?", old+"?")
+	tx.Exec("UPDATE region_data SET field_type = ? WHERE field_type = ?", newName+"[]?", old+"[]?")
+	// Cascade through events.annotation (same decoration pattern)
+	tx.Exec("UPDATE events SET annotation = ? WHERE annotation = ?", newName, old)
+	tx.Exec("UPDATE events SET annotation = ? WHERE annotation = ?", newName+"[]", old+"[]")
+	tx.Exec("UPDATE events SET annotation = ? WHERE annotation = ?", newName+"?", old+"?")
+	tx.Exec("UPDATE events SET annotation = ? WHERE annotation = ?", newName+"[]?", old+"[]?")
+}
+
+func (s *Store) RenameDataType(old, newName string) error {
+	appID, err := s.ResolveApp()
+	if err != nil {
+		return err
+	}
+	var count int
+	s.DB.QueryRow("SELECT COUNT(*) FROM data_types WHERE name = ? AND app_id = ?", old, appID).Scan(&count)
+	if count == 0 {
+		return fmt.Errorf("data type %q not found", old)
+	}
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	tx.Exec("UPDATE data_types SET name = ? WHERE name = ? AND app_id = ?", newName, old, appID)
+	s.renameTypeInFields(tx, old, newName)
+	return tx.Commit()
+}
+
+func (s *Store) RenameEnum(old, newName string) error {
+	appID, err := s.ResolveApp()
+	if err != nil {
+		return err
+	}
+	var count int
+	s.DB.QueryRow("SELECT COUNT(*) FROM enums WHERE name = ? AND app_id = ?", old, appID).Scan(&count)
+	if count == 0 {
+		return fmt.Errorf("enum %q not found", old)
+	}
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	tx.Exec("UPDATE enums SET name = ? WHERE name = ? AND app_id = ?", newName, old, appID)
+	s.renameTypeInFields(tx, old, newName)
+	return tx.Commit()
+}
+
+func (s *Store) RenameFixture(old, newName string) error {
+	appID, err := s.ResolveApp()
+	if err != nil {
+		return err
+	}
+	var count int
+	s.DB.QueryRow("SELECT COUNT(*) FROM fixtures WHERE name = ? AND app_id = ?", old, appID).Scan(&count)
+	if count == 0 {
+		return fmt.Errorf("fixture %q not found", old)
+	}
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	tx.Exec("UPDATE fixtures SET name = ? WHERE name = ? AND app_id = ?", newName, old, appID)
+	tx.Exec("UPDATE state_fixtures SET fixture_name = ? WHERE fixture_name = ?", newName, old)
+	return tx.Commit()
 }
 
 // --- Reorder ---

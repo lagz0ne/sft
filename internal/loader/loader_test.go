@@ -1208,16 +1208,16 @@ func TestParseDataRef(t *testing.T) {
 		{"notdata(x, y)", "", "", true},
 	}
 	for _, tt := range tests {
-		source, query, err := parseDataRef(tt.input)
+		source, query, err := ParseDataRef(tt.input)
 		if (err != nil) != tt.wantErr {
-			t.Errorf("parseDataRef(%q): err=%v, wantErr=%v", tt.input, err, tt.wantErr)
+			t.Errorf("ParseDataRef(%q): err=%v, wantErr=%v", tt.input, err, tt.wantErr)
 			continue
 		}
 		if source != tt.wantSource {
-			t.Errorf("parseDataRef(%q): source=%q, want %q", tt.input, source, tt.wantSource)
+			t.Errorf("ParseDataRef(%q): source=%q, want %q", tt.input, source, tt.wantSource)
 		}
 		if query != tt.wantQuery {
-			t.Errorf("parseDataRef(%q): query=%q, want %q", tt.input, query, tt.wantQuery)
+			t.Errorf("ParseDataRef(%q): query=%q, want %q", tt.input, query, tt.wantQuery)
 		}
 	}
 }
