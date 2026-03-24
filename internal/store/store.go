@@ -1,6 +1,7 @@
 package store
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	_ "embed"
 	"fmt"
@@ -54,6 +55,11 @@ func Open(path string) (*Store, error) {
 	db.Exec("ALTER TABLE events ADD COLUMN annotation TEXT")
 	// Schema migration: scoped region unique constraint (parent_type, parent_id, name) replacing global UNIQUE(name).
 	s.migrateRegionScope()
+	// Schema migration: add content_id and content_hash to attachments.
+	db.Exec("ALTER TABLE attachments ADD COLUMN content_id TEXT")
+	db.Exec("ALTER TABLE attachments ADD COLUMN content_hash BLOB")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_attachments_content_id ON attachments(content_id)")
+	s.backfillAttachmentHashes()
 	return s, nil
 }
 
@@ -1390,11 +1396,25 @@ func (s *Store) RemoveComponent(entityName string) error {
 const GlobalEntity = "_"
 
 type Attachment struct {
-	Entity string `json:"entity"`
-	Name   string `json:"name"`
+	Entity      string  `json:"entity"`
+	Name        string  `json:"name"`
+	ContentID   *string `json:"content_id,omitempty"`
+	ContentHash string  `json:"content_hash,omitempty"`
 }
 
-func (s *Store) Attach(entity, srcPath, asName string) (string, error) {
+func contentHash(data []byte) []byte {
+	h := sha256.Sum256(data)
+	return h[:]
+}
+
+func nilIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func (s *Store) Attach(entity, srcPath, asName, contentID string) (string, error) {
 	// [F8] Validate entity exists (allow "_" global)
 	if entity != GlobalEntity {
 		if _, _, err := s.ResolveParent(entity); err != nil {
@@ -1409,21 +1429,15 @@ func (s *Store) Attach(entity, srcPath, asName string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read %s: %w", srcPath, err)
 	}
-	_, err = s.DB.Exec(
-		`INSERT INTO attachments (entity, name, content) VALUES (?, ?, ?)
-		 ON CONFLICT(entity, name) DO UPDATE SET content = excluded.content`,
-		entity, name, data)
-	if err != nil {
-		return "", err
-	}
-	return name, nil
+	return name, s.AttachContent(entity, name, contentID, data)
 }
 
-func (s *Store) AttachContent(entity, name string, content []byte) error {
+func (s *Store) AttachContent(entity, name, contentID string, content []byte) error {
+	hash := contentHash(content)
 	_, err := s.DB.Exec(
-		`INSERT INTO attachments (entity, name, content) VALUES (?, ?, ?)
-		 ON CONFLICT(entity, name) DO UPDATE SET content = excluded.content`,
-		entity, name, content)
+		`INSERT INTO attachments (entity, name, content, content_id, content_hash) VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(entity, name) DO UPDATE SET content = excluded.content, content_id = excluded.content_id, content_hash = excluded.content_hash`,
+		entity, name, content, nilIfEmpty(contentID), hash)
 	return err
 }
 
@@ -1440,10 +1454,10 @@ func (s *Store) Detach(entity, name string) error {
 }
 
 func (s *Store) ListAttachments(filterEntity string) ([]Attachment, error) {
-	q := "SELECT entity, name FROM attachments ORDER BY entity, name"
+	q := "SELECT entity, name, content_id, hex(content_hash) FROM attachments ORDER BY entity, name"
 	args := []any{}
 	if filterEntity != "" {
-		q = "SELECT entity, name FROM attachments WHERE entity = ? ORDER BY name"
+		q = "SELECT entity, name, content_id, hex(content_hash) FROM attachments WHERE entity = ? ORDER BY name"
 		args = append(args, filterEntity)
 	}
 	rows, err := s.DB.Query(q, args...)
@@ -1454,10 +1468,63 @@ func (s *Store) ListAttachments(filterEntity string) ([]Attachment, error) {
 	var all []Attachment
 	for rows.Next() {
 		var a Attachment
-		rows.Scan(&a.Entity, &a.Name)
+		var cid sql.NullString
+		var hashHex sql.NullString
+		rows.Scan(&a.Entity, &a.Name, &cid, &hashHex)
+		if cid.Valid {
+			a.ContentID = &cid.String
+		}
+		if hashHex.Valid {
+			a.ContentHash = hashHex.String
+		}
 		all = append(all, a)
 	}
 	return all, nil
+}
+
+func (s *Store) SetContentID(entity, name, contentID string) error {
+	res, err := s.DB.Exec("UPDATE attachments SET content_id = ? WHERE entity = ? AND name = ?",
+		nilIfEmpty(contentID), entity, name)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("attachment %s/%s not found", entity, name)
+	}
+	return nil
+}
+
+func (s *Store) backfillAttachmentHashes() {
+	rows, err := s.DB.Query("SELECT id, content FROM attachments WHERE content_hash IS NULL")
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	type pending struct {
+		id   int64
+		hash []byte
+	}
+	var updates []pending
+	for rows.Next() {
+		var id int64
+		var content []byte
+		if rows.Scan(&id, &content) != nil {
+			continue
+		}
+		updates = append(updates, pending{id, contentHash(content)})
+	}
+	if len(updates) == 0 {
+		return
+	}
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return
+	}
+	for _, u := range updates {
+		tx.Exec("UPDATE attachments SET content_hash = ? WHERE id = ?", u.hash, u.id)
+	}
+	tx.Commit()
 }
 
 func (s *Store) AttachmentsFor(entity string) []string {

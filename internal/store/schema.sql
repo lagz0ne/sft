@@ -79,12 +79,16 @@ CREATE TABLE IF NOT EXISTS components (
 );
 
 CREATE TABLE IF NOT EXISTS attachments (
-  id      INTEGER PRIMARY KEY,
-  entity  TEXT NOT NULL,
-  name    TEXT NOT NULL,
-  content BLOB NOT NULL,
+  id           INTEGER PRIMARY KEY,
+  entity       TEXT NOT NULL,
+  name         TEXT NOT NULL,
+  content      BLOB NOT NULL,
+  content_id   TEXT,
+  content_hash BLOB,
   UNIQUE(entity, name)
 );
+
+CREATE INDEX IF NOT EXISTS idx_attachments_content_id ON attachments(content_id);
 
 -- Data model (Phase 2)
 CREATE TABLE IF NOT EXISTS data_types (

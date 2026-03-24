@@ -41,7 +41,7 @@ All commands support `--json` for structured output. The spec lives in `.sft/db`
 
 ```bash
 sft show                             # full spec tree
-sft query <type>                     # screens | regions | events | flows | tags
+sft query <type>                     # screens | regions | events | flows | tags | attachments
 sft query states <name>              # transitions for a screen/region
 sft query steps <flow>               # parsed flow steps
 sft query "SELECT ..."               # raw SQL against the spec DB
@@ -91,10 +91,13 @@ sft diff spec.yaml            # compare current spec vs YAML file
 
 ```bash
 sft attach Home mockup.png --as wireframe.png
-sft detach Home wireframe.png
-sft list                      # all attachments
+sft attach Home mockup.png --content-id figma:node123   # link to external source
+sft set attachment Home mockup.png --content-id figma:updated  # update link
+sft list                      # all attachments (shows content-id + hash)
 sft list Home                 # attachments on Home
 sft cat Home wireframe.png    # read attachment content
+sft detach Home wireframe.png
+sft query attachments         # all attachments with content tracking metadata
 ```
 
 ### Scoped Regions

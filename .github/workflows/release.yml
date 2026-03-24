@@ -16,7 +16,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version: "1.25"
 
       - uses: actions/setup-node@v4
         with:
@@ -52,7 +52,10 @@ jobs:
           done
 
       - name: Build binaries
-        run: bash scripts/build-npm.sh
+        run: bash scripts/build-npm.sh --skip-web
+
+      - name: Build npm shim
+        run: cd npm/sft-cli && bun install && npx tsdown
 
       - name: Publish platform packages
         env:

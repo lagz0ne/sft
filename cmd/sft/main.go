@@ -116,7 +116,7 @@ Workflow:
 
 Reading:
   show                             full spec tree with @refs (text or --json)
-  query  <type>                    screens | regions | events | flows | tags | types | enums | fixtures | contexts | steps <flow>
+  query  <type>                    screens | regions | events | flows | tags | types | enums | fixtures | contexts | attachments | steps <flow>
   query  states <name>             transitions for a screen/region
   query  <SELECT ...>              raw SQL against the spec DB
   impact <screen|region> <name>    what depends on this entity
@@ -138,6 +138,7 @@ Mutating (use @refs or names):
   set ambient <name> --ref <data_ref> --in <region>
   set fixture <name> --data <json> [--extends <f>]
   set state-fixture --in <owner> --state <s> --fixture <f>
+  set attachment <entity> <name> --content-id <id>
   rename <screen|region|flow|type|enum|fixture> <old> <new> [--in <parent>]
   rm <type> <name> [--in/--on <parent>]
   mv region <name> --to <@ref|parent> [--in <current-parent>]
@@ -161,9 +162,9 @@ Components:
   component <@ref|entity> --rm                unbind
 
 Attachments:
-  attach <@ref|entity> <file> [--as <name>]
+  attach <@ref|entity> <file> [--as <name>] [--content-id <id>]
   detach <@ref|entity> <name>
-  list [entity]
+  list [entity]                   shows content-id and hash when present
   cat <@ref|entity> <name>
 
 Diff:
@@ -202,7 +203,7 @@ func runShow(s *store.Store) {
 
 func runQuery(s *store.Store, args []string) {
 	if len(args) == 0 {
-		die("usage: sft query <screens|events|states|flows|tags|regions|types|enums|fixtures|contexts|SELECT ...>")
+		die("usage: sft query <screens|events|states|flows|tags|regions|types|enums|fixtures|contexts|attachments|SELECT ...>")
 	}
 	name := args[0]
 	var results []map[string]any
@@ -560,8 +561,17 @@ func runSet(s *store.Store, args []string) {
 		ok("updated state-fixture %s/%s → %s", in, state, fixture)
 		return
 
+	case "attachment":
+		contentID := flagVal(args, "--content-id")
+		if len(args) < 3 || contentID == "" {
+			die("usage: sft set attachment <entity> <name> --content-id <id>")
+		}
+		must(s.SetContentID(name, args[2], contentID))
+		ok("updated content-id on %s/%s", name, args[2])
+		return
+
 	default:
-		die("set supports: screen, region, type, enum, context, field, ambient, fixture, state-fixture")
+		die("set supports: screen, region, type, enum, context, field, ambient, fixture, state-fixture, attachment")
 	}
 	ok("updated %s %s", entity, name)
 }
@@ -925,11 +935,12 @@ func runRender(s *store.Store) {
 
 func runAttach(s *store.Store, args []string) {
 	if len(args) < 2 {
-		die("usage: sft attach <entity> <file> [--as <name>]")
+		die("usage: sft attach <entity> <file> [--as <name>] [--content-id <id>]")
 	}
 	entity, file := args[0], args[1]
 	asName := flagVal(args, "--as")
-	name, err := s.Attach(entity, file, asName)
+	contentID := flagVal(args, "--content-id")
+	name, err := s.Attach(entity, file, asName, contentID)
 	if err != nil {
 		die("attach: %v", err)
 	}
@@ -984,7 +995,14 @@ func runList(s *store.Store, args []string) {
 		}
 		fmt.Println(format.C(format.Bold, label))
 		for _, a := range groups[entity] {
-			fmt.Printf("  %s\n", a.Name)
+			line := "  " + a.Name
+			if a.ContentID != nil && *a.ContentID != "" {
+				line += " " + format.C(format.Dim, "<- "+*a.ContentID)
+			}
+			if len(a.ContentHash) >= 8 {
+				line += " " + format.C(format.Dim, a.ContentHash[:8])
+			}
+			fmt.Println(line)
 		}
 	}
 }

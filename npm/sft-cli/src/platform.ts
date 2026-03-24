@@ -1,7 +1,10 @@
-const os = require("os");
-const path = require("path");
+import { createRequire } from "node:module";
+import os from "node:os";
+import path from "node:path";
 
-const PLATFORMS = {
+const require = createRequire(import.meta.url);
+
+const PLATFORMS: Record<string, string> = {
   "darwin arm64": "sft-cli-darwin-arm64",
   "darwin x64": "sft-cli-darwin-x64",
   "linux arm64": "sft-cli-linux-arm64",
@@ -9,14 +12,14 @@ const PLATFORMS = {
   "win32 x64": "@sft-cli/win32-x64",
 };
 
-function getBinaryPath() {
+export function getBinaryPath(): string {
   if (process.env.SFT_BINARY_PATH) return process.env.SFT_BINARY_PATH;
 
   const key = `${process.platform} ${os.arch()}`;
   const pkg = PLATFORMS[key];
   if (!pkg) {
     throw new Error(
-      `Unsupported platform: ${key}. Supported: ${Object.keys(PLATFORMS).join(", ")}`
+      `Unsupported platform: ${key}. Supported: ${Object.keys(PLATFORMS).join(", ")}`,
     );
   }
 
@@ -25,13 +28,11 @@ function getBinaryPath() {
     return path.join(
       path.dirname(require.resolve(`${pkg}/package.json`)),
       "bin",
-      bin
+      bin,
     );
   } catch {
     throw new Error(
-      `The package "${pkg}" could not be found. Make sure you don't use --no-optional when installing.`
+      `The package "${pkg}" could not be found. Make sure you don't use --no-optional when installing.`,
     );
   }
 }
-
-module.exports = { getBinaryPath, PLATFORMS };

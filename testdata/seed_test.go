@@ -332,19 +332,19 @@ func TestAttachValidatesEntity(t *testing.T) {
 	}
 
 	// Attaching to non-existent entity should fail
-	_, err = s.Attach("NonExistent", tmp, "")
+	_, err = s.Attach("NonExistent", tmp, "", "")
 	if err == nil {
 		t.Fatal("expected error attaching to non-existent entity")
 	}
 
 	// Attaching to "_" (global) should work
-	_, err = s.Attach("_", tmp, "")
+	_, err = s.Attach("_", tmp, "", "")
 	if err != nil {
 		t.Fatalf("global attach failed: %v", err)
 	}
 
 	// Attaching to existing app should work
-	_, err = s.Attach("App", tmp, "")
+	_, err = s.Attach("App", tmp, "", "")
 	if err != nil {
 		t.Fatalf("app attach failed: %v", err)
 	}
@@ -407,6 +407,122 @@ func TestAppComponent(t *testing.T) {
 	}
 	if comp.EntityType != "app" {
 		t.Fatalf("expected entity_type app, got %s", comp.EntityType)
+	}
+}
+
+func TestAttachmentContentIDAndHash(t *testing.T) {
+	s, err := store.Open(t.TempDir() + "/cid.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	must(t, s.InsertApp(&model.App{Name: "App", Description: "test"}))
+
+	tmp := t.TempDir() + "/mock.png"
+	if err := writeFile(tmp, "fake-image-data"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = s.Attach("App", tmp, "", "figma:node123")
+	if err != nil {
+		t.Fatalf("attach with content_id: %v", err)
+	}
+
+	attachments, err := s.ListAttachments("App")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(attachments) != 1 {
+		t.Fatalf("expected 1 attachment, got %d", len(attachments))
+	}
+	a := attachments[0]
+	if a.ContentID == nil || *a.ContentID != "figma:node123" {
+		t.Fatalf("expected content_id figma:node123, got %v", a.ContentID)
+	}
+	if a.ContentHash == "" {
+		t.Fatal("expected non-empty content_hash")
+	}
+	if len(a.ContentHash) != 64 {
+		t.Fatalf("expected 64-char hex hash, got %d chars: %s", len(a.ContentHash), a.ContentHash)
+	}
+}
+
+func TestAttachHashChangesOnReattach(t *testing.T) {
+	s, err := store.Open(t.TempDir() + "/rehash.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	must(t, s.InsertApp(&model.App{Name: "App", Description: "test"}))
+
+	tmp := t.TempDir() + "/data.txt"
+	if err := writeFile(tmp, "version-1"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.Attach("App", tmp, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	list1, _ := s.ListAttachments("App")
+	hash1 := list1[0].ContentHash
+
+	// Re-attach different content
+	if err := writeFile(tmp, "version-2"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.Attach("App", tmp, "", "ext:updated")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	list2, _ := s.ListAttachments("App")
+	hash2 := list2[0].ContentHash
+
+	if hash1 == hash2 {
+		t.Fatalf("expected hash to change on re-attach, both are %s", hash1)
+	}
+	if list2[0].ContentID == nil || *list2[0].ContentID != "ext:updated" {
+		t.Fatal("expected content_id to be updated on re-attach")
+	}
+}
+
+func TestSetContentID(t *testing.T) {
+	s, err := store.Open(t.TempDir() + "/setcid.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	must(t, s.InsertApp(&model.App{Name: "App", Description: "test"}))
+
+	tmp := t.TempDir() + "/file.txt"
+	if err := writeFile(tmp, "content"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.Attach("App", tmp, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.SetContentID("App", "file.txt", "gdoc:abc"); err != nil {
+		t.Fatalf("SetContentID: %v", err)
+	}
+
+	list, _ := s.ListAttachments("App")
+	if list[0].ContentID == nil || *list[0].ContentID != "gdoc:abc" {
+		t.Fatal("expected content_id gdoc:abc after SetContentID")
+	}
+
+	if list[0].ContentHash == "" {
+		t.Fatal("hash should still be present after SetContentID")
+	}
+
+	// SetContentID on non-existent attachment should fail
+	if err := s.SetContentID("App", "nope.txt", "x"); err == nil {
+		t.Fatal("expected error for non-existent attachment")
 	}
 }
 

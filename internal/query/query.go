@@ -15,7 +15,8 @@ var namedQueries = map[string]string{
 	"types":    "SELECT name, fields FROM data_types",
 	"enums":    `SELECT name, "values" FROM enums`,
 	"fixtures": "SELECT name, extends, data FROM fixtures",
-	"contexts": `SELECT c.field_name, c.field_type, c.owner_type, CASE c.owner_type WHEN 'app' THEN (SELECT a.name FROM apps a WHERE a.id = c.owner_id) WHEN 'screen' THEN (SELECT s.name FROM screens s WHERE s.id = c.owner_id) END AS owner_name FROM contexts c`,
+	"contexts":    `SELECT c.field_name, c.field_type, c.owner_type, CASE c.owner_type WHEN 'app' THEN (SELECT a.name FROM apps a WHERE a.id = c.owner_id) WHEN 'screen' THEN (SELECT s.name FROM screens s WHERE s.id = c.owner_id) END AS owner_name FROM contexts c`,
+	"attachments": "SELECT entity, name, content_id, hex(content_hash) AS content_hash FROM attachments ORDER BY entity, name",
 }
 
 // Run executes a named query or raw SQL and returns rows as []map[string]any.
@@ -25,7 +26,7 @@ func Run(db *sql.DB, input string, args ...string) ([]map[string]any, error) {
 		if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(input)), "SELECT") {
 			q = input
 		} else {
-			return nil, fmt.Errorf("unknown query %q (available: screens, events, flows, tags, regions, types, enums, fixtures, contexts, or raw SELECT)", input)
+			return nil, fmt.Errorf("unknown query %q (available: screens, events, flows, tags, regions, types, enums, fixtures, contexts, attachments, or raw SELECT)", input)
 		}
 	}
 
