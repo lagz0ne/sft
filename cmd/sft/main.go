@@ -116,7 +116,7 @@ Workflow:
 
 Reading:
   show                             full spec tree with @refs (text or --json)
-  query  <type>                    screens | regions | events | flows | tags | types | enums | fixtures | contexts | attachments | steps <flow>
+  query  <type>                    screens | regions | events | flows | tags | types | enums | fixtures | contexts | attachments | steps <flow> | tastes
   query  states <name>             transitions for a screen/region
   query  <SELECT ...>              raw SQL against the spec DB
   impact <screen|region> <name>    what depends on this entity
@@ -155,6 +155,7 @@ States & Fixtures:
   add fixture <name> <data_json> [--extends <f>]
   add state-fixture <fixture> --in <owner> --state <s>
   add state-region <region> --in <owner> --state <s>
+  add taste <name> [--tokens <json>]
 
 Components:
   component <@ref|entity>                     show bound component
@@ -219,6 +220,16 @@ func runQuery(s *store.Store, args []string) {
 			die("usage: sft query steps <flow-name>")
 		}
 		results, err = query.Steps(s.DB, args[1])
+	} else if name == "tastes" {
+		appID := mustResolveApp(s)
+		tastes, terr := s.ListTastes(appID)
+		if terr != nil {
+			die("%v", terr)
+		}
+		for _, t := range tastes {
+			results = append(results, map[string]any{"name": t.Name, "tokens": t.Tokens})
+		}
+		queryKey = "tastes"
 	} else {
 		results, err = query.Run(s.DB, name)
 		if name != "screens" && name != "regions" && name != "events" &&
@@ -450,8 +461,19 @@ func runAdd(s *store.Store, args []string) {
 		must(s.InsertStateRegion(sr))
 		ok("state-region %s → %s/%s", sr.RegionName, in, state)
 
+	case "taste":
+		need(args, 1, "sft add taste <name> [--tokens <json>]")
+		appID := mustResolveApp(s)
+		tokens := flagVal(args, "--tokens")
+		if tokens == "" {
+			tokens = "{}"
+		}
+		_, err := s.InsertTaste(appID, args[0], tokens)
+		must(err)
+		ok("taste %s", args[0])
+
 	default:
-		die("unknown entity %q (use: app, screen, region, event, transition, tag, flow, type, enum, context, field, ambient, fixture, state-fixture, state-region)", entity)
+		die("unknown entity %q (use: app, screen, region, event, transition, tag, flow, type, enum, context, field, ambient, fixture, state-fixture, state-region, taste)", entity)
 	}
 }
 
@@ -570,8 +592,16 @@ func runSet(s *store.Store, args []string) {
 		ok("updated content-id on %s/%s", name, args[2])
 		return
 
+	case "taste":
+		tokens := flagVal(args, "--tokens")
+		if tokens == "" {
+			die("usage: sft set taste <name> --tokens <json>")
+		}
+		appID := mustResolveApp(s)
+		must(s.UpdateTaste(appID, name, tokens))
+
 	default:
-		die("set supports: screen, region, type, enum, context, field, ambient, fixture, state-fixture, attachment")
+		die("set supports: screen, region, type, enum, context, field, ambient, fixture, state-fixture, attachment, taste")
 	}
 	ok("updated %s %s", entity, name)
 }
@@ -795,8 +825,13 @@ func runRm(s *store.Store, args []string) {
 		must(s.DeleteStateRegion(name, ownerType, ownerID, state))
 		ok("deleted state-region %s from %s/%s", name, in, state)
 
+	case "taste":
+		appID := mustResolveApp(s)
+		must(s.DeleteTaste(appID, name))
+		ok("deleted taste %s", name)
+
 	default:
-		die("rm supports: screen, region, event, transition, tag, flow, type, enum, context, field, ambient, fixture, state-fixture, state-region")
+		die("rm supports: screen, region, event, transition, tag, flow, type, enum, context, field, ambient, fixture, state-fixture, state-region, taste")
 	}
 }
 
