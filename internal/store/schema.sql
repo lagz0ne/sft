@@ -172,6 +172,15 @@ CREATE TABLE IF NOT EXISTS state_regions (
   UNIQUE(owner_type, owner_id, state_name, region_name)
 );
 
+-- Tastes (design tokens)
+CREATE TABLE IF NOT EXISTS tastes (
+  id      INTEGER PRIMARY KEY,
+  app_id  INTEGER NOT NULL REFERENCES apps(id),
+  name    TEXT NOT NULL,
+  tokens  TEXT NOT NULL DEFAULT '{}',
+  UNIQUE(app_id, name)
+);
+
 -- Indexes for frequent queries
 CREATE INDEX IF NOT EXISTS idx_events_region ON events(region_id);
 CREATE INDEX IF NOT EXISTS idx_transitions_owner ON transitions(owner_type, owner_id);

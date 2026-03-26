@@ -1550,3 +1550,44 @@ func (s *Store) ReadAttachment(entity, name string) ([]byte, error) {
 	}
 	return content, nil
 }
+
+// --- Tastes ---
+
+func (s *Store) InsertTaste(appID int64, name, tokens string) (int64, error) {
+	res, err := s.DB.Exec("INSERT INTO tastes (app_id, name, tokens) VALUES (?, ?, ?)", appID, name, tokens)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) UpdateTaste(appID int64, name, tokens string) error {
+	_, err := s.DB.Exec("UPDATE tastes SET tokens = ? WHERE app_id = ? AND name = ?", tokens, appID, name)
+	return err
+}
+
+func (s *Store) GetTaste(appID int64, name string) (string, error) {
+	var tokens string
+	err := s.DB.QueryRow("SELECT tokens FROM tastes WHERE app_id = ? AND name = ?", appID, name).Scan(&tokens)
+	return tokens, err
+}
+
+func (s *Store) ListTastes(appID int64) ([]struct{ Name, Tokens string }, error) {
+	rows, err := s.DB.Query("SELECT name, tokens FROM tastes WHERE app_id = ? ORDER BY name", appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []struct{ Name, Tokens string }
+	for rows.Next() {
+		var t struct{ Name, Tokens string }
+		rows.Scan(&t.Name, &t.Tokens)
+		result = append(result, t)
+	}
+	return result, nil
+}
+
+func (s *Store) DeleteTaste(appID int64, name string) error {
+	_, err := s.DB.Exec("DELETE FROM tastes WHERE app_id = ? AND name = ?", appID, name)
+	return err
+}
