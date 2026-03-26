@@ -47,8 +47,20 @@ export function selectSkin(region: Region, app: App, screen?: Screen): SkinConte
             skin: 'data-list',
             ambientType: resolved,
             matchedEvent: ev,
+            fields: resolved.resolved?.fields,
           }
         }
+      }
+    }
+  }
+
+  // Rule 1b: data-list (read-only) — ambient binds array T[] of data_type, no matching event
+  for (const { resolved } of resolvedAmbients) {
+    if (resolved?.isArray && resolved.resolved?.kind === 'data_type' && resolved.resolved.fields) {
+      return {
+        skin: 'data-list',
+        ambientType: resolved,
+        fields: resolved.resolved.fields,
       }
     }
   }

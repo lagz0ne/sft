@@ -1,141 +1,202 @@
 import type { SkinProps } from './types'
 
-function pickColumns(fields: Record<string, string>) {
-  const entries = Object.entries(fields)
-  let primary: [string, string] | undefined
-  let secondary: [string, string] | undefined
-  let meta: [string, string] | undefined
-  const booleans: [string, string][] = []
-
-  for (const [k, v] of entries) {
-    const kl = k.toLowerCase()
-    const vl = v.toLowerCase()
-    if (!primary && (kl.includes('name') || kl.includes('subject') || kl.includes('title'))) {
-      primary = [k, v]
-    } else if (!meta && (vl === 'date' || vl === 'datetime' || kl.includes('date') || kl.includes('time'))) {
-      meta = [k, v]
-    } else if (vl === 'boolean' || vl === 'bool') {
-      booleans.push([k, v])
-    } else if (!secondary && vl !== 'boolean' && vl !== 'bool') {
-      secondary = [k, v]
-    }
-  }
-
-  if (!primary && entries.length > 0) primary = entries[0]
-  if (!secondary) {
-    const remaining = entries.find(([k]) => k !== primary?.[0] && k !== meta?.[0] && !booleans.some(([bk]) => bk === k))
-    if (remaining) secondary = remaining
-  }
-
-  return { primary, secondary, meta, booleans }
-}
-
 function isContactType(type: string): boolean {
-  const t = type.toLowerCase()
-  return t === 'contact' || t === 'user' || t === 'person' || t === 'author' || t === 'sender'
+	return /^(contact|user|person|author|member)$/i.test(type.replace(/[?\[\]]/g, ''))
 }
 
-function Avatar({ initial }: { initial: string }) {
-  return (
-    <div className="w-4 h-4 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-[7px] font-medium shrink-0">
-      {initial.toUpperCase()}
-    </div>
-  )
+function resolveValue(item: any, field: string): string {
+	const val = item?.[field]
+	if (val == null) return ''
+	if (typeof val === 'object' && 'name' in val) return val.name
+	if (typeof val === 'boolean') return val ? 'Yes' : 'No'
+	return String(val)
 }
 
-function PlaceholderBar({ width, dark }: { width: string; dark?: boolean }) {
-  return <div className={`h-1.5 rounded-sm ${width} ${dark ? 'bg-neutral-700' : 'bg-neutral-100'}`} />
+function getInitial(item: any, field: string): string {
+	const val = item?.[field]
+	if (typeof val === 'object' && val?.name) return val.name[0]?.toUpperCase() ?? '?'
+	if (typeof val === 'string') return val[0]?.toUpperCase() ?? '?'
+	return '?'
 }
 
-export function DataList({ region, context, fixtureData, compact, taste }: SkinProps) {
-  const fields = context.fields ?? region.region_data ?? {}
-  const cols = pickColumns(fields)
-  const totalRows = compact ? 3 : 4
+interface Columns {
+	contact?: string       // field name of contact type → avatar
+	primary?: string       // subject, title, name → main text
+	secondary?: string     // body, description, or another text field
+	meta?: string          // date, time → right side
+	booleans: string[]     // boolean fields → indicator dots
+	hasCheckEvent: boolean // check_* event exists → render checkbox
+}
 
-  const dark = taste?.mode === 'dark'
-  const rowPy = taste?.density === 'compact' ? 'py-0.5' : taste?.density === 'spacious' ? 'py-1.5' : 'py-1'
-  const shapeClass = taste?.shape === 'sharp' ? 'rounded-none' : taste?.shape === 'pill' ? 'rounded-full' : 'rounded-sm'
-  const activeRowBg = dark ? 'bg-neutral-700' : 'bg-blue-50'
-  const primaryTextClass = dark ? 'text-neutral-200' : 'text-neutral-700'
-  const secondaryTextClass = dark ? 'text-neutral-400' : 'text-neutral-400'
-  const metaTextClass = dark ? 'text-neutral-500' : 'text-neutral-400'
-  const metaBarClass = dark ? 'bg-neutral-700' : 'bg-neutral-100'
+function pickColumns(fields: Record<string, string>, events: string[]): Columns {
+	const cols: Columns = { booleans: [], hasCheckEvent: events.some(e => e.startsWith('check_')) }
 
-  // Build real rows from fixture data
-  const realRows: Record<string, any>[] = []
-  if (fixtureData) {
-    const arr = Array.isArray(fixtureData)
-      ? fixtureData
-      : Object.values(fixtureData).find(Array.isArray) as any[] | undefined
-    if (arr) {
-      realRows.push(...arr.slice(0, 2))
-    } else if (typeof fixtureData === 'object') {
-      realRows.push(fixtureData)
-    }
-  }
+	for (const [k, v] of Object.entries(fields)) {
+		const baseType = v.replace(/[?\[\]]/g, '')
+		if (!cols.contact && isContactType(baseType)) {
+			cols.contact = k
+		} else if (!cols.primary && /^(subject|title|name|label)$/i.test(k)) {
+			cols.primary = k
+		} else if (!cols.meta && /^(date|datetime|time|created|updated)$/i.test(baseType)) {
+			cols.meta = k
+		} else if (/^(boolean|bool)$/i.test(baseType)) {
+			cols.booleans.push(k)
+		} else if (!cols.secondary && !/^(id|key)$/i.test(k)) {
+			cols.secondary = k
+		}
+	}
 
-  const rows = Array.from({ length: totalRows }, (_, i) => {
-    const data = realRows[i] ?? null
-    const isFirst = i === 0 && data !== null
-    return { data, isFirst, index: i }
-  })
+	// Fallbacks
+	if (!cols.primary) {
+		cols.primary = Object.keys(fields).find(k =>
+			k !== cols.contact && k !== cols.meta && !cols.booleans.includes(k)
+		)
+	}
 
-  const accentDotStyle = taste?.accent ? { backgroundColor: taste.accent } : undefined
+	return cols
+}
 
-  return (
-    <div className="flex flex-col gap-0.5 w-full">
-      {rows.map(({ data, isFirst, index }) => (
-        <div
-          key={index}
-          className={`flex items-center gap-1.5 px-1.5 ${rowPy} ${shapeClass} ${isFirst ? activeRowBg : ''}`}
-        >
-          {/* Boolean indicator / unread dot */}
-          {cols.booleans.length > 0 && (
-            <div
-              className={`w-1.5 h-1.5 rounded-full shrink-0 ${!accentDotStyle && index === 0 ? 'bg-blue-400' : 'bg-neutral-200'}`}
-              style={index === 0 ? accentDotStyle : undefined}
-            />
-          )}
+function resolveItems(fixtureData: Record<string, any> | null | undefined, screenName?: string): any[] {
+	if (!fixtureData) return []
 
-          {/* Avatar for contact-type primary */}
-          {cols.primary && isContactType(cols.primary[1]) && data ? (
-            <Avatar initial={String(data[cols.primary[0]] ?? '?')[0]} />
-          ) : cols.primary && isContactType(cols.primary[1]) ? (
-            <div className={`w-4 h-4 rounded-full shrink-0 ${dark ? 'bg-neutral-700' : 'bg-neutral-100'}`} />
-          ) : null}
+	// Drill into screen-level data first: fixtureData[screenName]
+	let data = fixtureData
+	if (screenName && fixtureData[screenName] && typeof fixtureData[screenName] === 'object') {
+		data = fixtureData[screenName]
+	}
 
-          {/* Content */}
-          <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-            {data && cols.primary ? (
-              <span className={`text-[9px] font-medium truncate leading-tight ${primaryTextClass}`}>
-                {String(data[cols.primary[0]] ?? '')}
-              </span>
-            ) : (
-              <PlaceholderBar width={index % 2 === 0 ? 'w-3/4' : 'w-1/2'} dark={dark} />
-            )}
-            {!compact && (
-              data && cols.secondary ? (
-                <span className={`text-[8px] truncate leading-tight ${secondaryTextClass}`}>
-                  {String(data[cols.secondary[0]] ?? '')}
-                </span>
-              ) : (
-                <PlaceholderBar width={index % 2 === 0 ? 'w-1/2' : 'w-2/3'} dark={dark} />
-              )
-            )}
-          </div>
+	// Find the first non-empty array in the data
+	if (Array.isArray(data)) return data
+	for (const val of Object.values(data)) {
+		if (Array.isArray(val) && val.length > 0) return val
+	}
+	return []
+}
 
-          {/* Meta (date) */}
-          {cols.meta && (
-            <div className="shrink-0">
-              {data ? (
-                <span className={`text-[7px] ${metaTextClass}`}>{String(data[cols.meta[0]] ?? '')}</span>
-              ) : (
-                <div className={`w-6 h-1.5 rounded-sm ${metaBarClass}`} />
-              )}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  )
+export function DataList({ region, context, fixtureData, screenName, compact, taste }: SkinProps) {
+	const fields = context.fields ?? {}
+	const events = region.events ?? []
+	const cols = pickColumns(fields, events)
+	const items = resolveItems(fixtureData, screenName)
+
+	const dark = taste?.mode === 'dark'
+	const density = taste?.density ?? 'default'
+	const rowPy = density === 'compact' ? 'py-1' : density === 'spacious' ? 'py-2.5' : 'py-1.5'
+	const rowBorder = dark ? 'border-neutral-700' : 'border-neutral-100'
+	const hoverBg = dark ? 'bg-neutral-800' : 'bg-blue-50/40'
+
+	const realCount = Math.min(items.length, compact ? 2 : 3)
+	const placeholderCount = compact ? 1 : 2
+	const totalRows = realCount + placeholderCount
+
+	return (
+		<div className="flex flex-col w-full">
+			{Array.from({ length: totalRows }, (_, i) => {
+				const item = i < realCount ? items[i] : null
+				const isFirstReal = i === 0 && item
+				const isUnread = item && cols.booleans.length > 0 && item[cols.booleans[0]] === false
+
+				return (
+					<div
+						key={i}
+						className={[
+							'flex items-center gap-2 px-2',
+							rowPy,
+							i < totalRows - 1 ? `border-b ${rowBorder}` : '',
+							isFirstReal ? hoverBg : '',
+						].join(' ')}
+					>
+						{/* Checkbox (if check_* event exists) */}
+						{cols.hasCheckEvent && (
+							<div className={[
+								'w-3 h-3 rounded-sm border shrink-0',
+								dark ? 'border-neutral-600' : 'border-neutral-300',
+							].join(' ')} />
+						)}
+
+						{/* Avatar (if contact field) */}
+						{cols.contact && (
+							item ? (
+								<div
+									className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-semibold shrink-0"
+									style={{
+										backgroundColor: taste?.accent ? `${taste.accent}20` : dark ? '#334' : '#dbeafe',
+										color: taste?.accent ?? (dark ? '#8ab4f8' : '#2563eb'),
+									}}
+								>
+									{getInitial(item, cols.contact)}
+								</div>
+							) : (
+								<div className={`w-6 h-6 rounded-full shrink-0 ${dark ? 'bg-neutral-700' : 'bg-neutral-100'}`} />
+							)
+						)}
+
+						{/* Text content */}
+						<div className="flex-1 min-w-0">
+							{item ? (
+								<>
+									<div className="flex items-baseline gap-1.5">
+										{/* Contact name (bold) */}
+										{cols.contact && (
+											<span className={`text-[10px] shrink-0 ${
+												isUnread ? 'font-bold' : 'font-medium'
+											} ${dark ? 'text-neutral-200' : 'text-neutral-700'}`}>
+												{resolveValue(item, cols.contact)}
+											</span>
+										)}
+										{/* Primary field (subject) */}
+										{cols.primary && (
+											<span className={`text-[10px] truncate ${
+												isUnread && !cols.contact ? 'font-bold' : ''
+											} ${dark ? 'text-neutral-300' : 'text-neutral-600'}`}>
+												{cols.contact ? '— ' : ''}{resolveValue(item, cols.primary)}
+											</span>
+										)}
+									</div>
+									{/* Secondary line */}
+									{cols.secondary && !compact && (
+										<div className={`text-[9px] truncate ${dark ? 'text-neutral-500' : 'text-neutral-400'}`}>
+											{resolveValue(item, cols.secondary)}
+										</div>
+									)}
+								</>
+							) : (
+								<>
+									<div className={`h-[7px] rounded-sm mb-1 ${dark ? 'bg-neutral-700' : 'bg-neutral-100'}`}
+										style={{ width: `${45 + (i % 3) * 15}%` }} />
+									{!compact && (
+										<div className={`h-[6px] rounded-sm ${dark ? 'bg-neutral-800' : 'bg-neutral-50'}`}
+											style={{ width: `${55 + (i % 2) * 20}%` }} />
+									)}
+								</>
+							)}
+						</div>
+
+						{/* Date meta */}
+						{cols.meta && (
+							<div className="shrink-0">
+								{item ? (
+									<span className={`text-[9px] ${dark ? 'text-neutral-500' : 'text-neutral-400'}`}>
+										{resolveValue(item, cols.meta)}
+									</span>
+								) : (
+									<div className={`w-8 h-[6px] rounded-sm ${dark ? 'bg-neutral-700' : 'bg-neutral-100'}`} />
+								)}
+							</div>
+						)}
+
+						{/* Unread dot */}
+						{cols.booleans.length > 0 && (
+							<div
+								className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+									isUnread ? '' : dark ? 'bg-neutral-700' : 'bg-transparent'
+								}`}
+								style={isUnread ? { backgroundColor: taste?.accent ?? '#3b82f6' } : undefined}
+							/>
+						)}
+					</div>
+				)
+			})}
+		</div>
+	)
 }

@@ -11,9 +11,10 @@ import { Placeholder } from './skins/placeholder'
 
 // --- Layout roles from tags ---
 
-type LayoutRole = 'sidebar' | 'toolbar' | 'footer' | 'aside' | 'overlay' | 'main'
+type LayoutRole = 'sidebar' | 'header' | 'toolbar' | 'footer' | 'bottomnav' | 'aside' | 'overlay' | 'modal' | 'drawer' | 'banner' | 'main'
+type SizeHint = 'narrow' | 'wide' | null
 
-const LAYOUT_TAGS = new Set<LayoutRole>(['sidebar', 'toolbar', 'footer', 'aside', 'overlay'])
+const LAYOUT_TAGS = new Set<LayoutRole>(['sidebar', 'header', 'toolbar', 'footer', 'bottomnav', 'aside', 'overlay', 'modal', 'drawer', 'banner'])
 
 function getRole(region: Region): LayoutRole {
 	if (!region.tags) return 'main'
@@ -23,56 +24,94 @@ function getRole(region: Region): LayoutRole {
 	return 'main'
 }
 
+function getSizeHint(region: Region): SizeHint {
+	if (region.tags?.includes('narrow')) return 'narrow'
+	if (region.tags?.includes('wide')) return 'wide'
+	return null
+}
+
 interface LayoutGroups {
+	banner: Region[]
+	header: Region[]
 	sidebar: Region[]
 	toolbar: Region[]
 	main: Region[]
 	aside: Region[]
 	footer: Region[]
+	bottomnav: Region[]
 	overlay: Region[]
+	modal: Region[]
+	drawer: Region[]
 }
 
 function groupByRole(regions: Region[]): LayoutGroups {
-	const groups: LayoutGroups = { sidebar: [], toolbar: [], main: [], aside: [], footer: [], overlay: [] }
+	const groups: LayoutGroups = { banner: [], header: [], sidebar: [], toolbar: [], main: [], aside: [], footer: [], bottomnav: [], overlay: [], modal: [], drawer: [] }
 	for (const r of regions) {
 		groups[getRole(r)].push(r)
 	}
 	return groups
 }
 
+/** Check if a main region has the `split` tag — means side-by-side instead of stacked */
+function hasSplitTag(region: Region): boolean {
+	return region.tags?.includes('split') ?? false
+}
+
+function sizeToCol(regions: Region[], fallback: string): string {
+	// Check if any region in this group has a size hint
+	for (const r of regions) {
+		const hint = getSizeHint(r)
+		if (hint === 'narrow') return 'minmax(8rem, 10rem)'
+		if (hint === 'wide') return 'minmax(16rem, 20rem)'
+	}
+	return fallback
+}
+
 function buildGridTemplate(g: LayoutGroups): React.CSSProperties {
 	const hasSidebar = g.sidebar.length > 0
+	const hasBanner = g.banner.length > 0
+	const hasHeader = g.header.length > 0
 	const hasToolbar = g.toolbar.length > 0
 	const hasAside = g.aside.length > 0
 	const hasFooter = g.footer.length > 0
+	const hasBottomnav = g.bottomnav.length > 0
 
 	const cols: string[] = []
 	const areas: string[][] = []
 
-	if (hasSidebar) cols.push('12rem')
+	if (hasSidebar) cols.push(sizeToCol(g.sidebar, '12rem'))
 	cols.push('1fr')
-	if (hasAside) cols.push('minmax(12rem, 0.4fr)')
+	if (hasAside) cols.push(sizeToCol(g.aside, 'minmax(12rem, 0.4fr)'))
 
 	const colCount = cols.length
 
-	if (hasToolbar) {
-		areas.push(Array(colCount).fill('toolbar'))
+	// Build rows. Sidebar spans from toolbar through main (skips banner/header which are full-width above it).
+	// Row order: banner → header → toolbar → main → footer → bottomnav
+	// Sidebar spans: toolbar + main rows (the content area)
+	// Aside spans: main row only
+
+	const makeRow = (area: string): string[] => {
+		const row: string[] = []
+		if (hasSidebar) row.push(area === 'main' || area === 'toolbar' ? 'sidebar' : area)
+		row.push(area)
+		if (hasAside) row.push(area === 'main' ? 'aside' : area)
+		return row
 	}
 
-	const mainRow: string[] = []
-	if (hasSidebar) mainRow.push('sidebar')
-	mainRow.push('main')
-	if (hasAside) mainRow.push('aside')
-	areas.push(mainRow)
-
-	if (hasFooter) {
-		areas.push(Array(colCount).fill('footer'))
-	}
+	if (hasBanner) areas.push(Array(colCount).fill('banner'))
+	if (hasHeader) areas.push(Array(colCount).fill('header'))
+	if (hasToolbar) areas.push(makeRow('toolbar'))
+	areas.push(makeRow('main'))
+	if (hasFooter) areas.push(Array(colCount).fill('footer'))
+	if (hasBottomnav) areas.push(Array(colCount).fill('bottomnav'))
 
 	const rows: string[] = []
+	if (hasBanner) rows.push('auto')
+	if (hasHeader) rows.push('auto')
 	if (hasToolbar) rows.push('auto')
 	rows.push('1fr')
 	if (hasFooter) rows.push('auto')
+	if (hasBottomnav) rows.push('auto')
 
 	return {
 		display: 'grid',
@@ -163,15 +202,34 @@ export function WireframeCanvas({ screen, currentState, appRegions, fixtures, ac
 	const groups = groupByRole(allRegions)
 	const gridStyle = buildGridTemplate(groups)
 
+	// App-level regions bypass state_regions filter (they're always visible)
+	const appRegionNames = new Set((appRegions ?? []).map(r => r.name))
 	const regionProps = { visibleRegions, fixtureData, activeRegion, activeEvent, app, screen, taste }
+	const propsFor = (r: Region) => appRegionNames.has(r.name) ? { ...regionProps, visibleRegions: null as string[] | null } : regionProps
 
 	return (
 		<div style={{ position: 'relative', height: '100%' }}>
 			<div style={gridStyle}>
+				{groups.banner.length > 0 && (
+					<div style={{ gridArea: 'banner' }} className="flex flex-col gap-1">
+						{groups.banner.map(r => (
+							<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)} compact />
+						))}
+					</div>
+				)}
+
+				{groups.header.length > 0 && (
+					<div style={{ gridArea: 'header' }} className="flex flex-col gap-1.5">
+						{groups.header.map(r => (
+							<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)} />
+						))}
+					</div>
+				)}
+
 				{groups.toolbar.length > 0 && (
 					<div style={{ gridArea: 'toolbar' }} className="flex flex-col gap-1.5">
 						{groups.toolbar.map(r => (
-							<WireframeRegion key={r.name} region={r} depth={0} {...regionProps} />
+							<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)} />
 						))}
 					</div>
 				)}
@@ -179,27 +237,45 @@ export function WireframeCanvas({ screen, currentState, appRegions, fixtures, ac
 				{groups.sidebar.length > 0 && (
 					<div style={{ gridArea: 'sidebar' }} className="flex flex-col gap-1.5">
 						{groups.sidebar.map(r => (
-							<WireframeRegion key={r.name} region={r} depth={0} {...regionProps} compact />
+							<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)} compact />
 						))}
 					</div>
 				)}
 
-				<div style={{ gridArea: 'main' }} className="flex flex-col gap-1.5 min-h-0 overflow-auto">
-					{groups.main.length > 0 ? (
-						groups.main.map(r => (
-							<WireframeRegion key={r.name} region={r} depth={0} {...regionProps} />
-						))
-					) : (
-						<div className="flex-1 flex items-center justify-center border border-dashed border-neutral-200 rounded-lg text-neutral-300 text-sm">
-							No main regions
-						</div>
-					)}
+				<div style={{ gridArea: 'main' }} className="min-h-0 overflow-auto">
+					{(() => {
+						const splitRegions = groups.main.filter(hasSplitTag)
+						const stackRegions = groups.main.filter(r => !hasSplitTag(r))
+						return (
+							<div className="flex flex-col gap-1.5 h-full">
+								{/* Stacked regions above the split */}
+								{stackRegions.map(r => (
+									<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)} />
+								))}
+								{/* Split regions side by side */}
+								{splitRegions.length > 0 && (
+									<div className="flex gap-1.5 flex-1 min-h-0">
+										{splitRegions.map(r => (
+											<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)}
+												style={{ flex: getSizeHint(r) === 'wide' ? '2' : getSizeHint(r) === 'narrow' ? '0.5' : '1' }}
+											/>
+										))}
+									</div>
+								)}
+								{groups.main.length === 0 && (
+									<div className="flex-1 flex items-center justify-center border border-dashed border-neutral-200 rounded-lg text-neutral-300 text-sm">
+										No main regions
+									</div>
+								)}
+							</div>
+						)
+					})()}
 				</div>
 
 				{groups.aside.length > 0 && (
 					<div style={{ gridArea: 'aside' }} className="flex flex-col gap-1.5">
 						{groups.aside.map(r => (
-							<WireframeRegion key={r.name} region={r} depth={0} {...regionProps} />
+							<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)} />
 						))}
 					</div>
 				)}
@@ -207,18 +283,50 @@ export function WireframeCanvas({ screen, currentState, appRegions, fixtures, ac
 				{groups.footer.length > 0 && (
 					<div style={{ gridArea: 'footer' }} className="flex flex-col gap-1.5">
 						{groups.footer.map(r => (
-							<WireframeRegion key={r.name} region={r} depth={0} {...regionProps} />
+							<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)} />
+						))}
+					</div>
+				)}
+
+				{groups.bottomnav.length > 0 && (
+					<div style={{ gridArea: 'bottomnav' }} className="flex flex-col gap-1">
+						{groups.bottomnav.map(r => (
+							<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)} />
 						))}
 					</div>
 				)}
 			</div>
 
 			{/* Overlays float above the grid */}
+			{/* Overlay: anchored to bottom center */}
 			{groups.overlay.length > 0 && (
 				<div className="absolute inset-0 pointer-events-none flex items-end justify-center p-4">
 					<div className="pointer-events-auto flex flex-col gap-1.5 w-full max-w-lg">
 						{groups.overlay.map(r => (
-							<WireframeRegion key={r.name} region={r} depth={0} {...regionProps} isOverlay />
+							<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)} isOverlay />
+						))}
+					</div>
+				</div>
+			)}
+
+			{/* Modal: centered with backdrop dim */}
+			{groups.modal.length > 0 && (
+				<div className="absolute inset-0 pointer-events-none flex items-center justify-center p-8">
+					<div className="absolute inset-0 bg-neutral-900/10 rounded-lg" />
+					<div className="pointer-events-auto flex flex-col gap-1.5 w-full max-w-md relative">
+						{groups.modal.map(r => (
+							<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)} isOverlay />
+						))}
+					</div>
+				</div>
+			)}
+
+			{/* Drawer: attached to right edge */}
+			{groups.drawer.length > 0 && (
+				<div className="absolute inset-y-0 right-0 pointer-events-none flex items-stretch p-2">
+					<div className="pointer-events-auto flex flex-col gap-1.5 w-72">
+						{groups.drawer.map(r => (
+							<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)} isOverlay />
 						))}
 					</div>
 				</div>
@@ -241,9 +349,10 @@ interface WireframeRegionProps {
 	app: App
 	screen: Screen
 	taste?: TasteTokens
+	style?: React.CSSProperties
 }
 
-function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeRegion, activeEvent, compact, isOverlay, app, screen, taste }: WireframeRegionProps) {
+function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeRegion, activeEvent, compact, isOverlay, app, screen, taste, style }: WireframeRegionProps) {
 	const hidden = visibleRegions != null && !visibleRegions.includes(region.name)
 	const isActive = activeRegion === region.name
 	const hasOwnStateMachine = region.states && region.states.length > 0
@@ -258,14 +367,18 @@ function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeReg
 
 	const effectiveHidden = hidden || (ownStateHidden && !isActive)
 
+	// Hidden regions don't render — click a different state to see them
+	if (effectiveHidden) return null
+
 	return (
 		<div
+			style={style}
 			className={[
 				'rounded-lg border-2 transition-all duration-300 flex flex-col',
-				effectiveHidden ? 'opacity-15 border-dashed border-neutral-200' : 'border-neutral-200',
+				'border-neutral-200',
 				isActive ? 'ring-2 ring-blue-400 ring-offset-1 border-blue-300' : '',
-				hasFixtureContent && !effectiveHidden ? 'bg-amber-50/50 border-amber-200' : '',
-				isOverlay && !effectiveHidden ? 'shadow-lg bg-white border-violet-300' : '',
+				hasFixtureContent ? 'bg-amber-50/50 border-amber-200' : '',
+				isOverlay ? 'shadow-lg bg-white border-violet-300' : '',
 				compact ? 'p-2' : 'p-3',
 				depth === 0 ? 'flex-1 min-h-[48px]' : 'min-h-[36px]',
 			].join(' ')}
@@ -285,27 +398,22 @@ function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeReg
 						FSM
 					</span>
 				)}
-				{hasFixtureContent && !effectiveHidden && (
+				{hasFixtureContent && (
 					<span className="text-[9px] bg-amber-100 text-amber-600 px-1 py-0.5 rounded">
 						data
 					</span>
 				)}
-				{effectiveHidden && (
-					<span className="text-[9px] text-neutral-400 italic">hidden</span>
-				)}
 			</div>
 
 			{/* Skin content */}
-			{!effectiveHidden && (
-				<SkinRenderer
+			<SkinRenderer
 					region={region}
 					app={app}
 					screen={screen}
 					fixtureData={fixtureData}
 					compact={compact}
 					taste={taste}
-				/>
-			)}
+			/>
 
 			{/* Nested regions */}
 			{hasChildren && (
