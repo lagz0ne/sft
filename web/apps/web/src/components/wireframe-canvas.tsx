@@ -359,6 +359,7 @@ function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeReg
 	const hasFixtureContent = fixtureData && (fixtureData[region.name] != null)
 	const hasChildren = region.regions && region.regions.length > 0
 	const role = getRole(region)
+	const isElevated = region.tags?.includes('elevated') ?? false
 
 	// Check if region's own state machine hides it
 	const ownStateHidden = hasOwnStateMachine && region.states![0] !== undefined
@@ -374,36 +375,38 @@ function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeReg
 		<div
 			style={style}
 			className={[
-				'rounded-lg border-2 transition-all duration-300 flex flex-col',
-				'border-neutral-200',
+				'transition-all duration-300 flex flex-col',
+				isElevated ? 'rounded-xl shadow-lg bg-white border border-neutral-100' : 'rounded-lg border-2 border-neutral-200',
 				isActive ? 'ring-2 ring-blue-400 ring-offset-1 border-blue-300' : '',
-				hasFixtureContent ? 'bg-amber-50/50 border-amber-200' : '',
+				hasFixtureContent && !isElevated ? 'bg-amber-50/50 border-amber-200' : '',
 				isOverlay ? 'shadow-lg bg-white border-violet-300' : '',
 				compact ? 'p-2' : 'p-3',
 				depth === 0 ? 'flex-1 min-h-[48px]' : 'min-h-[36px]',
 			].join(' ')}
 		>
-			{/* Region header */}
-			<div className="flex items-center gap-1.5 mb-1">
-				<span className={`font-semibold ${compact ? 'text-xs' : 'text-sm'} text-neutral-700`}>
-					{region.name}
-				</span>
-				{role !== 'main' && (
-					<span className="text-[9px] bg-blue-50 text-blue-500 px-1 py-0.5 rounded">
-						{role}
+			{/* Region header — hidden for elevated regions (the skin IS the region) */}
+			{!isElevated && (
+				<div className="flex items-center gap-1.5 mb-1">
+					<span className={`font-semibold ${compact ? 'text-xs' : 'text-sm'} text-neutral-700`}>
+						{region.name}
 					</span>
-				)}
-				{hasOwnStateMachine && (
-					<span className="text-[9px] bg-violet-100 text-violet-600 px-1 py-0.5 rounded">
-						FSM
-					</span>
-				)}
-				{hasFixtureContent && (
-					<span className="text-[9px] bg-amber-100 text-amber-600 px-1 py-0.5 rounded">
-						data
-					</span>
-				)}
-			</div>
+					{role !== 'main' && (
+						<span className="text-[9px] bg-blue-50 text-blue-500 px-1 py-0.5 rounded">
+							{role}
+						</span>
+					)}
+					{hasOwnStateMachine && (
+						<span className="text-[9px] bg-violet-100 text-violet-600 px-1 py-0.5 rounded">
+							FSM
+						</span>
+					)}
+					{hasFixtureContent && (
+						<span className="text-[9px] bg-amber-100 text-amber-600 px-1 py-0.5 rounded">
+							data
+						</span>
+					)}
+				</div>
+			)}
 
 			{/* Skin content */}
 			<SkinRenderer
