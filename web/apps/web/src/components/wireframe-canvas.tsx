@@ -110,15 +110,16 @@ function deepMerge(base: Record<string, any>, overlay: Record<string, any>): Rec
 
 // --- Skin dispatcher ---
 
-function SkinRenderer({ region, app, screen, fixtureData, compact }: {
+function SkinRenderer({ region, app, screen, fixtureData, compact, taste }: {
 	region: Region
 	app: App
 	screen: Screen
 	fixtureData?: Record<string, any> | null
 	compact?: boolean
+	taste?: TasteTokens
 }) {
 	const ctx = selectSkin(region, app, screen)
-	const props = { region, context: ctx, fixtureData, screenName: screen.name, compact }
+	const props = { region, context: ctx, fixtureData, screenName: screen.name, compact, taste }
 
 	switch (ctx.skin) {
 		case 'data-list': return <DataList {...props} />
@@ -302,6 +303,7 @@ function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeReg
 					screen={screen}
 					fixtureData={fixtureData}
 					compact={compact}
+					taste={taste}
 				/>
 			)}
 
@@ -322,6 +324,7 @@ function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeReg
 							compact={compact}
 							app={app}
 							screen={screen}
+							taste={taste}
 						/>
 					))}
 				</div>
