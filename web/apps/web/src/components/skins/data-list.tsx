@@ -43,19 +43,27 @@ function Avatar({ initial }: { initial: string }) {
   )
 }
 
-function PlaceholderBar({ width }: { width: string }) {
-  return <div className={`h-1.5 bg-neutral-100 rounded-sm ${width}`} />
+function PlaceholderBar({ width, dark }: { width: string; dark?: boolean }) {
+  return <div className={`h-1.5 rounded-sm ${width} ${dark ? 'bg-neutral-700' : 'bg-neutral-100'}`} />
 }
 
-export function DataList({ region, context, fixtureData, compact }: SkinProps) {
+export function DataList({ region, context, fixtureData, compact, taste }: SkinProps) {
   const fields = context.fields ?? region.region_data ?? {}
   const cols = pickColumns(fields)
   const totalRows = compact ? 3 : 4
 
+  const dark = taste?.mode === 'dark'
+  const rowPy = taste?.density === 'compact' ? 'py-0.5' : taste?.density === 'spacious' ? 'py-1.5' : 'py-1'
+  const shapeClass = taste?.shape === 'sharp' ? 'rounded-none' : taste?.shape === 'pill' ? 'rounded-full' : 'rounded-sm'
+  const activeRowBg = dark ? 'bg-neutral-700' : 'bg-blue-50'
+  const primaryTextClass = dark ? 'text-neutral-200' : 'text-neutral-700'
+  const secondaryTextClass = dark ? 'text-neutral-400' : 'text-neutral-400'
+  const metaTextClass = dark ? 'text-neutral-500' : 'text-neutral-400'
+  const metaBarClass = dark ? 'bg-neutral-700' : 'bg-neutral-100'
+
   // Build real rows from fixture data
   const realRows: Record<string, any>[] = []
   if (fixtureData) {
-    // Fixture data may be an array or an object with array values
     const arr = Array.isArray(fixtureData)
       ? fixtureData
       : Object.values(fixtureData).find(Array.isArray) as any[] | undefined
@@ -72,41 +80,46 @@ export function DataList({ region, context, fixtureData, compact }: SkinProps) {
     return { data, isFirst, index: i }
   })
 
+  const accentDotStyle = taste?.accent ? { backgroundColor: taste.accent } : undefined
+
   return (
     <div className="flex flex-col gap-0.5 w-full">
       {rows.map(({ data, isFirst, index }) => (
         <div
           key={index}
-          className={`flex items-center gap-1.5 px-1.5 py-1 rounded-sm ${isFirst ? 'bg-blue-50' : ''}`}
+          className={`flex items-center gap-1.5 px-1.5 ${rowPy} ${shapeClass} ${isFirst ? activeRowBg : ''}`}
         >
-          {/* Boolean indicator */}
+          {/* Boolean indicator / unread dot */}
           {cols.booleans.length > 0 && (
-            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${index === 0 ? 'bg-blue-400' : 'bg-neutral-200'}`} />
+            <div
+              className={`w-1.5 h-1.5 rounded-full shrink-0 ${!accentDotStyle && index === 0 ? 'bg-blue-400' : 'bg-neutral-200'}`}
+              style={index === 0 ? accentDotStyle : undefined}
+            />
           )}
 
           {/* Avatar for contact-type primary */}
           {cols.primary && isContactType(cols.primary[1]) && data ? (
             <Avatar initial={String(data[cols.primary[0]] ?? '?')[0]} />
           ) : cols.primary && isContactType(cols.primary[1]) ? (
-            <div className="w-4 h-4 rounded-full bg-neutral-100 shrink-0" />
+            <div className={`w-4 h-4 rounded-full shrink-0 ${dark ? 'bg-neutral-700' : 'bg-neutral-100'}`} />
           ) : null}
 
           {/* Content */}
           <div className="flex-1 min-w-0 flex flex-col gap-0.5">
             {data && cols.primary ? (
-              <span className="text-[9px] text-neutral-700 font-medium truncate leading-tight">
+              <span className={`text-[9px] font-medium truncate leading-tight ${primaryTextClass}`}>
                 {String(data[cols.primary[0]] ?? '')}
               </span>
             ) : (
-              <PlaceholderBar width={index % 2 === 0 ? 'w-3/4' : 'w-1/2'} />
+              <PlaceholderBar width={index % 2 === 0 ? 'w-3/4' : 'w-1/2'} dark={dark} />
             )}
             {!compact && (
               data && cols.secondary ? (
-                <span className="text-[8px] text-neutral-400 truncate leading-tight">
+                <span className={`text-[8px] truncate leading-tight ${secondaryTextClass}`}>
                   {String(data[cols.secondary[0]] ?? '')}
                 </span>
               ) : (
-                <PlaceholderBar width={index % 2 === 0 ? 'w-1/2' : 'w-2/3'} />
+                <PlaceholderBar width={index % 2 === 0 ? 'w-1/2' : 'w-2/3'} dark={dark} />
               )
             )}
           </div>
@@ -115,9 +128,9 @@ export function DataList({ region, context, fixtureData, compact }: SkinProps) {
           {cols.meta && (
             <div className="shrink-0">
               {data ? (
-                <span className="text-[7px] text-neutral-400">{String(data[cols.meta[0]] ?? '')}</span>
+                <span className={`text-[7px] ${metaTextClass}`}>{String(data[cols.meta[0]] ?? '')}</span>
               ) : (
-                <div className="w-6 h-1.5 bg-neutral-100 rounded-sm" />
+                <div className={`w-6 h-1.5 rounded-sm ${metaBarClass}`} />
               )}
             </div>
           )}

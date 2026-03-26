@@ -1,4 +1,4 @@
-import type { Region } from '../../lib/types'
+import type { Region, TasteTokens } from '../../lib/types'
 
 export interface SkinContext {
   skin: string
@@ -14,4 +14,5 @@ export interface SkinProps {
   fixtureData?: Record<string, any> | null
   screenName?: string
   compact?: boolean
+  taste?: TasteTokens
 }
