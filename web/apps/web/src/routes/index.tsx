@@ -18,7 +18,13 @@ function HomePage() {
 
   return (
     <div className="max-w-3xl mx-auto p-8">
-      <h1 className="text-2xl font-bold mb-1">{spec.app?.name || 'Spec'}</h1>
+      <div className="flex items-center gap-3 mb-1">
+        <h1 className="text-2xl font-bold">{spec.app?.name || 'Spec'}</h1>
+        <Link to="/playground"
+          className="px-3 py-1 text-xs font-medium rounded-full bg-neutral-900 text-white hover:bg-neutral-700 transition-colors">
+          Playground
+        </Link>
+      </div>
       {spec.app?.description && (
         <p className="text-neutral-500 mb-6">{spec.app.description}</p>
       )}

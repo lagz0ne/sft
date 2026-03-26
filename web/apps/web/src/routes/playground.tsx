@@ -2,7 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSpecContext } from '../context/spec-context'
 import { useState } from 'react'
 import { WireframeCanvas } from '../components/wireframe-canvas'
-import type { FlowStep } from '../lib/types'
+import type { FlowStep, TasteTokens } from '../lib/types'
 
 export const Route = createFileRoute('/playground')({
 	component: PlaygroundPage,
@@ -23,6 +23,7 @@ function PlaygroundPage() {
 	const [mode, setMode] = useState<'screen' | 'flow'>('screen')
 	const [currentFlow, setCurrentFlow] = useState<string | null>(null)
 	const [stepIndex, setStepIndex] = useState(0)
+	const [currentTaste, setCurrentTaste] = useState<string | null>(null)
 
 	if (loading || !spec) return <div className="h-full flex items-center justify-center text-neutral-400">Loading...</div>
 
@@ -44,6 +45,11 @@ function PlaygroundPage() {
 	const effectiveState = mode === 'flow'
 		? (flowScreen?.states?.[0] ?? null)
 		: activeState
+
+	// Active taste tokens
+	const activeTaste: TasteTokens = currentTaste
+		? spec.tastes?.find(t => t.name === currentTaste)?.tokens ?? {}
+		: {}
 
 	// Active region/event from flow step
 	const activeRegion = mode === 'flow' && currentStep?.type === 'region' ? currentStep.name : null
@@ -138,6 +144,29 @@ function PlaygroundPage() {
 									<option key={f.name} value={f.name}>{f.name}</option>
 								))}
 							</select>
+						</>
+					)}
+
+					{/* Taste switcher */}
+					{spec.tastes && spec.tastes.length > 0 && (
+						<>
+							<div className="w-px h-4 bg-neutral-200" />
+							<span className="text-[10px] text-neutral-400">taste:</span>
+							<div className="flex gap-1">
+								{spec.tastes.map(t => (
+									<button
+										key={t.name}
+										onClick={() => setCurrentTaste(t.name === currentTaste ? null : t.name)}
+										className={`px-2.5 py-0.5 text-[10px] rounded-full transition-colors ${
+											t.name === currentTaste
+												? 'bg-neutral-800 text-white font-semibold'
+												: 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'
+										}`}
+									>
+										{t.name}
+									</button>
+								))}
+							</div>
 						</>
 					)}
 				</div>
@@ -266,6 +295,7 @@ function PlaygroundPage() {
 							activeRegion={activeRegion}
 							activeEvent={activeEvent}
 							app={spec.app}
+							taste={activeTaste}
 						/>
 					</div>
 				)}

@@ -1,4 +1,4 @@
-import type { App, Fixture, Region, Screen } from '../lib/types'
+import type { App, Fixture, Region, Screen, TasteTokens } from '../lib/types'
 import { selectSkin } from '../lib/skin-selector'
 import { DataList } from './skins/data-list'
 import { FormLayout } from './skins/form-layout'
@@ -142,9 +142,10 @@ interface WireframeCanvasProps {
 	activeRegion?: string | null
 	activeEvent?: string | null
 	app: App
+	taste?: TasteTokens
 }
 
-export function WireframeCanvas({ screen, currentState, appRegions, fixtures, activeRegion, activeEvent, app }: WireframeCanvasProps) {
+export function WireframeCanvas({ screen, currentState, appRegions, fixtures, activeRegion, activeEvent, app, taste }: WireframeCanvasProps) {
 	const visibleRegions = currentState && screen.state_regions
 		? screen.state_regions[currentState]
 		: null
@@ -161,7 +162,7 @@ export function WireframeCanvas({ screen, currentState, appRegions, fixtures, ac
 	const groups = groupByRole(allRegions)
 	const gridStyle = buildGridTemplate(groups)
 
-	const regionProps = { visibleRegions, fixtureData, activeRegion, activeEvent, app, screen }
+	const regionProps = { visibleRegions, fixtureData, activeRegion, activeEvent, app, screen, taste }
 
 	return (
 		<div style={{ position: 'relative', height: '100%' }}>
@@ -238,9 +239,10 @@ interface WireframeRegionProps {
 	isOverlay?: boolean
 	app: App
 	screen: Screen
+	taste?: TasteTokens
 }
 
-function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeRegion, activeEvent, compact, isOverlay, app, screen }: WireframeRegionProps) {
+function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeRegion, activeEvent, compact, isOverlay, app, screen, taste }: WireframeRegionProps) {
 	const hidden = visibleRegions != null && !visibleRegions.includes(region.name)
 	const isActive = activeRegion === region.name
 	const hasOwnStateMachine = region.states && region.states.length > 0
