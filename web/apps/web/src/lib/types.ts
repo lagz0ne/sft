@@ -8,6 +8,7 @@ export interface Transition {
 export interface Region {
   name: string
   description?: string
+  tags?: string[]
   events?: string[]
   transitions?: Transition[]
   attachments?: string[]
@@ -15,6 +16,8 @@ export interface Region {
   states?: string[]
   state_regions?: Record<string, string[]>
   state_fixtures?: Record<string, string>
+  ambient?: Record<string, string>
+  region_data?: Record<string, string>
 }
 
 export interface Screen {
@@ -56,10 +59,17 @@ export interface Flow {
   steps?: FlowStep[]
 }
 
+export interface Fixture {
+  name: string
+  extends?: string
+  data: Record<string, any>
+}
+
 export interface Spec {
   app: App
   screens: Screen[]
   flows?: Flow[]
+  fixtures?: Fixture[]
 }
 
 export interface RenderElement {
