@@ -260,6 +260,33 @@ func TestRefs(t *testing.T) {
 	}
 }
 
+func TestLoadTastes(t *testing.T) {
+	s := mustStore(t)
+	app := seedApp(t, s)
+
+	s.DB.Exec(`INSERT INTO tastes (app_id, name, tokens) VALUES (?, 'dark', '{"bg":"#000","fg":"#fff"}')`, app.ID)
+	s.DB.Exec(`INSERT INTO tastes (app_id, name, tokens) VALUES (?, 'light', '{"bg":"#fff","fg":"#000"}')`, app.ID)
+
+	spec, err := Load(s.DB, nil)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if len(spec.Tastes) != 2 {
+		t.Fatalf("expected 2 tastes, got %d", len(spec.Tastes))
+	}
+	// ordered by name: dark, light
+	if spec.Tastes[0].Name != "dark" {
+		t.Errorf("expected first taste 'dark', got %q", spec.Tastes[0].Name)
+	}
+	if spec.Tastes[1].Name != "light" {
+		t.Errorf("expected second taste 'light', got %q", spec.Tastes[1].Name)
+	}
+	if spec.Tastes[0].Tokens["bg"] != "#000" {
+		t.Errorf("unexpected token: %v", spec.Tastes[0].Tokens)
+	}
+}
+
 func TestDeriveStatesDedup(t *testing.T) {
 	// Direct unit test of deriveStates
 	transitions := []Transition{
