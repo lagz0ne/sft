@@ -604,8 +604,8 @@ function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeReg
 		<div
 			style={style}
 			className={[
-				'transition-all duration-300 flex flex-col',
-				layout.elevated ? 'rounded-xl shadow-lg bg-white border border-neutral-100' : 'rounded-lg border-2 border-neutral-200',
+				'transition-all duration-300 flex flex-col relative',
+				layout.elevated ? 'rounded-xl shadow-lg bg-white border border-neutral-100' : 'rounded-lg border border-stone-200',
 				isActive ? 'ring-2 ring-blue-400 ring-offset-1 border-blue-300' : '',
 				hasFixtureContent && !layout.elevated ? 'bg-amber-50/50 border-amber-200' : '',
 				isOverlay ? 'shadow-lg bg-white border-violet-300' : '',
@@ -613,28 +613,18 @@ function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeReg
 				depth === 0 ? 'flex-1 min-h-[48px]' : 'min-h-[36px]',
 			].join(' ')}
 		>
-			{/* Region header — hidden for elevated regions (the skin IS the region) */}
+			{/* Region name — floating badge, top-left, like TypeBadge */}
 			{!layout.elevated && (
-				<div className="flex items-center gap-1.5 mb-1">
-					<span className={`font-semibold ${compact ? 'text-xs' : 'text-sm'} text-neutral-700`}>
+				<span className="absolute top-0 left-2 -translate-y-1/2 flex items-center gap-1 text-[7px] leading-none font-mono">
+					<span className="bg-white px-1 py-px rounded-full ring-1 ring-stone-200 text-stone-500 font-medium">
 						{region.name}
 					</span>
 					{layout.position !== 'main' && (
-						<span className="text-[9px] bg-blue-50 text-blue-500 px-1 py-0.5 rounded">
+						<span className="bg-blue-50 text-blue-500 px-1 py-px rounded-full ring-1 ring-blue-200">
 							{layout.position}
 						</span>
 					)}
-					{hasOwnStateMachine && (
-						<span className="text-[9px] bg-violet-100 text-violet-600 px-1 py-0.5 rounded">
-							FSM
-						</span>
-					)}
-					{hasFixtureContent && (
-						<span className="text-[9px] bg-amber-100 text-amber-600 px-1 py-0.5 rounded">
-							data
-						</span>
-					)}
-				</div>
+				</span>
 			)}
 
 			{/* Component content */}
