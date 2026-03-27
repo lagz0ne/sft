@@ -9,26 +9,9 @@ import { ActionButton } from './skins/action-button'
 import { SearchInput } from './skins/search-input'
 import { Placeholder } from './skins/placeholder'
 
-// --- Layout roles from tags ---
+// --- Layout system ---
 
-type LayoutRole = 'sidebar' | 'header' | 'toolbar' | 'footer' | 'bottomnav' | 'aside' | 'overlay' | 'modal' | 'drawer' | 'banner' | 'main'
-type SizeHint = 'narrow' | 'wide' | null
-
-const LAYOUT_TAGS = new Set<LayoutRole>(['sidebar', 'header', 'toolbar', 'footer', 'bottomnav', 'aside', 'overlay', 'modal', 'drawer', 'banner'])
-
-function getRole(region: Region): LayoutRole {
-	if (!region.tags) return 'main'
-	for (const tag of region.tags) {
-		if (LAYOUT_TAGS.has(tag as LayoutRole)) return tag as LayoutRole
-	}
-	return 'main'
-}
-
-function getSizeHint(region: Region): SizeHint {
-	if (region.tags?.includes('narrow')) return 'narrow'
-	if (region.tags?.includes('wide')) return 'wide'
-	return null
-}
+import { parseLayout, modifierToCol, modifierToFlex } from '../lib/layout-tags'
 
 interface LayoutGroups {
 	banner: Region[]
@@ -42,27 +25,23 @@ interface LayoutGroups {
 	overlay: Region[]
 	modal: Region[]
 	drawer: Region[]
+	split: Region[]
 }
 
-function groupByRole(regions: Region[]): LayoutGroups {
-	const groups: LayoutGroups = { banner: [], header: [], sidebar: [], toolbar: [], main: [], aside: [], footer: [], bottomnav: [], overlay: [], modal: [], drawer: [] }
+/** Parse all regions' tags and group by position */
+function groupByPosition(regions: Region[]): LayoutGroups {
+	const groups: LayoutGroups = { banner: [], header: [], sidebar: [], toolbar: [], main: [], aside: [], footer: [], bottomnav: [], overlay: [], modal: [], drawer: [], split: [] }
 	for (const r of regions) {
-		groups[getRole(r)].push(r)
+		const { position } = parseLayout(r.tags)
+		groups[position].push(r)
 	}
 	return groups
 }
 
-/** Check if a main region has the `split` tag — means side-by-side instead of stacked */
-function hasSplitTag(region: Region): boolean {
-	return region.tags?.includes('split') ?? false
-}
-
 function sizeToCol(regions: Region[], fallback: string): string {
-	// Check if any region in this group has a size hint
 	for (const r of regions) {
-		const hint = getSizeHint(r)
-		if (hint === 'narrow') return 'minmax(8rem, 10rem)'
-		if (hint === 'wide') return 'minmax(16rem, 20rem)'
+		const { modifier } = parseLayout(r.tags)
+		if (modifier) return modifierToCol(modifier, fallback)
 	}
 	return fallback
 }
@@ -197,9 +176,9 @@ export function WireframeCanvas({ screen, currentState, appRegions, fixtures, ac
 		? resolveFixture(fixtureName, fixtures)
 		: null
 
-	// Combine app + screen regions, then group by layout role
+	// Combine app + screen regions, then group by position
 	const allRegions = [...(appRegions ?? []), ...(screen.regions ?? [])]
-	const groups = groupByRole(allRegions)
+	const groups = groupByPosition(allRegions)
 	const gridStyle = buildGridTemplate(groups)
 
 	// App-level regions bypass state_regions filter (they're always visible)
@@ -243,33 +222,27 @@ export function WireframeCanvas({ screen, currentState, appRegions, fixtures, ac
 				)}
 
 				<div style={{ gridArea: 'main' }} className="min-h-0 overflow-auto">
-					{(() => {
-						const splitRegions = groups.main.filter(hasSplitTag)
-						const stackRegions = groups.main.filter(r => !hasSplitTag(r))
-						return (
-							<div className="flex flex-col gap-1.5 h-full">
-								{/* Stacked regions above the split */}
-								{stackRegions.map(r => (
-									<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)} />
+					<div className="flex flex-col gap-1.5 h-full">
+						{/* Main regions stack vertically */}
+						{groups.main.map(r => (
+							<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)} />
+						))}
+						{/* Split regions sit side by side */}
+						{groups.split.length > 0 && (
+							<div className="flex gap-1.5 flex-1 min-h-0">
+								{groups.split.map(r => (
+									<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)}
+										style={{ flex: modifierToFlex(parseLayout(r.tags).modifier) }}
+									/>
 								))}
-								{/* Split regions side by side */}
-								{splitRegions.length > 0 && (
-									<div className="flex gap-1.5 flex-1 min-h-0">
-										{splitRegions.map(r => (
-											<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)}
-												style={{ flex: getSizeHint(r) === 'wide' ? '2' : getSizeHint(r) === 'narrow' ? '0.5' : '1' }}
-											/>
-										))}
-									</div>
-								)}
-								{groups.main.length === 0 && (
-									<div className="flex-1 flex items-center justify-center border border-dashed border-neutral-200 rounded-lg text-neutral-300 text-sm">
-										No main regions
-									</div>
-								)}
 							</div>
-						)
-					})()}
+						)}
+						{groups.main.length === 0 && groups.split.length === 0 && (
+							<div className="flex-1 flex items-center justify-center border border-dashed border-neutral-200 rounded-lg text-neutral-300 text-sm">
+								No main regions
+							</div>
+						)}
+					</div>
 				</div>
 
 				{groups.aside.length > 0 && (
@@ -355,15 +328,14 @@ interface WireframeRegionProps {
 function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeRegion, activeEvent, compact, isOverlay, app, screen, taste, style }: WireframeRegionProps) {
 	const hidden = visibleRegions != null && !visibleRegions.includes(region.name)
 	const isActive = activeRegion === region.name
+	const layout = parseLayout(region.tags)
 	const hasOwnStateMachine = region.states && region.states.length > 0
 	const hasFixtureContent = fixtureData && (fixtureData[region.name] != null)
 	const hasChildren = region.regions && region.regions.length > 0
-	const role = getRole(region)
-	const isElevated = region.tags?.includes('elevated') ?? false
 
-	// Check if region's own state machine hides it
-	const ownStateHidden = hasOwnStateMachine && region.states![0] !== undefined
-		&& region.tags?.includes('overlay')
+	// Check if region's own state machine hides it (overlay, modal, drawer with hidden initial state)
+	const isFloating = layout.position === 'overlay' || layout.position === 'modal' || layout.position === 'drawer'
+	const ownStateHidden = hasOwnStateMachine && isFloating
 		&& region.states![0] === 'hidden'
 
 	const effectiveHidden = hidden || (ownStateHidden && !isActive)
@@ -376,23 +348,23 @@ function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeReg
 			style={style}
 			className={[
 				'transition-all duration-300 flex flex-col',
-				isElevated ? 'rounded-xl shadow-lg bg-white border border-neutral-100' : 'rounded-lg border-2 border-neutral-200',
+				layout.elevated ? 'rounded-xl shadow-lg bg-white border border-neutral-100' : 'rounded-lg border-2 border-neutral-200',
 				isActive ? 'ring-2 ring-blue-400 ring-offset-1 border-blue-300' : '',
-				hasFixtureContent && !isElevated ? 'bg-amber-50/50 border-amber-200' : '',
+				hasFixtureContent && !layout.elevated ? 'bg-amber-50/50 border-amber-200' : '',
 				isOverlay ? 'shadow-lg bg-white border-violet-300' : '',
 				compact ? 'p-2' : 'p-3',
 				depth === 0 ? 'flex-1 min-h-[48px]' : 'min-h-[36px]',
 			].join(' ')}
 		>
 			{/* Region header — hidden for elevated regions (the skin IS the region) */}
-			{!isElevated && (
+			{!layout.elevated && (
 				<div className="flex items-center gap-1.5 mb-1">
 					<span className={`font-semibold ${compact ? 'text-xs' : 'text-sm'} text-neutral-700`}>
 						{region.name}
 					</span>
-					{role !== 'main' && (
+					{layout.position !== 'main' && (
 						<span className="text-[9px] bg-blue-50 text-blue-500 px-1 py-0.5 rounded">
-							{role}
+							{layout.position}
 						</span>
 					)}
 					{hasOwnStateMachine && (
