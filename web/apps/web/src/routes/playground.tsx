@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { useSpecContext } from '../context/spec-context'
 import { useState, useMemo } from 'react'
 import { WireframeCanvas } from '../components/wireframe-canvas'
@@ -19,7 +19,6 @@ function findScreenForStep(steps: FlowStep[], index: number): string | null {
 
 function PlaygroundPage() {
 	const { spec, loading } = useSpecContext()
-	const navigate = useNavigate()
 	const [currentScreen, setCurrentScreen] = useState<string | null>(null)
 	const [currentState, setCurrentState] = useState<string | null>(null)
 	const [mode, setMode] = useState<'screen' | 'flow'>('screen')
@@ -154,7 +153,6 @@ function PlaygroundPage() {
 				flowSteps={steps}
 				flowIndex={stepIndex}
 				onFlowStep={goToStep}
-				onBack={() => navigate({ to: '/' })}
 				viewportSizes={viewportSizes}
 				activeViewportWidth={viewportWidth}
 				onViewportSize={handleViewportSize}

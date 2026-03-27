@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { ArrowLeft, Monitor, Smartphone, Tablet, Maximize, Play, Layers, ChevronUp } from 'lucide-react'
+// ArrowLeft still used by FlowStrip nav arrows
 
 // Consistent sizes — everything aligns to a 20px row height
 const ICON = 11
@@ -175,7 +176,6 @@ export interface DockProps {
 	mode: 'screen' | 'flow'
 	onModeToggle: () => void
 	hasFlows: boolean
-	onBack: () => void
 	viewportSizes: ViewportSize[]
 	activeViewportWidth: number | null
 	onViewportSize: (size: ViewportSize) => void
@@ -188,7 +188,6 @@ export function Dock({
 	tastes, onTaste,
 	flowMode, flowSteps, flowIndex, onFlowStep,
 	mode, onModeToggle, hasFlows,
-	onBack,
 	viewportSizes, activeViewportWidth, onViewportSize,
 }: DockProps) {
 	return (
@@ -196,14 +195,6 @@ export function Dock({
 			className="fixed bottom-2 left-1/2 -translate-x-1/2 z-40 flex items-center bg-white/92 backdrop-blur-lg rounded-[10px] px-1 max-w-[95vw]"
 			style={{ boxShadow: '0 1px 12px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(0,0,0,0.06)' }}
 		>
-			{/* Back */}
-			<button onClick={onBack} title="Back"
-				className={`${ROW} w-5 flex items-center justify-center text-stone-400 hover:text-stone-600 transition-colors duration-100`}>
-				<ArrowLeft size={ICON} strokeWidth={1.4} />
-			</button>
-
-			<Div />
-
 			{/* Mode */}
 			{hasFlows && (
 				<>
