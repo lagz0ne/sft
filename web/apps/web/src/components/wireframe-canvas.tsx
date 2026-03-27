@@ -169,11 +169,11 @@ function ComponentRenderer({ component, componentProps, region, screen, fixtureD
 	const skinProps = { region, context: skinCtx, fixtureData, screenName: screen.name, compact, taste }
 
 	switch (shape) {
-		case 'input': return <InputShape label={props.label} placeholder={props.placeholder} type={props.type} taste={taste} />
-		case 'select': return <SelectShape label={props.label} options={props.options ?? props.items} taste={taste} />
-		case 'button': return <ButtonShape label={props.label ?? component} variant={props.variant} taste={taste} />
-		case 'image': return <ImageShape aspect={props.aspect} alt={props.alt} taste={taste} />
-		case 'text': return <TextShape content={props.content} level={props.level} taste={taste} />
+		case 'input': return <InputShape label={props.label} placeholder={props.placeholder} type={props.type} taste={taste} componentType={component} />
+		case 'select': return <SelectShape label={props.label} options={props.options ?? props.items} taste={taste} componentType={component} />
+		case 'button': return <ButtonShape label={props.label ?? component} variant={props.variant} taste={taste} componentType={component} />
+		case 'image': return <ImageShape aspect={props.aspect} alt={props.alt} taste={taste} componentType={component} />
+		case 'text': return <TextShape content={props.content} level={props.level} taste={taste} componentType={component} />
 		case 'list': return <DataList {...skinProps} />
 		case 'card': return <Placeholder {...skinProps} />
 		case 'tabs': return <Tabs {...skinProps} />
@@ -181,31 +181,88 @@ function ComponentRenderer({ component, componentProps, region, screen, fixtureD
 	}
 }
 
-// --- Primitive wireframe shapes ---
+// --- Wireframe primitive shapes ---
+// Each renders a recognizable wireframe representation of a json-render component.
+// Props enhance the shape with real labels, placeholders, and variants.
 
-function InputShape({ label, placeholder, type, taste }: { label?: string; placeholder?: string; type?: string; taste?: TasteTokens }) {
-	const dark = taste?.mode === 'dark'
-	const h = type === 'textarea' ? 'h-12' : 'h-5'
+// Shared: component type badge
+function TypeBadge({ type, dark }: { type: string; dark?: boolean }) {
 	return (
-		<div className="flex flex-col gap-0.5 w-full">
-			{label && <div className={`text-[8px] ${dark ? 'text-stone-400' : 'text-stone-500'}`}>{label}</div>}
-			<div className={`${h} rounded border ${dark ? 'border-stone-600 bg-stone-800' : 'border-stone-300 bg-stone-50'} flex items-center px-1.5`}>
-				{placeholder && <span className={`text-[8px] ${dark ? 'text-stone-600' : 'text-stone-400'}`}>{placeholder}</span>}
+		<span className={`absolute top-0 right-0 translate-x-0.5 -translate-y-1/2 text-[6px] px-1 py-px rounded-full leading-none font-mono ${
+			dark ? 'bg-stone-700 text-stone-400 ring-1 ring-stone-600' : 'bg-stone-100 text-stone-500 ring-1 ring-stone-200'
+		}`}>{type}</span>
+	)
+}
+
+function InputShape({ label, placeholder, type, taste, componentType }: {
+	label?: string; placeholder?: string; type?: string; taste?: TasteTokens; componentType?: string
+}) {
+	const dark = taste?.mode === 'dark'
+	const isTextarea = type === 'textarea' || componentType === 'Textarea'
+	const isSlider = componentType === 'Slider'
+	const border = dark ? 'border-stone-600' : 'border-stone-300/80'
+	const bg = dark ? 'bg-stone-800/50' : 'bg-white'
+
+	if (isSlider) {
+		return (
+			<div className="flex flex-col gap-1 w-full relative">
+				{label && <div className={`text-[8px] font-medium ${dark ? 'text-stone-400' : 'text-stone-500'}`}>{label}</div>}
+				<div className="flex items-center gap-1.5 h-4">
+					<div className={`flex-1 h-[3px] rounded-full ${dark ? 'bg-stone-700' : 'bg-stone-200'} relative`}>
+						<div className="absolute left-0 top-0 h-full w-2/5 rounded-full" style={{ backgroundColor: taste?.accent ?? (dark ? '#666' : '#999') }} />
+						<div className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-white ring-1 ring-stone-300 shadow-sm" style={{ left: '40%' }} />
+					</div>
+				</div>
+			</div>
+		)
+	}
+
+	return (
+		<div className="flex flex-col gap-1 w-full relative">
+			{componentType && <TypeBadge type={componentType} dark={dark} />}
+			{label && <div className={`text-[8px] font-medium ${dark ? 'text-stone-400' : 'text-stone-500'}`}>{label}</div>}
+			<div className={`${isTextarea ? 'min-h-[3rem]' : 'h-7'} rounded-md border ${border} ${bg} flex items-start px-2 ${isTextarea ? 'pt-1.5' : 'items-center'}`}
+				style={{ boxShadow: dark ? 'none' : 'inset 0 1px 2px rgba(0,0,0,0.04)' }}>
+				{placeholder ? (
+					<span className={`text-[9px] ${dark ? 'text-stone-600' : 'text-stone-400'}`}>{placeholder}</span>
+				) : (
+					<div className={`w-px h-3 ${dark ? 'bg-stone-500' : 'bg-stone-400'} animate-pulse`} />
+				)}
 			</div>
 		</div>
 	)
 }
 
-function SelectShape({ label, options, taste }: { label?: string; options?: string[]; taste?: TasteTokens }) {
+function SelectShape({ label, options, taste, componentType }: {
+	label?: string; options?: string[]; taste?: TasteTokens; componentType?: string
+}) {
 	const dark = taste?.mode === 'dark'
+	const border = dark ? 'border-stone-600' : 'border-stone-300/80'
+	const bg = dark ? 'bg-stone-800/50' : 'bg-white'
+	const isToggle = componentType === 'Toggle' || componentType === 'Checkbox'
+
+	if (isToggle) {
+		return (
+			<div className="flex items-center gap-2 relative">
+				{componentType && <TypeBadge type={componentType} dark={dark} />}
+				<div className={`w-7 h-4 rounded-full ${dark ? 'bg-stone-600' : 'bg-stone-200'} relative`}>
+					<div className="absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow-sm" />
+				</div>
+				{label && <span className={`text-[9px] ${dark ? 'text-stone-400' : 'text-stone-600'}`}>{label}</span>}
+			</div>
+		)
+	}
+
 	return (
-		<div className="flex flex-col gap-0.5 w-full">
-			{label && <div className={`text-[8px] ${dark ? 'text-stone-400' : 'text-stone-500'}`}>{label}</div>}
-			<div className={`h-5 rounded border ${dark ? 'border-stone-600 bg-stone-800' : 'border-stone-300 bg-stone-50'} flex items-center justify-between px-1.5`}>
-				<span className={`text-[8px] ${dark ? 'text-stone-500' : 'text-stone-400'}`}>
+		<div className="flex flex-col gap-1 w-full relative">
+			{componentType && <TypeBadge type={componentType} dark={dark} />}
+			{label && <div className={`text-[8px] font-medium ${dark ? 'text-stone-400' : 'text-stone-500'}`}>{label}</div>}
+			<div className={`h-7 rounded-md border ${border} ${bg} flex items-center justify-between px-2`}
+				style={{ boxShadow: dark ? 'none' : 'inset 0 1px 2px rgba(0,0,0,0.04)' }}>
+				<span className={`text-[9px] ${dark ? 'text-stone-500' : 'text-stone-500'}`}>
 					{options?.[0] ?? 'Select...'}
 				</span>
-				<svg className={`w-2.5 h-2.5 ${dark ? 'text-stone-500' : 'text-stone-400'}`} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+				<svg className={`w-3 h-3 ${dark ? 'text-stone-500' : 'text-stone-400'}`} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
 					<path d="M4 6l4 4 4-4" />
 				</svg>
 			</div>
@@ -213,73 +270,112 @@ function SelectShape({ label, options, taste }: { label?: string; options?: stri
 	)
 }
 
-function ButtonShape({ label, variant, taste }: { label?: string; variant?: string; taste?: TasteTokens }) {
+function ButtonShape({ label, variant, taste, componentType }: {
+	label?: string; variant?: string; taste?: TasteTokens; componentType?: string
+}) {
 	const dark = taste?.mode === 'dark'
 	const accent = taste?.accent
 	const isPrimary = variant === 'primary' || variant === 'default' || !variant
 	const isGhost = variant === 'ghost' || variant === 'outline'
 	const isDestructive = variant === 'destructive'
 
-	const bg = isDestructive ? 'bg-red-600 text-white'
-		: isPrimary ? (accent ? '' : dark ? 'bg-stone-200 text-stone-900' : 'bg-stone-800 text-white')
-		: isGhost ? (dark ? 'border border-stone-600 text-stone-300' : 'border border-stone-300 text-stone-600')
-		: dark ? 'bg-stone-700 text-stone-200' : 'bg-stone-200 text-stone-700'
+	let className = 'inline-flex items-center justify-center h-7 px-3.5 rounded-md text-[9px] font-medium tracking-wide transition-colors relative'
+
+	if (isDestructive) {
+		className += ' bg-red-500/90 text-white'
+	} else if (isGhost) {
+		className += dark
+			? ' border border-stone-600 text-stone-300'
+			: ' border border-stone-300/80 text-stone-600'
+	} else if (isPrimary) {
+		if (!accent) className += dark ? ' bg-stone-100 text-stone-900' : ' bg-stone-800 text-stone-50'
+	} else {
+		className += dark ? ' bg-stone-700 text-stone-200' : ' bg-stone-100 text-stone-700'
+	}
 
 	return (
-		<div
-			className={`inline-flex items-center justify-center h-5 px-2.5 rounded text-[8px] font-medium ${bg}`}
-			style={isPrimary && accent && !isDestructive ? { backgroundColor: accent, color: '#fff' } : undefined}
+		<div className={className}
+			style={isPrimary && accent && !isDestructive ? {
+				backgroundColor: accent,
+				color: '#fff',
+				boxShadow: `0 1px 3px ${accent}40`,
+			} : undefined}
 		>
+			{componentType && <TypeBadge type={componentType} dark={dark} />}
 			{label ?? 'Button'}
 		</div>
 	)
 }
 
-function ImageShape({ aspect, alt, taste }: { aspect?: string; alt?: string; taste?: TasteTokens }) {
+function ImageShape({ aspect, alt, taste, componentType }: {
+	aspect?: string; alt?: string; taste?: TasteTokens; componentType?: string
+}) {
 	const dark = taste?.mode === 'dark'
-	const h = aspect === 'square' ? 'aspect-square' : aspect === 'video' ? 'aspect-video' : 'h-20'
+	const aspectClass = aspect === 'square' ? 'aspect-square max-h-24'
+		: aspect === 'video' ? 'aspect-video'
+		: 'h-16'
+
 	return (
-		<div className={`${h} w-full rounded ${dark ? 'bg-stone-700' : 'bg-stone-100'} flex items-center justify-center`}>
-			<svg className={`w-5 h-5 ${dark ? 'text-stone-600' : 'text-stone-300'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-				<rect x="3" y="3" width="18" height="18" rx="2" />
-				<circle cx="8.5" cy="8.5" r="1.5" />
-				<path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
-			</svg>
-			{alt && <span className={`text-[7px] ml-1 ${dark ? 'text-stone-500' : 'text-stone-400'}`}>{alt}</span>}
+		<div className={`${aspectClass} w-full rounded-md overflow-hidden relative ${dark ? 'bg-stone-800' : 'bg-stone-50'}`}
+			style={{
+				backgroundImage: dark
+					? 'linear-gradient(45deg, #292524 25%, transparent 25%, transparent 75%, #292524 75%), linear-gradient(45deg, #292524 25%, transparent 25%, transparent 75%, #292524 75%)'
+					: 'linear-gradient(45deg, #f5f5f4 25%, transparent 25%, transparent 75%, #f5f5f4 75%), linear-gradient(45deg, #f5f5f4 25%, transparent 25%, transparent 75%, #f5f5f4 75%)',
+				backgroundSize: '8px 8px',
+				backgroundPosition: '0 0, 4px 4px',
+			}}
+		>
+			{componentType && <TypeBadge type={componentType} dark={dark} />}
+			<div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
+				<svg className={`w-5 h-5 ${dark ? 'text-stone-600' : 'text-stone-300'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2">
+					<rect x="3" y="3" width="18" height="18" rx="2" />
+					<circle cx="8.5" cy="8.5" r="1.5" />
+					<path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+				</svg>
+				{alt && <span className={`text-[7px] ${dark ? 'text-stone-600' : 'text-stone-400'}`}>{alt}</span>}
+			</div>
 		</div>
 	)
 }
 
-function TextShape({ content, level, taste }: { content?: string; level?: number; taste?: TasteTokens }) {
+function TextShape({ content, level, taste, componentType }: {
+	content?: string; level?: number; taste?: TasteTokens; componentType?: string
+}) {
 	const dark = taste?.mode === 'dark'
-	const barClass = dark ? 'bg-stone-700' : 'bg-stone-200'
-	const lineClass = dark ? 'bg-stone-800' : 'bg-stone-100'
 	if (content) {
-		const isHeading = level && level <= 3
+		const isHeading = (level && level <= 3) || componentType === 'Heading'
 		return (
-			<div className={`${isHeading ? 'text-[11px] font-semibold' : 'text-[9px]'} ${dark ? 'text-stone-300' : 'text-stone-600'}`}>
+			<div className={`relative ${isHeading ? 'text-[12px] font-semibold tracking-tight' : 'text-[9px] leading-relaxed'} ${dark ? 'text-stone-300' : 'text-stone-700'}`}>
+				{componentType && <TypeBadge type={componentType} dark={dark} />}
 				{content}
 			</div>
 		)
 	}
+
+	const bar = dark ? 'bg-stone-600' : 'bg-stone-300/70'
+	const line = dark ? 'bg-stone-700' : 'bg-stone-200/80'
 	return (
-		<div className="flex flex-col gap-1 w-full">
-			<div className={`h-2 rounded-sm w-2/3 ${barClass}`} />
-			<div className={`h-1.5 rounded-sm w-full ${lineClass}`} />
-			<div className={`h-1.5 rounded-sm w-5/6 ${lineClass}`} />
+		<div className="flex flex-col gap-1.5 w-full relative">
+			{componentType && <TypeBadge type={componentType} dark={dark} />}
+			<div className={`h-2.5 rounded w-3/5 ${bar}`} />
+			<div className={`h-[5px] rounded-sm w-full ${line}`} />
+			<div className={`h-[5px] rounded-sm w-11/12 ${line}`} />
+			<div className={`h-[5px] rounded-sm w-4/5 ${line}`} />
 		</div>
 	)
 }
 
-// --- "Set component" prompt for unbound regions ---
+// --- "Set component" prompt ---
 
 function UnboundPrompt({ name, taste }: { name: string; taste?: TasteTokens }) {
 	const dark = taste?.mode === 'dark'
 	return (
-		<div className={`flex items-center justify-center py-2 rounded border border-dashed ${
-			dark ? 'border-stone-700 text-stone-600' : 'border-stone-300 text-stone-400'
+		<div className={`flex flex-col items-center justify-center py-3 rounded-md border border-dashed ${
+			dark ? 'border-stone-700' : 'border-stone-300/60'
 		}`}>
-			<span className="text-[8px]">sft component {name} ...</span>
+			<div className={`text-[9px] font-mono ${dark ? 'text-stone-600' : 'text-stone-400'}`}>
+				sft component {name} <span className={dark ? 'text-stone-500' : 'text-stone-300'}>Type</span>
+			</div>
 		</div>
 	)
 }
