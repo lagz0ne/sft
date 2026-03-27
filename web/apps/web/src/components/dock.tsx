@@ -1,19 +1,17 @@
 import { useState, useRef, useEffect } from 'react'
-import { ArrowLeft, Monitor, Smartphone, Tablet, Maximize, Layout, Palette, Play, Layers, ChevronUp } from 'lucide-react'
+import { ArrowLeft, Monitor, Smartphone, Tablet, Maximize, Play, Layers, ChevronUp } from 'lucide-react'
 
-const I = 12 // icon size
+// --- Segment: a group of switchable items ---
 
-// --- Dock Segment ---
-
-interface DockSegmentProps {
+interface SegmentProps {
 	items: { id: string; label: string; active: boolean }[]
 	onSelect: (id: string) => void
 	accent?: string
 	maxInline?: number
-	icon?: React.ReactNode
+	label?: string
 }
 
-function DockSegment({ items, onSelect, accent, maxInline = 4, icon }: DockSegmentProps) {
+function Segment({ items, onSelect, accent, maxInline = 4, label }: SegmentProps) {
 	const [open, setOpen] = useState(false)
 	const ref = useRef<HTMLDivElement>(null)
 
@@ -28,51 +26,60 @@ function DockSegment({ items, onSelect, accent, maxInline = 4, icon }: DockSegme
 
 	const active = items.find(i => i.active)
 	const inline = items.length <= maxInline
-	const activeBg = accent ?? '#333'
-	const activeStyle = { backgroundColor: activeBg, color: '#fff' }
+	const accentColor = accent ?? 'oklch(0.35 0.02 250)'
 
 	return (
-		<div ref={ref} className="relative flex items-center">
-			{icon && <span className="text-neutral-400 mr-0.5">{icon}</span>}
-			<div className="flex gap-px bg-neutral-100 rounded p-px">
+		<div ref={ref} className="relative flex items-center gap-1">
+			{label && <span className="text-[8px] text-stone-400 select-none">{label}</span>}
+			<div className="flex items-center">
 				{inline ? (
 					items.map(item => (
 						<button key={item.id}
 							onClick={() => { onSelect(item.id); setOpen(false) }}
-							className={`px-1 py-px text-[7px] rounded-sm transition-colors leading-tight ${
-								item.active ? 'font-semibold' : 'text-neutral-500 hover:text-neutral-700 hover:bg-neutral-200'
+							className={`px-1.5 py-0.5 text-[9px] rounded transition-all duration-150 ${
+								item.active
+									? 'text-stone-900 font-medium'
+									: 'text-stone-400 hover:text-stone-600'
 							}`}
-							style={item.active ? activeStyle : undefined}
-						>{item.label}</button>
+							style={item.active ? { color: accentColor } : undefined}
+						>
+							{item.active && <span className="inline-block w-1 h-1 rounded-full mr-0.5 -translate-y-px" style={{ backgroundColor: accentColor }} />}
+							{item.label}
+						</button>
 					))
 				) : (
 					<>
 						{active && (
-							<button className="px-1 py-px text-[7px] rounded-sm font-semibold leading-tight"
-								style={activeStyle} onClick={() => setOpen(!open)}
-							>{active.label}</button>
+							<button className="px-1.5 py-0.5 text-[9px] font-medium rounded transition-all duration-150"
+								style={{ color: accentColor }}
+								onClick={() => setOpen(!open)}
+							>
+								<span className="inline-block w-1 h-1 rounded-full mr-0.5 -translate-y-px" style={{ backgroundColor: accentColor }} />
+								{active.label}
+							</button>
 						)}
 						<button onClick={() => setOpen(!open)}
-							className="px-0.5 py-px text-neutral-400 hover:text-neutral-600 rounded-sm hover:bg-neutral-200">
-							<ChevronUp size={8} />
+							className="text-stone-400 hover:text-stone-500 transition-colors">
+							<ChevronUp size={10} />
 						</button>
 					</>
 				)}
 			</div>
 
+			{/* Popover */}
 			{open && (
-				<div className="absolute bottom-full left-0 right-0 mb-1 bg-white rounded-md shadow-lg border border-neutral-200 overflow-hidden z-50"
+				<div className="absolute bottom-full left-0 mb-2 bg-white rounded-lg shadow-xl ring-1 ring-stone-200/60 overflow-hidden z-50 min-w-[120px]"
 					style={{ minWidth: ref.current?.offsetWidth }}>
-					<div className="max-h-48 overflow-y-auto py-px">
+					<div className="max-h-52 overflow-y-auto py-1">
 						{items.map(item => (
 							<button key={item.id}
 								onClick={() => { onSelect(item.id); setOpen(false) }}
-								className={`w-full px-2 py-0.5 text-[7px] text-left flex items-center gap-1 transition-colors leading-tight ${
-									item.active ? 'font-semibold' : 'text-neutral-600 hover:bg-neutral-50'
+								className={`w-full px-3 py-1.5 text-[9px] text-left flex items-center gap-1.5 transition-colors ${
+									item.active ? 'font-medium bg-stone-50' : 'text-stone-500 hover:bg-stone-50 hover:text-stone-700'
 								}`}
-								style={item.active ? { color: activeBg } : undefined}
+								style={item.active ? { color: accentColor } : undefined}
 							>
-								{item.active && <span className="w-1 h-1 rounded-full shrink-0" style={{ backgroundColor: activeBg }} />}
+								{item.active && <span className="w-1 h-1 rounded-full shrink-0" style={{ backgroundColor: accentColor }} />}
 								<span>{item.label}</span>
 							</button>
 						))}
@@ -83,7 +90,7 @@ function DockSegment({ items, onSelect, accent, maxInline = 4, icon }: DockSegme
 	)
 }
 
-// --- Viewport Size Control ---
+// --- Viewport ---
 
 export interface ViewportSize {
 	label: string
@@ -99,11 +106,16 @@ const PRESET_SIZES: ViewportSize[] = [
 	{ label: '375', width: 375, composition: null, icon: 'phone' },
 ]
 
-const SIZE_ICONS: Record<string, React.ReactNode> = {
-	maximize: <Maximize size={9} />,
-	monitor: <Monitor size={9} />,
-	tablet: <Tablet size={9} />,
-	phone: <Smartphone size={9} />,
+const sizeIcon = (name: string, active: boolean) => {
+	const color = active ? 'oklch(0.35 0.02 250)' : undefined
+	const props = { size: 13, strokeWidth: active ? 2 : 1.5, style: { color } }
+	switch (name) {
+		case 'maximize': return <Maximize {...props} />
+		case 'monitor': return <Monitor {...props} />
+		case 'tablet': return <Tablet {...props} />
+		case 'phone': return <Smartphone {...props} />
+		default: return null
+	}
 }
 
 function ViewportControl({ sizes, activeWidth, onSelect }: {
@@ -112,20 +124,24 @@ function ViewportControl({ sizes, activeWidth, onSelect }: {
 	onSelect: (size: ViewportSize) => void
 }) {
 	return (
-		<div className="flex gap-px bg-neutral-100 rounded p-px">
-			{sizes.map(s => (
-				<button key={s.label} onClick={() => onSelect(s)}
-					title={s.label}
-					className={`px-1 py-px rounded-sm transition-colors ${
-						activeWidth === s.width ? 'bg-neutral-700 text-white' : 'text-neutral-500 hover:text-neutral-700 hover:bg-neutral-200'
-					}`}
-				>{s.icon ? SIZE_ICONS[s.icon] : <span className="text-[7px] leading-tight">{s.label}</span>}</button>
-			))}
+		<div className="flex items-center gap-0.5">
+			{sizes.map(s => {
+				const active = activeWidth === s.width
+				return (
+					<button key={s.label} onClick={() => onSelect(s)} title={s.label}
+						className={`p-0.5 rounded transition-all duration-150 ${
+							active ? 'text-stone-800' : 'text-stone-300 hover:text-stone-500'
+						}`}
+					>
+						{s.icon ? sizeIcon(s.icon, active) : <span className="text-[9px]">{s.label}</span>}
+					</button>
+				)
+			})}
 		</div>
 	)
 }
 
-// --- Flow Step Strip ---
+// --- Flow Steps ---
 
 function FlowStrip({ steps, currentIndex, onStep }: {
 	steps: { type: string; name: string }[]
@@ -134,26 +150,35 @@ function FlowStrip({ steps, currentIndex, onStep }: {
 }) {
 	const icons: Record<string, string> = { screen: '◻', back: '←', region: '▪', event: '⚡', action: '▶', activate: '●' }
 	return (
-		<div className="flex items-center gap-px bg-neutral-100 rounded p-px overflow-x-auto max-w-[200px]">
+		<div className="flex items-center gap-0.5 overflow-x-auto max-w-[220px]">
 			<button disabled={currentIndex <= 0} onClick={() => onStep(currentIndex - 1)}
-				className="px-0.5 py-px text-[7px] text-neutral-400 hover:text-neutral-600 disabled:opacity-30 shrink-0">◀</button>
-			{steps.map((step, i) => (
-				<button key={i} onClick={() => onStep(i)}
-					className={`px-1 py-px text-[6px] rounded-sm shrink-0 transition-colors leading-tight ${
-						i === currentIndex ? 'bg-neutral-800 text-white font-semibold' : 'text-neutral-500 hover:bg-neutral-200'
-					}`}>
-					<span className="opacity-60 mr-px">{icons[step.type] ?? '·'}</span>{step.name}
-				</button>
-			))}
+				className="text-stone-400 hover:text-stone-600 disabled:opacity-20 shrink-0 p-0.5">
+				<ArrowLeft size={10} />
+			</button>
+			{steps.map((step, i) => {
+				const active = i === currentIndex
+				return (
+					<button key={i} onClick={() => onStep(i)}
+						className={`px-1 py-0.5 text-[8px] rounded shrink-0 transition-all duration-150 ${
+							active ? 'text-stone-900 font-medium bg-stone-100' : 'text-stone-400 hover:text-stone-600'
+						}`}>
+						<span className="opacity-50 mr-px">{icons[step.type] ?? '·'}</span>{step.name}
+					</button>
+				)
+			})}
 			<button disabled={currentIndex >= steps.length - 1} onClick={() => onStep(currentIndex + 1)}
-				className="px-0.5 py-px text-[7px] text-neutral-400 hover:text-neutral-600 disabled:opacity-30 shrink-0">▶</button>
+				className="text-stone-400 hover:text-stone-600 disabled:opacity-20 shrink-0 p-0.5 rotate-180">
+				<ArrowLeft size={10} />
+			</button>
 		</div>
 	)
 }
 
-function Sep() { return <div className="w-px h-3 bg-neutral-200 mx-px" /> }
+// --- Divider ---
 
-// --- Main Dock ---
+function Div() { return <div className="w-px h-3.5 bg-stone-200/60 mx-1" /> }
+
+// --- Dock ---
 
 export interface DockProps {
 	screens: { id: string; label: string; active: boolean }[]
@@ -188,59 +213,53 @@ export function Dock({
 	viewportSizes, activeViewportWidth, onViewportSize,
 }: DockProps) {
 	return (
-		<div className="fixed bottom-2 left-1/2 -translate-x-1/2 z-40 flex items-center gap-px bg-white/95 backdrop-blur-sm rounded-lg shadow-md border border-neutral-200 px-1 py-0.5 max-w-[95vw]">
+		<div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-40 flex items-center bg-white/90 backdrop-blur-md rounded-xl shadow-[0_2px_20px_rgba(0,0,0,0.08)] ring-1 ring-stone-200/50 px-2 py-1 max-w-[95vw]">
 			{/* Back */}
-			<button onClick={onBack} className="text-neutral-400 hover:text-neutral-600 p-0.5" title="Back">
-				<ArrowLeft size={I} />
+			<button onClick={onBack} className="text-stone-400 hover:text-stone-600 transition-colors p-0.5 mr-1" title="Back">
+				<ArrowLeft size={14} strokeWidth={1.5} />
 			</button>
-			<Sep />
+
+			<Div />
 
 			{/* Mode */}
 			{hasFlows && (
 				<>
-					<div className="flex gap-px bg-neutral-100 rounded p-px">
+					<div className="flex items-center gap-0.5">
 						<button onClick={() => mode !== 'screen' && onModeToggle()} title="Screen mode"
-							className={`p-0.5 rounded-sm transition-colors ${
-								mode === 'screen' ? 'bg-neutral-800 text-white' : 'text-neutral-500 hover:bg-neutral-200'
-							}`}><Layers size={10} /></button>
+							className={`p-0.5 rounded transition-all duration-150 ${
+								mode === 'screen' ? 'text-stone-800' : 'text-stone-300 hover:text-stone-500'
+							}`}><Layers size={13} strokeWidth={mode === 'screen' ? 2 : 1.5} /></button>
 						<button onClick={() => mode !== 'flow' && onModeToggle()} title="Flow mode"
-							className={`p-0.5 rounded-sm transition-colors ${
-								mode === 'flow' ? 'bg-neutral-800 text-white' : 'text-neutral-500 hover:bg-neutral-200'
-							}`}><Play size={10} /></button>
+							className={`p-0.5 rounded transition-all duration-150 ${
+								mode === 'flow' ? 'text-stone-800' : 'text-stone-300 hover:text-stone-500'
+							}`}><Play size={13} strokeWidth={mode === 'flow' ? 2 : 1.5} /></button>
 					</div>
-					<Sep />
+					<Div />
 				</>
 			)}
 
-			{/* Screen */}
-			<DockSegment items={screens} onSelect={onScreen} />
-			<Sep />
+			{/* Screens */}
+			<Segment items={screens} onSelect={onScreen} />
 
-			{/* State / Flow */}
+			{/* States / Flow */}
 			{flowMode && flowSteps && flowIndex != null && onFlowStep ? (
-				<FlowStrip steps={flowSteps} currentIndex={flowIndex} onStep={onFlowStep} />
-			) : (
-				states.length > 0 && <DockSegment items={states} onSelect={onState} accent="#059669" />
-			)}
+				<><Div /><FlowStrip steps={flowSteps} currentIndex={flowIndex} onStep={onFlowStep} /></>
+			) : states.length > 0 ? (
+				<><Div /><Segment items={states} onSelect={onState} accent="oklch(0.55 0.15 160)" /></>
+			) : null}
 
 			{/* Viewport */}
-			<Sep />
+			<Div />
 			<ViewportControl sizes={viewportSizes} activeWidth={activeViewportWidth} onSelect={onViewportSize} />
 
 			{/* Layout */}
 			{layouts.length > 0 && (
-				<>
-					<Sep />
-					<DockSegment items={layouts} onSelect={onLayout} icon={<Layout size={9} />} />
-				</>
+				<><Div /><Segment items={layouts} onSelect={onLayout} label="layout" /></>
 			)}
 
 			{/* Taste */}
 			{tastes.length > 0 && (
-				<>
-					<Sep />
-					<DockSegment items={tastes} onSelect={onTaste} icon={<Palette size={9} />} />
-				</>
+				<><Div /><Segment items={tastes} onSelect={onTaste} label="taste" /></>
 			)}
 		</div>
 	)
