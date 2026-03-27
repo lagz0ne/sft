@@ -15,10 +15,10 @@ function MagnifierIcon({ dark }: { dark?: boolean }) {
   )
 }
 
-export function SearchInput({ compact, taste }: SkinProps) {
-  const dark = taste?.mode === 'dark'
-  const shapeClass = taste?.shape === 'sharp' ? 'rounded-none' : taste?.shape === 'pill' ? 'rounded-full' : 'rounded-sm'
-  const densityClass = taste?.density === 'compact' ? 'px-1 py-0' : taste?.density === 'spacious' ? 'px-2.5 py-1.5' : (compact ? 'px-1.5 py-0.5' : 'px-2 py-1')
+export function SearchInput({ compact }: SkinProps) {
+  const dark = false
+  const shapeClass = undefined === 'sharp' ? 'rounded-none' : undefined === 'pill' ? 'rounded-full' : 'rounded-sm'
+  const densityClass = undefined === 'compact' ? 'px-1 py-0' : undefined === 'spacious' ? 'px-2.5 py-1.5' : (compact ? 'px-1.5 py-0.5' : 'px-2 py-1')
   const bgBorderClass = dark
     ? 'border-neutral-700 bg-neutral-800'
     : 'border-neutral-200 bg-white'

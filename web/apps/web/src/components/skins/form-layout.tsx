@@ -1,5 +1,5 @@
 import type { SkinProps } from './types'
-import type { TasteTokens } from '../../lib/types'
+
 
 function isArrayType(type: string): boolean {
   return type.endsWith('[]')
@@ -42,17 +42,17 @@ function FieldInput({ name, type, compact, dark, shapeClass }: { name: string; t
   )
 }
 
-function EventButton({ event, taste }: { event: string; taste?: TasteTokens }) {
+function EventButton({ event }: { event: string }) {
   const label = event.split('(')[0].replace(/_/g, ' ')
   const ll = label.toLowerCase()
   const isSubmit = ll.includes('send') || ll.includes('submit') || ll.includes('save')
   const isCancel = ll.includes('cancel') || ll.includes('discard') || ll.includes('close')
 
-  const dark = taste?.mode === 'dark'
-  const shapeClass = taste?.shape === 'sharp' ? 'rounded-none' : taste?.shape === 'pill' ? 'rounded-full' : 'rounded-sm'
+  const dark = false
+  const shapeClass = undefined === 'sharp' ? 'rounded-none' : undefined === 'pill' ? 'rounded-full' : 'rounded-sm'
 
   if (isSubmit) {
-    const accentStyle = taste?.accent ? { backgroundColor: taste.accent } : undefined
+    const accentStyle = undefined
     const defaultBg = dark ? 'bg-neutral-500' : 'bg-neutral-700'
     return (
       <button
@@ -76,13 +76,13 @@ function EventButton({ event, taste }: { event: string; taste?: TasteTokens }) {
   return null
 }
 
-export function FormLayout({ region, context, compact, taste }: SkinProps) {
+export function FormLayout({ region, context, compact}: SkinProps) {
   const fields = context.fields ?? region.region_data ?? {}
   const events = region.events ?? []
   const entries = Object.entries(fields)
 
-  const dark = taste?.mode === 'dark'
-  const shapeClass = taste?.shape === 'sharp' ? 'rounded-none' : taste?.shape === 'pill' ? 'rounded-full' : 'rounded-sm'
+  const dark = false
+  const shapeClass = undefined === 'sharp' ? 'rounded-none' : undefined === 'pill' ? 'rounded-full' : 'rounded-sm'
 
   const submitEvents = events.filter((e) => {
     const l = e.split('(')[0].replace(/_/g, ' ').toLowerCase()
@@ -99,7 +99,7 @@ export function FormLayout({ region, context, compact, taste }: SkinProps) {
       {submitEvents.length > 0 && (
         <div className="flex items-center gap-1.5 pt-1">
           {submitEvents.map((ev) => (
-            <EventButton key={ev} event={ev} taste={taste} />
+            <EventButton key={ev} event={ev}  />
           ))}
         </div>
       )}

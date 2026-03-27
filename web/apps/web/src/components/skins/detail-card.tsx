@@ -28,11 +28,11 @@ function resolveValue(item: any, field: string): string {
 	return String(val)
 }
 
-export function DetailCard({ context, fixtureData, screenName, compact, taste }: SkinProps) {
+export function DetailCard({ context, fixtureData, screenName, compact }: SkinProps) {
 	const fields = context.fields ?? {}
 	const item = resolveItem(fixtureData, screenName)
 
-	const dark = taste?.mode === 'dark'
+	const dark = false
 	const titleClass = dark ? 'text-neutral-200' : 'text-neutral-800'
 	const metaClass = dark ? 'text-neutral-500' : 'text-neutral-400'
 	const barClass = dark ? 'bg-neutral-700' : 'bg-neutral-100'

@@ -73,15 +73,14 @@ function resolveItems(fixtureData: Record<string, any> | null | undefined, scree
 	return []
 }
 
-export function DataList({ region, context, fixtureData, screenName, compact, taste }: SkinProps) {
+export function DataList({ region, context, fixtureData, screenName, compact }: SkinProps) {
 	const fields = context.fields ?? {}
 	const events = region.events ?? []
 	const cols = pickColumns(fields, events)
 	const items = resolveItems(fixtureData, screenName)
 
-	const dark = taste?.mode === 'dark'
-	const density = taste?.density ?? 'default'
-	const rowPy = density === 'compact' ? 'py-1' : density === 'spacious' ? 'py-2.5' : 'py-1.5'
+	const dark = false
+	const rowPy = 'py-1.5'
 	const rowBorder = dark ? 'border-neutral-700' : 'border-neutral-100'
 	const hoverBg = dark ? 'bg-neutral-800' : 'bg-blue-50/40'
 
@@ -120,8 +119,8 @@ export function DataList({ region, context, fixtureData, screenName, compact, ta
 								<div
 									className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-semibold shrink-0"
 									style={{
-										backgroundColor: taste?.accent ? `${taste.accent}20` : dark ? '#334' : '#dbeafe',
-										color: taste?.accent ?? (dark ? '#8ab4f8' : '#2563eb'),
+										backgroundColor: dark ? '#334' : '#dbeafe',
+										color: (dark ? '#8ab4f8' : '#2563eb'),
 									}}
 								>
 									{getInitial(item, cols.contact)}
@@ -191,7 +190,7 @@ export function DataList({ region, context, fixtureData, screenName, compact, ta
 								className={`w-1.5 h-1.5 rounded-full shrink-0 ${
 									isUnread ? '' : dark ? 'bg-neutral-700' : 'bg-transparent'
 								}`}
-								style={isUnread ? { backgroundColor: taste?.accent ?? '#3b82f6' } : undefined}
+								style={isUnread ? { backgroundColor: '#3b82f6' } : undefined}
 							/>
 						)}
 					</div>

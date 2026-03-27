@@ -1,0 +1,232 @@
+app:
+  name: spotify
+  description: Music streaming — library browsing, search, playlist management, and playback
+
+  enums:
+    content_type: [song, album, playlist, artist, podcast, episode]
+    repeat_mode: [off, all, one]
+
+  data:
+    track:
+      title: string
+      artist: artist
+      album: album
+      duration: number
+      cover_art: string?
+    artist:
+      name: string
+      image: string?
+    album:
+      name: string
+      artist: artist
+      cover_art: string?
+      year: number?
+    playlist:
+      name: string
+      owner: string
+      track_count: number
+      cover_art: string?
+      description: string?
+
+  context:
+    current_user: string
+    now_playing: track?
+
+  regions:
+    - name: top_bar
+      tags: [header]
+      description: App header with logo, home button, search input, and user menu
+      regions:
+        - name: search_input
+          description: Global search with autocomplete
+          events:
+            search(string):
+
+    - name: library_panel
+      tags: [sidebar]
+      description: Your Library — playlists, saved albums, followed artists, podcasts
+      events:
+        - select_item(playlist)
+        - create_playlist
+        - toggle_filter(content_type)
+      ambient:
+        playlists: "data(app, .playlists)"
+
+    - name: now_playing_bar
+      tags: [footer]
+      description: Persistent playback controls — current track, play/pause, progress, volume, queue
+      events:
+        - toggle_play
+        - next_track
+        - prev_track
+        - toggle_shuffle
+        - cycle_repeat(repeat_mode)
+        - seek(number)
+        - set_volume(number)
+      ambient:
+        track: "data(app, .now_playing)"
+
+  screens:
+    - name: home
+      description: Personalized home feed with recently played, made for you, and trending content
+      context:
+        recently_played: track[]
+        made_for_you: playlist[]
+        trending: album[]
+      regions:
+        - name: greeting_section
+          description: Good morning/afternoon/evening with quick-access recently played cards
+          ambient:
+            items: "data(home, .recently_played)"
+        - name: made_for_you_row
+          description: Horizontal scrollable row of personalized playlist cards
+          ambient:
+            playlists: "data(home, .made_for_you)"
+          events:
+            select_playlist(playlist):
+        - name: trending_row
+          description: Horizontal scrollable row of trending album cards
+          ambient:
+            albums: "data(home, .trending)"
+          events:
+            select_album(album):
+
+    - name: search
+      description: Search results organized by content type with category browsing
+      context:
+        query: string
+        results: track[]
+      regions:
+        - name: category_grid
+          description: Browse categories grid when no query — genres, moods, decades
+        - name: search_results
+          description: Filtered search results — songs, artists, albums, playlists, podcasts
+          events:
+            select_result(track):
+            play_track(track):
+          ambient:
+            results: "data(search, .results)"
+      state_machine:
+        browsing:
+          regions: [category_grid]
+          on:
+            search: searching
+        searching:
+          fixture: search_active
+          regions: [search_results]
+          on:
+            clear_search: browsing
+            select_result: navigate(track_view)
+            play_track: .
+
+    - name: playlist_view
+      description: Playlist detail with track list, header, and controls
+      context:
+        playlist: playlist
+        tracks: track[]
+      regions:
+        - name: playlist_header
+          description: Cover art, title, owner, description, play/shuffle buttons
+          ambient:
+            playlist: "data(playlist_view, .playlist)"
+          events:
+            - play_all
+            - shuffle_all
+        - name: track_list
+          tags: [split:wide]
+          description: Sortable track list with columns — title, artist, album, duration
+          events:
+            play_track(track):
+            add_to_queue(track):
+            remove_from_playlist(track):
+          ambient:
+            tracks: "data(playlist_view, .tracks)"
+        - name: playlist_sidebar
+          tags: [aside]
+          description: Related playlists, about the creator
+      state_machine:
+        viewing:
+          fixture: playlist_detail
+          on:
+            play_track: .
+            play_all: .
+
+    - name: track_view
+      description: Now playing full view with lyrics, canvas, and queue
+      context:
+        track: track
+        queue: track[]
+        lyrics: string?
+      regions:
+        - name: album_art
+          tags: [split]
+          description: Large album artwork or canvas animation
+          ambient:
+            track: "data(track_view, .track)"
+        - name: lyrics_panel
+          tags: [split]
+          description: Synced lyrics display
+        - name: queue_panel
+          tags: [drawer]
+          description: Up next queue — reorderable track list
+          events:
+            reorder_queue(track):
+            remove_from_queue(track):
+          ambient:
+            queue: "data(track_view, .queue)"
+
+    - name: artist_page
+      description: Artist profile with discography, related artists, and about
+      context:
+        artist: artist
+        top_tracks: track[]
+        albums: album[]
+      regions:
+        - name: artist_header
+          description: Artist image, name, monthly listeners, follow button
+          ambient:
+            artist: "data(artist_page, .artist)"
+          events:
+            - toggle_follow
+        - name: top_tracks_list
+          description: Popular tracks by this artist
+          events:
+            play_track(track):
+          ambient:
+            tracks: "data(artist_page, .top_tracks)"
+        - name: discography_grid
+          description: Albums and singles in a card grid
+          events:
+            select_album(album):
+          ambient:
+            albums: "data(artist_page, .albums)"
+
+  fixtures:
+    search_active:
+      search:
+        query: "daft punk"
+        results:
+          - { title: "Get Lucky", artist: { name: "Daft Punk" }, album: { name: "Random Access Memories" }, duration: 369 }
+          - { title: "Around the World", artist: { name: "Daft Punk" }, album: { name: "Homework" }, duration: 428 }
+          - { title: "One More Time", artist: { name: "Daft Punk" }, album: { name: "Discovery" }, duration: 320 }
+
+    playlist_detail:
+      playlist_view:
+        playlist: { name: "Chill Vibes", owner: "Spotify", track_count: 120, description: "Kick back with these mellow beats" }
+        tracks:
+          - { title: "Blinding Lights", artist: { name: "The Weeknd" }, album: { name: "After Hours" }, duration: 200 }
+          - { title: "Levitating", artist: { name: "Dua Lipa" }, album: { name: "Future Nostalgia" }, duration: 203 }
+          - { title: "Heat Waves", artist: { name: "Glass Animals" }, album: { name: "Dreamland" }, duration: 239 }
+
+  flows:
+    - name: search_and_play
+      description: User searches for a song and plays it
+      sequence: "home → search → search(query) → play_track → home"
+
+    - name: browse_playlist
+      description: User opens a playlist from their library and plays a track
+      sequence: "home → playlist_view → play_track"
+
+    - name: explore_artist
+      description: User discovers an artist from search and explores their page
+      sequence: "home → search → search(query) → select_result → track_view → artist_page"

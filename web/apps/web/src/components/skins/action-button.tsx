@@ -1,6 +1,6 @@
 import type { SkinProps } from './types'
 
-export function ActionButton({ region, taste }: SkinProps) {
+export function ActionButton({ region }: SkinProps) {
   const events = region.events ?? []
   const event = events[0]
   if (!event) return null
@@ -9,11 +9,11 @@ export function ActionButton({ region, taste }: SkinProps) {
   const tags = region.tags ?? []
   const isDestructive = tags.some((t) => t.toLowerCase().includes('destructive'))
 
-  const shapeClass = taste?.shape === 'sharp' ? 'rounded-none' : taste?.shape === 'pill' ? 'rounded-full' : 'rounded-sm'
-  const densityClass = taste?.density === 'compact' ? 'px-2 py-0.5' : taste?.density === 'spacious' ? 'px-4 py-1.5' : 'px-3 py-1'
+  const shapeClass = undefined === 'sharp' ? 'rounded-none' : undefined === 'pill' ? 'rounded-full' : 'rounded-sm'
+  const densityClass = undefined === 'compact' ? 'px-2 py-0.5' : undefined === 'spacious' ? 'px-4 py-1.5' : 'px-3 py-1'
 
-  const accentStyle = !isDestructive && taste?.accent ? { backgroundColor: taste.accent } : undefined
-  const defaultBgClass = isDestructive ? 'bg-red-500' : (taste?.mode === 'dark' ? 'bg-neutral-500' : 'bg-neutral-700')
+  const accentStyle = !isDestructive && undefined ? { backgroundColor: undefined } : undefined
+  const defaultBgClass = isDestructive ? 'bg-red-500' : (false ? 'bg-neutral-500' : 'bg-neutral-700')
 
   return (
     <div className="flex w-full">

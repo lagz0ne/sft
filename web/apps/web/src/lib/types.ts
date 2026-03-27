@@ -67,28 +67,11 @@ export interface Fixture {
   data: Record<string, any>
 }
 
-export interface TasteTokens {
-  density?: 'compact' | 'default' | 'spacious'
-  shape?: 'sharp' | 'rounded' | 'pill'
-  mode?: 'light' | 'dark'
-  accent?: string
-  surface?: string
-  list?: { avatar?: string; divider?: string; active?: string }
-  nav?: { icon?: string; active?: string }
-  [key: string]: any
-}
-
-export interface Taste {
-  name: string
-  tokens: TasteTokens
-}
-
 export interface Spec {
   app: App
   screens: Screen[]
   flows?: Flow[]
   fixtures?: Fixture[]
-  tastes?: Taste[]
 }
 
 export interface RenderElement {

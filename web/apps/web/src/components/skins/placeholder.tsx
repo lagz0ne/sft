@@ -13,11 +13,10 @@ function isSettingsLike(desc: string): boolean {
 
 const NAV_ITEMS = ['Inbox', 'Starred', 'Sent', 'Drafts', 'Spam', 'Trash']
 
-function NavItems({ compact, dark, taste }: { compact?: boolean; dark?: boolean; taste?: SkinProps['taste'] }) {
+function NavItems({ compact, dark }: { compact?: boolean; dark?: boolean }) {
 	const items = NAV_ITEMS.slice(0, compact ? 4 : 6)
-	const accent = taste?.accent ?? '#2563eb'
-	const density = taste?.density ?? 'default'
-	const py = density === 'compact' ? 'py-0.5' : density === 'spacious' ? 'py-2' : 'py-1'
+	const accent = '#2563eb'
+	const py = 'py-1'
 
 	return (
 		<div className="flex flex-col gap-0.5 w-full">
@@ -94,11 +93,11 @@ function ContentLines({ compact, dark }: { compact?: boolean; dark?: boolean }) 
 	)
 }
 
-export function Placeholder({ region, compact, taste }: SkinProps) {
+export function Placeholder({ region, compact }: SkinProps) {
 	const desc = region.description ?? region.name
-	const dark = taste?.mode === 'dark'
+	const dark = false
 
-	if (isNavLike(desc)) return <NavItems compact={compact} dark={dark} taste={taste} />
+	if (isNavLike(desc)) return <NavItems compact={compact} dark={dark} />
 	if (isSettingsLike(desc)) return <SettingsItems compact={compact} dark={dark} />
 	return <ContentLines compact={compact} dark={dark} />
 }
