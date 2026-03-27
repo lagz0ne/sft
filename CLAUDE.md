@@ -15,7 +15,7 @@ Tests use in-memory SQLite with `t.Cleanup()`. Example specs in `examples/*.sft.
 
 **All work starts with `/c3`.** It is the canonical source for how things work, why they work that way, component boundaries, dependencies, schema, extension patterns, refs, and ADRs. No guessing — `/c3` first, then act.
 
-**1 container** (cli) · **11 components** · **4 refs**
+**2 containers** (cli, view) · **13 components** · **4 refs**
 
 ### Data Flow
 
@@ -52,3 +52,6 @@ store → model, flow               flow → model
 - **State regions** — which child regions are visible per state
 - **Ambient refs** — `data(source, .query)` links region to screen context
 - **Type system** — scalars (string, number, boolean, date, datetime) + data type refs + `[]` arrays + `?` optionals. Enums standalone
+- **Components** — json-render type + props bound to regions via `sft component`. Bridge between wireframe preview and production renderer
+- **Tags** — layout only: position (`sidebar`, `header`, `split:wide`), composition (`mobile:bottomnav`), visual (`elevated`). Tailwind-like colon syntax
+- **Component sets** — named rendering implementations (wireframe, styled, compact). Switchable in playground dock
