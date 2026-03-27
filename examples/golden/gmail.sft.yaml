@@ -1,0 +1,199 @@
+app: gmail
+
+layouts:
+  top-bar:          [col-span-full, row-start-1]
+  sticky-top-bar:   [sticky, top-0, col-span-full, z-20]
+  sidebar:          [col-span-2, row-start-2, row-span-full]
+  sidebar-far:      [col-start-11, col-span-2, row-start-2, row-span-full]
+  content-fill:     [1fr]
+  bottom-bar:       [col-span-full]
+  bottom-nav-fixed: [fixed, bottom-0, left-0, right-0, z-20]
+  modal:            [fixed, inset-0, z-50]
+  drawer-right:     [fixed, top-0, right-0, bottom-0, w-1/3, z-40]
+  drawer-left:      [fixed, top-0, left-0, bottom-0, w-1/3, z-40]
+  fab-bottom-right: [fixed, bottom-0, right-0, z-30]
+  fab-bottom-left:  [fixed, bottom-0, left-0, z-30]
+
+screens:
+  inbox:
+    regions:
+      search_header:
+        description: "Global search bar for finding emails by keyword, sender, or filter"
+        component: Input
+        props:
+          placeholder: "Search mail"
+          icon: "search"
+          type: search
+        events: [search]
+        discovery:
+          layout: [sticky-top-bar]
+        delivery:
+          classes: [sticky, top-0, z-20, w-full, bg-white, px-4, py-2, flex, items-center, border-b, border-gray-100]
+
+      folder_sidebar:
+        description: "Folder navigation for organizing and filtering mail by category"
+        component: Stack
+        props:
+          direction: vertical
+          gap: 1
+          items: [Inbox, Starred, Sent, Drafts, Trash]
+        events: [select_folder]
+        discovery:
+          layout: [sidebar]
+        delivery:
+          classes: [col-span-2, row-start-2, row-span-full, bg-white, py-3, px-2, flex, flex-col, gap-0.5, border-r, border-gray-100, overflow-y-auto]
+
+      email_list:
+        description: "Scrollable list of email threads with sender, subject, and date"
+        component: Table
+        props:
+          columns: [checkbox, star, from, subject, date]
+          hoverable: true
+          compact: true
+        events: [select_email]
+        discovery:
+          layout: [content-fill]
+        delivery:
+          classes: [flex-1, overflow-y-auto, bg-white, divide-y, divide-gray-100]
+
+      reading_pane:
+        description: "Email preview panel showing the selected thread content and actions"
+        component: Heading
+        props:
+          text: "Message Preview"
+          level: 3
+        events: [reply, forward, delete]
+        discovery:
+          layout: [sidebar-far]
+        delivery:
+          classes: [col-start-11, col-span-2, row-start-2, row-span-full, bg-white, border-l, border-gray-200, flex, flex-col, overflow-y-auto]
+        regions:
+          reading_pane_header:
+            description: "Email subject and sender information"
+            component: Heading
+            props: { level: 4, text: "Welcome aboard" }
+            discovery:
+              layout: [sidebar-far]
+            delivery:
+              classes: [px-4, pt-4, pb-2, text-base, font-semibold, text-gray-900, border-b, border-gray-100]
+          reading_pane_body:
+            description: "Full email body content"
+            component: Text
+            props: { text: "Email body content displayed here..." }
+            discovery:
+              layout: [sidebar-far]
+            delivery:
+              classes: [px-4, py-3, text-sm, text-gray-700, leading-relaxed, flex-1, overflow-y-auto]
+          reading_pane_actions:
+            description: "Quick action buttons for replying, forwarding, or deleting"
+            component: ButtonGroup
+            props:
+              items: [Reply, Forward, Delete]
+              variant: outline
+              size: sm
+            events: [reply, forward, delete]
+            discovery:
+              layout: [sidebar-far]
+            delivery:
+              classes: [px-4, py-3, flex, gap-2, border-t, border-gray-100, mt-auto]
+
+      compose_fab:
+        description: "Floating action button to start a new email composition"
+        component: Button
+        props:
+          label: "Compose"
+          variant: primary
+          icon: "edit"
+        events: [open_compose]
+        discovery:
+          layout: [fab-bottom-right]
+        delivery:
+          classes: [fixed, bottom-6, right-6, z-30, bg-red-600, "hover:bg-red-700", text-white, rounded-2xl, px-6, py-3, shadow-xl, "hover:shadow-2xl", transition-all, flex, items-center, gap-2, font-medium]
+
+    states: [empty, has_selection]
+    transitions:
+      - {on: select_email, from: empty, to: has_selection}
+      - {on: select_email, from: has_selection, to: has_selection}
+      - {on: open_compose, to: compose}
+
+    flows:
+      read_email:
+        description: "Select an email from the inbox list and read it in the preview pane"
+        sequence: "inbox → email_list → select_email → reading_pane"
+      start_composing:
+        description: "Open the compose screen from the inbox"
+        sequence: "inbox → compose_fab → open_compose → compose"
+
+  compose:
+    regions:
+      compose_header:
+        description: "Action bar with send, discard, and minimize controls"
+        component: ButtonGroup
+        props:
+          items:
+            - { label: "Send", variant: "primary" }
+            - { label: "Discard", variant: "ghost" }
+            - { label: "Minimize", variant: "ghost" }
+        events: [send, discard]
+        discovery:
+          layout: [top-bar]
+        delivery:
+          classes: [col-span-full, row-start-1, bg-gray-800, text-white, px-4, py-2, flex, items-center, justify-between, rounded-t-lg]
+
+      to_field:
+        description: "Recipient input field with autocomplete"
+        component: Input
+        props:
+          placeholder: "Recipients"
+          type: email
+        events: [add_recipient]
+        discovery:
+          layout: [top-bar]
+        delivery:
+          classes: [col-span-full, row-start-2, bg-white, px-4, py-2, border-b, border-gray-100, text-sm]
+
+      subject_field:
+        description: "Email subject line input"
+        component: Input
+        props:
+          placeholder: "Subject"
+        events: [set_subject]
+        discovery:
+          layout: [top-bar]
+        delivery:
+          classes: [col-span-full, row-start-3, bg-white, px-4, py-2, border-b, border-gray-100, text-sm, font-medium]
+
+      compose_body:
+        description: "Rich text editor for composing the email body"
+        component: Textarea
+        props:
+          placeholder: "Write your message..."
+          rows: 20
+        events: [edit_body]
+        discovery:
+          layout: [content-fill]
+        delivery:
+          classes: [flex-1, bg-white, px-4, py-4, text-sm, text-gray-800, leading-relaxed, resize-none, "focus:outline-none", "min-h-[300px]"]
+
+      attachments:
+        description: "Attachment and formatting toolbar at the bottom of the compose window"
+        component: ButtonGroup
+        props:
+          items: [Attach, Format, More]
+          variant: ghost
+          size: sm
+        events: [attach]
+        discovery:
+          layout: [bottom-bar]
+        delivery:
+          classes: [col-span-full, bg-white, border-t, border-gray-200, px-4, py-2, flex, items-center, gap-3, text-gray-500]
+
+    states: [drafting]
+    transitions:
+      - {on: send, from: drafting, to: inbox}
+      - {on: discard, from: drafting, to: inbox}
+
+    flows:
+      compose_and_send:
+        description: "Write a new email and send it, returning to the inbox"
+        sequence: "compose → compose_body → edit_body → compose_header → send → inbox"

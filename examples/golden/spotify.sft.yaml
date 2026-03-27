@@ -1,0 +1,308 @@
+app: spotify
+
+layouts:
+  top-bar:          [col-span-full, row-start-1]
+  sticky-top-bar:   [sticky, top-0, col-span-full, z-20]
+  sidebar:          [col-span-2, row-start-2, row-span-full]
+  sidebar-far:      [col-start-11, col-span-2, row-start-2, row-span-full]
+  content-fill:     [1fr]
+  bottom-bar:       [col-span-full]
+  bottom-nav-fixed: [fixed, bottom-0, left-0, right-0, z-20]
+  modal:            [fixed, inset-0, z-50]
+  drawer-right:     [fixed, top-0, right-0, bottom-0, w-1/3, z-40]
+  drawer-left:      [fixed, top-0, left-0, bottom-0, w-1/3, z-40]
+  fab-bottom-right: [fixed, bottom-0, right-0, z-30]
+  fab-bottom-left:  [fixed, bottom-0, left-0, z-30]
+
+screens:
+  browse:
+    regions:
+      top_bar:
+        description: "App header with navigation controls and global search"
+        component: ButtonGroup
+        props:
+          items:
+            - { label: "Back", icon: "chevron-left", variant: "ghost" }
+            - { label: "Forward", icon: "chevron-right", variant: "ghost" }
+        events: [navigate_back, navigate_forward]
+        discovery:
+          layout: [sticky-top-bar]
+        delivery:
+          classes: [sticky, top-0, z-20, w-full, bg-zinc-900, px-4, py-3, flex, items-center, gap-4]
+        regions:
+          search_input:
+            description: "Global search bar for finding tracks, albums, artists, and playlists"
+            component: Input
+            props:
+              placeholder: "What do you want to listen to?"
+              icon: "search"
+              type: search
+            events: [search]
+            discovery:
+              layout: [sticky-top-bar]
+            delivery:
+              classes: [flex-1, max-w-md, bg-zinc-800, text-white, rounded-full, px-4, py-2, text-sm, "placeholder:text-zinc-400", border-none, "focus:ring-2", "focus:ring-white/20"]
+
+      nav_sidebar:
+        description: "Left sidebar with main navigation and user playlists"
+        component: Stack
+        props:
+          direction: vertical
+          gap: 4
+        events: [select_nav, select_playlist]
+        discovery:
+          layout: [sidebar]
+        delivery:
+          classes: [col-span-3, row-start-2, row-span-full, bg-zinc-900, border-r, border-zinc-800, py-4, px-3, flex, flex-col, gap-6, overflow-y-auto]
+        regions:
+          main_nav:
+            description: "Primary navigation links: Home, Search, Library"
+            component: Stack
+            props:
+              direction: vertical
+              gap: 2
+              items: [Home, Search, Library]
+            events: [select_nav]
+            discovery:
+              layout: [sidebar]
+            delivery:
+              classes: [flex, flex-col, gap-1, px-2]
+          playlist_list:
+            description: "Scrollable list of user-created and saved playlists"
+            component: Stack
+            props:
+              direction: vertical
+              gap: 1
+              items: [Discover Weekly, Release Radar, Liked Songs, Chill Vibes]
+            events: [select_playlist]
+            discovery:
+              layout: [sidebar]
+            delivery:
+              classes: [flex, flex-col, gap-0.5, px-2, border-t, border-zinc-800, pt-4, overflow-y-auto, flex-1]
+
+      content_area:
+        description: "Main browsing area with album and playlist cards in a responsive grid"
+        component: Grid
+        props:
+          columns: 5
+          gap: 4
+          items: [album_card, album_card, album_card, album_card, album_card, album_card, album_card, album_card, album_card, album_card]
+        events: [play_track, select_album]
+        discovery:
+          layout: [content-fill]
+        delivery:
+          classes: [flex-1, overflow-y-auto, bg-gradient-to-b, from-zinc-800, to-zinc-900, p-6]
+
+      player_bar:
+        description: "Persistent playback controls with track info, transport, progress, and volume"
+        component: Stack
+        props:
+          direction: horizontal
+          gap: 4
+        events: [play_track, pause, next_track, prev_track, seek, set_volume]
+        discovery:
+          layout: [bottom-nav-fixed]
+        delivery:
+          classes: [fixed, bottom-0, left-0, right-0, z-20, bg-zinc-950, border-t, border-zinc-800, px-4, py-2, flex, items-center, gap-4, h-20]
+        regions:
+          player_art:
+            description: "Currently playing track album artwork thumbnail"
+            component: Image
+            props: { aspect: "square", alt: "Album art" }
+            discovery:
+              layout: [bottom-nav-fixed]
+            delivery:
+              classes: [w-14, h-14, rounded, bg-zinc-800, flex-shrink-0]
+          player_track_info:
+            description: "Song title and artist name for the currently playing track"
+            component: Text
+            props: { text: "Song Title - Artist Name" }
+            discovery:
+              layout: [bottom-nav-fixed]
+            delivery:
+              classes: [flex, flex-col, gap-0.5, min-w-0, w-48]
+          player_controls:
+            description: "Transport controls: shuffle, previous, play/pause, next, repeat"
+            component: ButtonGroup
+            props:
+              items:
+                - { icon: "shuffle", variant: "ghost" }
+                - { icon: "skip-back", variant: "ghost" }
+                - { icon: "play-circle", variant: "primary" }
+                - { icon: "skip-forward", variant: "ghost" }
+                - { icon: "repeat", variant: "ghost" }
+            events: [prev_track, pause, next_track]
+            discovery:
+              layout: [bottom-nav-fixed]
+            delivery:
+              classes: [flex, items-center, gap-4, flex-1, justify-center]
+          player_progress:
+            description: "Track progress bar with elapsed and remaining time"
+            component: Slider
+            props: { min: 0, max: 100, step: 1 }
+            events: [seek]
+            discovery:
+              layout: [bottom-nav-fixed]
+            delivery:
+              classes: [flex-1, mx-4, accent-green-500, h-1, rounded-full, bg-zinc-700, "hover:accent-green-400"]
+          player_volume:
+            description: "Volume control slider"
+            component: Slider
+            props: { min: 0, max: 100, step: 1, icon: "volume-2" }
+            events: [set_volume]
+            discovery:
+              layout: [bottom-nav-fixed]
+            delivery:
+              classes: [w-28, accent-green-500, h-1, rounded-full, bg-zinc-700, flex-shrink-0]
+
+      queue_drawer:
+        description: "Slide-out panel showing the upcoming playback queue"
+        component: Stack
+        props:
+          direction: vertical
+          gap: 2
+          items: [track_row, track_row, track_row, track_row, track_row]
+        events: [open_queue, close_queue, reorder_queue]
+        discovery:
+          layout: [drawer-right]
+        delivery:
+          classes: [fixed, top-0, right-0, bottom-20, w-80, z-40, bg-zinc-900, border-l, border-zinc-800, p-4, flex, flex-col, gap-2, overflow-y-auto, shadow-2xl]
+
+    states: [browsing, playing]
+    transitions:
+      - {on: play_track, from: browsing, to: playing}
+      - {on: play_track, from: playing, to: playing}
+      - {on: pause, from: playing, to: browsing}
+      - {on: next_track, from: playing, to: playing}
+      - {on: prev_track, from: playing, to: playing}
+      - {on: open_queue, from: playing, to: playing}
+      - {on: search, from: browsing, to: browsing}
+      - {on: search, from: playing, to: playing}
+
+    flows:
+      discover_and_play:
+        description: "Browse content cards, select a track, and begin playback"
+        sequence: "browse → content_area → play_track → browse(playing) → player_bar"
+      search_and_play:
+        description: "Search for music and play a result"
+        sequence: "browse → top_bar → search_input → search → content_area → play_track → browse(playing)"
+      manage_queue:
+        description: "Open the queue drawer and review upcoming tracks"
+        sequence: "browse(playing) → player_bar → open_queue → queue_drawer"
+
+  now_playing:
+    regions:
+      album_art:
+        description: "Full-size album artwork for the currently playing track"
+        component: Image
+        props:
+          aspect: "square"
+          alt: "Now playing album artwork"
+        discovery:
+          layout: [content-fill]
+        delivery:
+          classes: [flex-1, flex, items-center, justify-center, bg-zinc-900, p-8]
+
+      track_info:
+        description: "Track title and artist name displayed prominently below the artwork"
+        component: Heading
+        props:
+          text: "Track Title"
+          level: 2
+        events: [go_to_artist]
+        discovery:
+          layout: [bottom-bar]
+        delivery:
+          classes: [col-span-full, bg-zinc-900, px-8, py-4, text-center]
+        regions:
+          song_title:
+            description: "Currently playing song name"
+            component: Heading
+            props: { text: "Blinding Lights", level: 3 }
+            discovery:
+              layout: [bottom-bar]
+            delivery:
+              classes: [text-2xl, font-bold, text-white, mb-1]
+          artist_name:
+            description: "Artist name with link to artist page"
+            component: Text
+            props: { text: "The Weeknd" }
+            discovery:
+              layout: [bottom-bar]
+            delivery:
+              classes: [text-sm, text-zinc-400, "hover:text-white", "hover:underline", cursor-pointer]
+
+      controls:
+        description: "Full playback controls with progress bar, transport buttons, and volume"
+        component: Stack
+        props:
+          direction: vertical
+          gap: 4
+        events: [toggle_play, next_track, prev_track, toggle_shuffle, toggle_repeat, seek, set_volume]
+        discovery:
+          layout: [bottom-nav-fixed]
+        delivery:
+          classes: [fixed, bottom-0, left-0, right-0, z-20, bg-zinc-950, px-8, py-4, flex, flex-col, items-center, gap-3]
+        regions:
+          progress_bar:
+            description: "Seekable progress slider with timestamp labels"
+            component: Slider
+            props: { min: 0, max: 100, step: 1 }
+            events: [seek]
+            discovery:
+              layout: [bottom-nav-fixed]
+            delivery:
+              classes: [w-full, max-w-2xl, accent-green-500, h-1.5, rounded-full, bg-zinc-700, "hover:h-2", transition-all]
+          transport_buttons:
+            description: "Shuffle, previous, play/pause, next, repeat controls"
+            component: ButtonGroup
+            props:
+              items:
+                - { icon: "shuffle", variant: "ghost" }
+                - { icon: "skip-back", variant: "ghost" }
+                - { icon: "play-circle", variant: "primary" }
+                - { icon: "skip-forward", variant: "ghost" }
+                - { icon: "repeat", variant: "ghost" }
+            events: [toggle_shuffle, prev_track, toggle_play, next_track, toggle_repeat]
+            discovery:
+              layout: [bottom-nav-fixed]
+            delivery:
+              classes: [flex, items-center, gap-6, text-white]
+          volume_slider:
+            description: "Volume adjustment slider"
+            component: Slider
+            props: { min: 0, max: 100, step: 1, icon: "volume-2" }
+            events: [set_volume]
+            discovery:
+              layout: [bottom-nav-fixed]
+            delivery:
+              classes: [w-32, accent-green-500, h-1, rounded-full, bg-zinc-700]
+
+      lyrics_modal:
+        description: "Full-screen overlay displaying synced lyrics for the current track"
+        component: Text
+        props:
+          text: "Lyrics content displayed here with synced highlighting..."
+          variant: body
+        events: [toggle_lyrics, close_lyrics]
+        discovery:
+          layout: [modal]
+        delivery:
+          classes: [fixed, inset-0, z-50, bg-zinc-900/95, backdrop-blur-xl, p-8, overflow-y-auto, flex, flex-col, items-center, justify-center, text-center, text-2xl, text-white/80, leading-loose]
+
+    states: [playing, lyrics_open]
+    transitions:
+      - {on: toggle_lyrics, from: playing, to: lyrics_open}
+      - {on: toggle_lyrics, from: lyrics_open, to: playing}
+      - {on: close_lyrics, from: lyrics_open, to: playing}
+      - {on: back_to_browse, from: playing, to: browse}
+      - {on: next_track, from: playing, to: playing}
+      - {on: prev_track, from: playing, to: playing}
+
+    flows:
+      play_flow:
+        description: "Play a track from browse, view it full-screen, then skip to the next"
+        sequence: "browse → content_area → play_track → browse(playing) → player_bar → next_track"
+      view_lyrics:
+        description: "Open the lyrics overlay while a track is playing"
+        sequence: "now_playing → toggle_lyrics → lyrics_modal → toggle_lyrics → now_playing"

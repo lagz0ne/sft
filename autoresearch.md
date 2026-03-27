@@ -1,18 +1,43 @@
-# Autoresearch: Refine SFT vocabs and schema — max coverage, min vocabs
+# Autoresearch: Eliminate tag keywords — min vocab, max comprehension
 
 ## Config
-- **Benchmark**: `bash benchmark.sh`
-- **Target metric**: `vocab_count` (lower is better), `coverage_pct` must stay at 100
-- **Scope**: `README.md` + `examples/*.sft.yaml`
-- **Branch**: `autoresearch/refine-vocabs-schema-max-coverage-min-vocabs`
-- **Started**: 2026-03-16T00:00:00Z
+- **Benchmark**: keyword count (lower) + subagent comprehension (must pass)
+- **Target metric**: `keyword_count` (lower is better)
+- **Constraint**: subagent must correctly solve layout tasks with reduced vocabulary
+- **Branch**: `autoresearch/eliminate-tag-keywords`
+- **Started**: 2026-03-27T16:10:00Z
 
-## Rules
-1. One change per experiment
-2. Run benchmark after every change
-3. Keep if vocab_count decreases AND coverage_pct stays at 100, discard otherwise
-4. Log every run to autoresearch.jsonl
-5. Commit kept changes with `Result:` trailer
+## Result: 17 → 14 keywords (4/5 comprehension)
 
-## Current vocab (19 keywords)
-action, app, apps, contains, description, events, flows, from, name, on, regions, screens, sequence, state_carries, states, tags, to, transitions, values
+### Positions (8)
+```
+header    sidebar    toolbar    footer
+bottomnav    modal    overlay    split
+```
+
+### Modifiers (6)
+```
+narrow    wide    far    fixed    elevated    fill
+```
+
+### Absorption map
+```
+aside       → sidebar:far
+banner      → header (just use header)
+drawer      → modal:side
+fab         → overlay:fixed
+elevated    → modifier (was standalone visual keyword)
+```
+
+### Key compositions
+```
+bottomnav:fixed        # pinned bottom nav
+header:fixed           # sticky header
+sidebar:far:narrow     # narrow right panel
+modal:side             # side-sliding drawer
+overlay:fixed          # floating widget/FAB
+split:fill             # panel that fills remaining space
+```
+
+### Known gap
+`overlay:fixed` is position-blind — can't distinguish top-right from bottom-right. Region names disambiguate, or add corner modifiers later.
