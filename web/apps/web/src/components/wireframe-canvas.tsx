@@ -28,25 +28,25 @@ interface LayoutGroups {
 	split: Region[]
 }
 
-/** Parse all regions' tags and group by position */
-function groupByPosition(regions: Region[]): LayoutGroups {
+/** Parse all regions' tags and group by position, respecting active composition */
+function groupByPosition(regions: Region[], composition?: string | null): LayoutGroups {
 	const groups: LayoutGroups = { banner: [], header: [], sidebar: [], toolbar: [], main: [], aside: [], footer: [], bottomnav: [], overlay: [], modal: [], drawer: [], split: [] }
 	for (const r of regions) {
-		const { position } = parseLayout(r.tags)
+		const { position } = parseLayout(r.tags, composition)
 		groups[position].push(r)
 	}
 	return groups
 }
 
-function sizeToCol(regions: Region[], fallback: string): string {
+function sizeToCol(regions: Region[], fallback: string, composition?: string | null): string {
 	for (const r of regions) {
-		const { modifier } = parseLayout(r.tags)
+		const { modifier } = parseLayout(r.tags, composition)
 		if (modifier) return modifierToCol(modifier, fallback)
 	}
 	return fallback
 }
 
-function buildGridTemplate(g: LayoutGroups): React.CSSProperties {
+function buildGridTemplate(g: LayoutGroups, composition?: string | null): React.CSSProperties {
 	const hasSidebar = g.sidebar.length > 0
 	const hasBanner = g.banner.length > 0
 	const hasHeader = g.header.length > 0
@@ -58,9 +58,9 @@ function buildGridTemplate(g: LayoutGroups): React.CSSProperties {
 	const cols: string[] = []
 	const areas: string[][] = []
 
-	if (hasSidebar) cols.push(sizeToCol(g.sidebar, '12rem'))
+	if (hasSidebar) cols.push(sizeToCol(g.sidebar, '12rem', composition))
 	cols.push('1fr')
-	if (hasAside) cols.push(sizeToCol(g.aside, 'minmax(12rem, 0.4fr)'))
+	if (hasAside) cols.push(sizeToCol(g.aside, 'minmax(12rem, 0.4fr)', composition))
 
 	const colCount = cols.length
 
@@ -162,9 +162,10 @@ interface WireframeCanvasProps {
 	activeEvent?: string | null
 	app: App
 	taste?: TasteTokens
+	composition?: string | null
 }
 
-export function WireframeCanvas({ screen, currentState, appRegions, fixtures, activeRegion, activeEvent, app, taste }: WireframeCanvasProps) {
+export function WireframeCanvas({ screen, currentState, appRegions, fixtures, activeRegion, activeEvent, app, taste, composition }: WireframeCanvasProps) {
 	const visibleRegions = currentState && screen.state_regions
 		? screen.state_regions[currentState]
 		: null
@@ -178,12 +179,12 @@ export function WireframeCanvas({ screen, currentState, appRegions, fixtures, ac
 
 	// Combine app + screen regions, then group by position
 	const allRegions = [...(appRegions ?? []), ...(screen.regions ?? [])]
-	const groups = groupByPosition(allRegions)
-	const gridStyle = buildGridTemplate(groups)
+	const groups = groupByPosition(allRegions, composition)
+	const gridStyle = buildGridTemplate(groups, composition)
 
 	// App-level regions bypass state_regions filter (they're always visible)
 	const appRegionNames = new Set((appRegions ?? []).map(r => r.name))
-	const regionProps = { visibleRegions, fixtureData, activeRegion, activeEvent, app, screen, taste }
+	const regionProps = { visibleRegions, fixtureData, activeRegion, activeEvent, app, screen, taste, composition }
 	const propsFor = (r: Region) => appRegionNames.has(r.name) ? { ...regionProps, visibleRegions: null as string[] | null } : regionProps
 
 	return (
@@ -232,7 +233,7 @@ export function WireframeCanvas({ screen, currentState, appRegions, fixtures, ac
 							<div className="flex gap-1.5 flex-1 min-h-0">
 								{groups.split.map(r => (
 									<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)}
-										style={{ flex: modifierToFlex(parseLayout(r.tags).modifier) }}
+										style={{ flex: modifierToFlex(parseLayout(r.tags, composition).modifier) }}
 									/>
 								))}
 							</div>
@@ -322,13 +323,14 @@ interface WireframeRegionProps {
 	app: App
 	screen: Screen
 	taste?: TasteTokens
+	composition?: string | null
 	style?: React.CSSProperties
 }
 
-function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeRegion, activeEvent, compact, isOverlay, app, screen, taste, style }: WireframeRegionProps) {
+function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeRegion, activeEvent, compact, isOverlay, app, screen, taste, composition, style }: WireframeRegionProps) {
 	const hidden = visibleRegions != null && !visibleRegions.includes(region.name)
 	const isActive = activeRegion === region.name
-	const layout = parseLayout(region.tags)
+	const layout = parseLayout(region.tags, composition)
 	const hasOwnStateMachine = region.states && region.states.length > 0
 	const hasFixtureContent = fixtureData && (fixtureData[region.name] != null)
 	const hasChildren = region.regions && region.regions.length > 0

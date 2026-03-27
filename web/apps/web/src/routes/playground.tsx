@@ -2,6 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSpecContext } from '../context/spec-context'
 import { useState } from 'react'
 import { WireframeCanvas } from '../components/wireframe-canvas'
+import { discoverCompositions } from '../lib/layout-tags'
 import type { FlowStep, TasteTokens } from '../lib/types'
 
 export const Route = createFileRoute('/playground')({
@@ -24,6 +25,7 @@ function PlaygroundPage() {
 	const [currentFlow, setCurrentFlow] = useState<string | null>(null)
 	const [stepIndex, setStepIndex] = useState(0)
 	const [currentTaste, setCurrentTaste] = useState<string | null>(null)
+	const [currentComposition, setCurrentComposition] = useState<string | null>(null)
 
 	if (loading || !spec) return <div className="h-full flex items-center justify-center text-neutral-400">Loading...</div>
 
@@ -146,6 +148,43 @@ function PlaygroundPage() {
 							</select>
 						</>
 					)}
+
+					{/* Composition switcher */}
+					{(() => {
+						const allRegions = [...(spec.app.regions ?? []), ...(effectiveScreen?.regions ?? [])]
+						const compositions = discoverCompositions(allRegions)
+						return compositions.length > 0 ? (
+							<>
+								<div className="w-px h-4 bg-neutral-200" />
+								<span className="text-[10px] text-neutral-400">layout:</span>
+								<div className="flex gap-1">
+									<button
+										onClick={() => setCurrentComposition(null)}
+										className={`px-2.5 py-0.5 text-[10px] rounded-full transition-colors ${
+											currentComposition === null
+												? 'bg-neutral-800 text-white font-semibold'
+												: 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'
+										}`}
+									>
+										default
+									</button>
+									{compositions.map(c => (
+										<button
+											key={c}
+											onClick={() => setCurrentComposition(c === currentComposition ? null : c)}
+											className={`px-2.5 py-0.5 text-[10px] rounded-full transition-colors ${
+												c === currentComposition
+													? 'bg-neutral-800 text-white font-semibold'
+													: 'bg-neutral-100 text-neutral-500 hover:bg-neutral-200'
+											}`}
+										>
+											{c}
+										</button>
+									))}
+								</div>
+							</>
+						) : null
+					})()}
 
 					{/* Taste switcher */}
 					{spec.tastes && spec.tastes.length > 0 && (
@@ -296,6 +335,7 @@ function PlaygroundPage() {
 							activeEvent={activeEvent}
 							app={spec.app}
 							taste={activeTaste}
+							composition={currentComposition}
 						/>
 					</div>
 				)}
