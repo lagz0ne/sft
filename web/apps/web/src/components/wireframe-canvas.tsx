@@ -1,12 +1,6 @@
 import type { App, Fixture, Region, Screen, TasteTokens } from '../lib/types'
-import type { SkinTag } from '../lib/layout-tags'
 import { DataList } from './skins/data-list'
-import { FormLayout } from './skins/form-layout'
 import { Tabs } from './skins/tabs'
-import { DetailCard } from './skins/detail-card'
-import { ActionBar } from './skins/action-bar'
-import { ActionButton } from './skins/action-button'
-import { SearchInput } from './skins/search-input'
 import { Placeholder } from './skins/placeholder'
 
 // --- Layout system ---
@@ -126,30 +120,194 @@ function deepMerge(base: Record<string, any>, overlay: Record<string, any>): Rec
 	return result
 }
 
-// --- Skin dispatcher ---
+// --- Component → wireframe shape mapping ---
 
-function SkinRenderer({ skin, region, screen, fixtureData, compact, taste }: {
-	skin: SkinTag
+// Map any json-render component type to one of 8 primitive wireframe shapes
+type WireframeShape = 'input' | 'select' | 'button' | 'image' | 'text' | 'list' | 'card' | 'tabs'
+
+const COMPONENT_SHAPE: Record<string, WireframeShape> = {
+	// Input family
+	Input: 'input', Textarea: 'input', Slider: 'input',
+	// Select family
+	Select: 'select', Checkbox: 'select', Radio: 'select', Toggle: 'select',
+	// Button family
+	Button: 'button', ButtonGroup: 'button',
+	// Image family
+	Image: 'image', Avatar: 'image',
+	// Text family
+	Text: 'text', Heading: 'text', Badge: 'text', Alert: 'text',
+	// List/table family
+	Table: 'list', Stack: 'list',
+	// Card/grid family
+	Card: 'card', Grid: 'card',
+	// Tabs family
+	Tabs: 'tabs', Accordion: 'tabs',
+	// Feedback → mapped to closest shape
+	Progress: 'input', Spinner: 'image', Skeleton: 'text',
+	Rating: 'select', Pagination: 'tabs',
+}
+
+function resolveShape(componentType: string | undefined): WireframeShape | null {
+	if (!componentType) return null
+	return COMPONENT_SHAPE[componentType] ?? null
+}
+
+// --- Component wireframe renderer ---
+
+function ComponentRenderer({ component, componentProps, region, screen, fixtureData, compact, taste }: {
+	component: string
+	componentProps?: string
 	region: Region
 	screen: Screen
 	fixtureData?: Record<string, any> | null
 	compact?: boolean
 	taste?: TasteTokens
 }) {
-	const ctx = { skin, fields: {} }
-	const props = { region, context: ctx, fixtureData, screenName: screen.name, compact, taste }
+	const shape = resolveShape(component)
+	const props = componentProps ? JSON.parse(componentProps) : {}
+	const skinCtx = { skin: 'placeholder' as const, fields: {} }
+	const skinProps = { region, context: skinCtx, fixtureData, screenName: screen.name, compact, taste }
 
-	switch (skin) {
-		case 'list': return <DataList {...props} />
-		case 'form': return <FormLayout {...props} />
-		case 'tabs': return <Tabs {...props} />
-		case 'detail': return <DetailCard {...props} />
-		case 'actions': return <ActionBar {...props} />
-		case 'button': return <ActionButton {...props} />
-		case 'search': return <SearchInput {...props} />
-		case 'placeholder': return <Placeholder {...props} />
-		default: return <Placeholder {...props} />
+	switch (shape) {
+		case 'input': return <InputShape label={props.label} placeholder={props.placeholder} type={props.type} taste={taste} />
+		case 'select': return <SelectShape label={props.label} options={props.options ?? props.items} taste={taste} />
+		case 'button': return <ButtonShape label={props.label ?? component} variant={props.variant} taste={taste} />
+		case 'image': return <ImageShape aspect={props.aspect} alt={props.alt} taste={taste} />
+		case 'text': return <TextShape content={props.content} level={props.level} taste={taste} />
+		case 'list': return <DataList {...skinProps} />
+		case 'card': return <Placeholder {...skinProps} />
+		case 'tabs': return <Tabs {...skinProps} />
+		default: return <Placeholder {...skinProps} />
 	}
+}
+
+// --- Primitive wireframe shapes ---
+
+function InputShape({ label, placeholder, type, taste }: { label?: string; placeholder?: string; type?: string; taste?: TasteTokens }) {
+	const dark = taste?.mode === 'dark'
+	const h = type === 'textarea' ? 'h-12' : 'h-5'
+	return (
+		<div className="flex flex-col gap-0.5 w-full">
+			{label && <div className={`text-[8px] ${dark ? 'text-stone-400' : 'text-stone-500'}`}>{label}</div>}
+			<div className={`${h} rounded border ${dark ? 'border-stone-600 bg-stone-800' : 'border-stone-300 bg-stone-50'} flex items-center px-1.5`}>
+				{placeholder && <span className={`text-[8px] ${dark ? 'text-stone-600' : 'text-stone-400'}`}>{placeholder}</span>}
+			</div>
+		</div>
+	)
+}
+
+function SelectShape({ label, options, taste }: { label?: string; options?: string[]; taste?: TasteTokens }) {
+	const dark = taste?.mode === 'dark'
+	return (
+		<div className="flex flex-col gap-0.5 w-full">
+			{label && <div className={`text-[8px] ${dark ? 'text-stone-400' : 'text-stone-500'}`}>{label}</div>}
+			<div className={`h-5 rounded border ${dark ? 'border-stone-600 bg-stone-800' : 'border-stone-300 bg-stone-50'} flex items-center justify-between px-1.5`}>
+				<span className={`text-[8px] ${dark ? 'text-stone-500' : 'text-stone-400'}`}>
+					{options?.[0] ?? 'Select...'}
+				</span>
+				<svg className={`w-2.5 h-2.5 ${dark ? 'text-stone-500' : 'text-stone-400'}`} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+					<path d="M4 6l4 4 4-4" />
+				</svg>
+			</div>
+		</div>
+	)
+}
+
+function ButtonShape({ label, variant, taste }: { label?: string; variant?: string; taste?: TasteTokens }) {
+	const dark = taste?.mode === 'dark'
+	const accent = taste?.accent
+	const isPrimary = variant === 'primary' || variant === 'default' || !variant
+	const isGhost = variant === 'ghost' || variant === 'outline'
+	const isDestructive = variant === 'destructive'
+
+	const bg = isDestructive ? 'bg-red-600 text-white'
+		: isPrimary ? (accent ? '' : dark ? 'bg-stone-200 text-stone-900' : 'bg-stone-800 text-white')
+		: isGhost ? (dark ? 'border border-stone-600 text-stone-300' : 'border border-stone-300 text-stone-600')
+		: dark ? 'bg-stone-700 text-stone-200' : 'bg-stone-200 text-stone-700'
+
+	return (
+		<div
+			className={`inline-flex items-center justify-center h-5 px-2.5 rounded text-[8px] font-medium ${bg}`}
+			style={isPrimary && accent && !isDestructive ? { backgroundColor: accent, color: '#fff' } : undefined}
+		>
+			{label ?? 'Button'}
+		</div>
+	)
+}
+
+function ImageShape({ aspect, alt, taste }: { aspect?: string; alt?: string; taste?: TasteTokens }) {
+	const dark = taste?.mode === 'dark'
+	const h = aspect === 'square' ? 'aspect-square' : aspect === 'video' ? 'aspect-video' : 'h-20'
+	return (
+		<div className={`${h} w-full rounded ${dark ? 'bg-stone-700' : 'bg-stone-100'} flex items-center justify-center`}>
+			<svg className={`w-5 h-5 ${dark ? 'text-stone-600' : 'text-stone-300'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+				<rect x="3" y="3" width="18" height="18" rx="2" />
+				<circle cx="8.5" cy="8.5" r="1.5" />
+				<path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+			</svg>
+			{alt && <span className={`text-[7px] ml-1 ${dark ? 'text-stone-500' : 'text-stone-400'}`}>{alt}</span>}
+		</div>
+	)
+}
+
+function TextShape({ content, level, taste }: { content?: string; level?: number; taste?: TasteTokens }) {
+	const dark = taste?.mode === 'dark'
+	const barClass = dark ? 'bg-stone-700' : 'bg-stone-200'
+	const lineClass = dark ? 'bg-stone-800' : 'bg-stone-100'
+	if (content) {
+		const isHeading = level && level <= 3
+		return (
+			<div className={`${isHeading ? 'text-[11px] font-semibold' : 'text-[9px]'} ${dark ? 'text-stone-300' : 'text-stone-600'}`}>
+				{content}
+			</div>
+		)
+	}
+	return (
+		<div className="flex flex-col gap-1 w-full">
+			<div className={`h-2 rounded-sm w-2/3 ${barClass}`} />
+			<div className={`h-1.5 rounded-sm w-full ${lineClass}`} />
+			<div className={`h-1.5 rounded-sm w-5/6 ${lineClass}`} />
+		</div>
+	)
+}
+
+// --- "Set component" prompt for unbound regions ---
+
+function UnboundPrompt({ name, taste }: { name: string; taste?: TasteTokens }) {
+	const dark = taste?.mode === 'dark'
+	return (
+		<div className={`flex items-center justify-center py-2 rounded border border-dashed ${
+			dark ? 'border-stone-700 text-stone-600' : 'border-stone-300 text-stone-400'
+		}`}>
+			<span className="text-[8px]">sft component {name} ...</span>
+		</div>
+	)
+}
+
+// --- Skin dispatcher (reads region.component, falls back to tag, then prompt) ---
+
+function SkinRenderer({ region, screen, fixtureData, compact, taste }: {
+	region: Region
+	screen: Screen
+	fixtureData?: Record<string, any> | null
+	compact?: boolean
+	taste?: TasteTokens
+}) {
+	// Priority 1: component binding
+	if (region.component) {
+		return <ComponentRenderer
+			component={region.component}
+			componentProps={region.component_props}
+			region={region}
+			screen={screen}
+			fixtureData={fixtureData}
+			compact={compact}
+			taste={taste}
+		/>
+	}
+
+	// Priority 2: no component → prompt to set
+	return <UnboundPrompt name={region.name} taste={taste} />
 }
 
 // --- Canvas ---
@@ -383,9 +541,8 @@ function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeReg
 				</div>
 			)}
 
-			{/* Skin content */}
+			{/* Component content */}
 			<SkinRenderer
-					skin={layout.skin}
 					region={region}
 					screen={screen}
 					fixtureData={fixtureData}

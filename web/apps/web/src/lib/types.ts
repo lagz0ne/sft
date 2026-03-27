@@ -18,6 +18,8 @@ export interface Region {
   state_fixtures?: Record<string, string>
   ambient?: Record<string, string>
   region_data?: Record<string, string>
+  component?: string
+  component_props?: string
 }
 
 export interface Screen {

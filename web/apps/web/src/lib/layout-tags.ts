@@ -39,10 +39,10 @@ const POSITION_MODIFIERS: Record<string, readonly string[]> = {
 /** Visual tags — standalone, can coexist with any position */
 const VISUAL_TAGS = new Set(['elevated'])
 
-/** Skin tags — what the region renders as */
-export type SkinTag = 'list' | 'form' | 'tabs' | 'detail' | 'actions' | 'button' | 'search' | 'metric' | 'card-grid' | 'placeholder'
+/** Skin tags removed — component bindings handle what regions render as */
+export type SkinTag = 'placeholder'
 
-const SKIN_TAGS = new Set<string>(['list', 'form', 'tabs', 'detail', 'actions', 'button', 'search', 'metric', 'card-grid'])
+const SKIN_TAGS = new Set<string>()
 
 /** Check if a string is a known position */
 function isPosition(s: string): boolean {
@@ -55,10 +55,9 @@ export interface ParsedLayout {
 	position: Position
 	modifier: SizeModifier | null
 	elevated: boolean
-	skin: SkinTag
 }
 
-const DEFAULT_LAYOUT: ParsedLayout = { position: 'main', modifier: null, elevated: false, skin: 'placeholder' }
+const DEFAULT_LAYOUT: ParsedLayout = { position: 'main', modifier: null, elevated: false }
 
 // --- Parser ---
 
@@ -83,19 +82,12 @@ export function parseLayout(tags: string[] | undefined, composition?: string | n
 	let position: Position = 'main'
 	let modifier: SizeModifier | null = null
 	let elevated = false
-	let skin: SkinTag = 'placeholder'
 	let foundComposition = false
 
 	for (const tag of tags) {
 		// Visual tags
 		if (VISUAL_TAGS.has(tag)) {
 			elevated = true
-			continue
-		}
-
-		// Skin tags
-		if (SKIN_TAGS.has(tag)) {
-			skin = tag as SkinTag
 			continue
 		}
 
@@ -130,7 +122,7 @@ export function parseLayout(tags: string[] | undefined, composition?: string | n
 		}
 	}
 
-	return { position, modifier, elevated, skin }
+	return { position, modifier, elevated }
 }
 
 /**
