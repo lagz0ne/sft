@@ -1,20 +1,18 @@
 /**
  * SFT Layout Tag Vocabulary
  *
- * Tags are Tailwind-like explicit layout instructions.
+ * Tags are Tailwind-like explicit instructions. Three concerns:
  *
- * Formats:
- *   position                         → sidebar
- *   position:modifier                → sidebar:narrow
- *   composition:position             → mobile:bottomnav
- *   composition:position:modifier    → tablet:sidebar:narrow
- *   visual                           → elevated
+ *   POSITION (where)  → sidebar, header, split:wide, mobile:bottomnav
+ *   SKIN (what)       → list, form, tabs, detail, metric, card-grid, etc.
+ *   VISUAL (how)      → elevated
  *
- * Each position defines what modifiers it accepts.
- * One tag = one instruction. No impossible combinations.
+ * Position format: position[:modifier] or composition:position[:modifier]
+ * Skin format: just the skin name as a standalone tag
+ * Visual format: just the visual name as a standalone tag
  *
- * Compositions are discovered from tag prefixes that aren't known positions.
- * The playground renders one composition at a time — switch in the toolbar.
+ * Example: tags: [sidebar, list, elevated]
+ *   → position=sidebar, skin=list, elevated=true
  */
 
 // --- Vocabulary definition ---
@@ -41,6 +39,11 @@ const POSITION_MODIFIERS: Record<string, readonly string[]> = {
 /** Visual tags — standalone, can coexist with any position */
 const VISUAL_TAGS = new Set(['elevated'])
 
+/** Skin tags — what the region renders as */
+export type SkinTag = 'list' | 'form' | 'tabs' | 'detail' | 'actions' | 'button' | 'search' | 'metric' | 'card-grid' | 'placeholder'
+
+const SKIN_TAGS = new Set<string>(['list', 'form', 'tabs', 'detail', 'actions', 'button', 'search', 'metric', 'card-grid'])
+
 /** Check if a string is a known position */
 function isPosition(s: string): boolean {
 	return s in POSITION_MODIFIERS
@@ -52,9 +55,10 @@ export interface ParsedLayout {
 	position: Position
 	modifier: SizeModifier | null
 	elevated: boolean
+	skin: SkinTag
 }
 
-const DEFAULT_LAYOUT: ParsedLayout = { position: 'main', modifier: null, elevated: false }
+const DEFAULT_LAYOUT: ParsedLayout = { position: 'main', modifier: null, elevated: false, skin: 'placeholder' }
 
 // --- Parser ---
 
@@ -79,12 +83,19 @@ export function parseLayout(tags: string[] | undefined, composition?: string | n
 	let position: Position = 'main'
 	let modifier: SizeModifier | null = null
 	let elevated = false
+	let skin: SkinTag = 'placeholder'
 	let foundComposition = false
 
 	for (const tag of tags) {
-		// Visual tags — always apply regardless of composition
+		// Visual tags
 		if (VISUAL_TAGS.has(tag)) {
 			elevated = true
+			continue
+		}
+
+		// Skin tags
+		if (SKIN_TAGS.has(tag)) {
+			skin = tag as SkinTag
 			continue
 		}
 
@@ -119,7 +130,7 @@ export function parseLayout(tags: string[] | undefined, composition?: string | n
 		}
 	}
 
-	return { position, modifier, elevated }
+	return { position, modifier, elevated, skin }
 }
 
 /**
@@ -135,7 +146,7 @@ export function discoverCompositions(regions: { tags?: string[] }[]): string[] {
 		for (const tag of r.tags ?? []) {
 			const parts = tag.split(':')
 			// A composition tag has 2+ parts and the first part is NOT a position
-			if (parts.length >= 2 && !isPosition(parts[0]) && !VISUAL_TAGS.has(parts[0])) {
+			if (parts.length >= 2 && !isPosition(parts[0]) && !VISUAL_TAGS.has(parts[0]) && !SKIN_TAGS.has(parts[0])) {
 				compositions.add(parts[0])
 			}
 		}

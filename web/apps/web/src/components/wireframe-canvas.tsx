@@ -1,5 +1,5 @@
 import type { App, Fixture, Region, Screen, TasteTokens } from '../lib/types'
-import { selectSkin } from '../lib/skin-selector'
+import type { SkinTag } from '../lib/layout-tags'
 import { DataList } from './skins/data-list'
 import { FormLayout } from './skins/form-layout'
 import { Tabs } from './skins/tabs'
@@ -128,26 +128,27 @@ function deepMerge(base: Record<string, any>, overlay: Record<string, any>): Rec
 
 // --- Skin dispatcher ---
 
-function SkinRenderer({ region, app, screen, fixtureData, compact, taste }: {
+function SkinRenderer({ skin, region, screen, fixtureData, compact, taste }: {
+	skin: SkinTag
 	region: Region
-	app: App
 	screen: Screen
 	fixtureData?: Record<string, any> | null
 	compact?: boolean
 	taste?: TasteTokens
 }) {
-	const ctx = selectSkin(region, app, screen)
+	const ctx = { skin, fields: {} }
 	const props = { region, context: ctx, fixtureData, screenName: screen.name, compact, taste }
 
-	switch (ctx.skin) {
-		case 'data-list': return <DataList {...props} />
+	switch (skin) {
+		case 'list': return <DataList {...props} />
 		case 'form': return <FormLayout {...props} />
 		case 'tabs': return <Tabs {...props} />
-		case 'detail-card': return <DetailCard {...props} />
-		case 'action-bar': return <ActionBar {...props} />
-		case 'action-button': return <ActionButton {...props} />
-		case 'search-input': return <SearchInput {...props} />
+		case 'detail': return <DetailCard {...props} />
+		case 'actions': return <ActionBar {...props} />
+		case 'button': return <ActionButton {...props} />
+		case 'search': return <SearchInput {...props} />
 		case 'placeholder': return <Placeholder {...props} />
+		default: return <Placeholder {...props} />
 	}
 }
 
@@ -384,8 +385,8 @@ function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeReg
 
 			{/* Skin content */}
 			<SkinRenderer
+					skin={layout.skin}
 					region={region}
-					app={app}
 					screen={screen}
 					fixtureData={fixtureData}
 					compact={compact}
