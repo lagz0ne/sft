@@ -1,4 +1,4 @@
-import type { App, Fixture, Region, Screen, TasteTokens } from '../lib/types'
+import type { App, Fixture, Region, Screen } from '../lib/types'
 import { DataList } from './skins/data-list'
 import { Tabs } from './skins/tabs'
 import { Placeholder } from './skins/placeholder'
@@ -154,26 +154,26 @@ function resolveShape(componentType: string | undefined): WireframeShape | null 
 
 // --- Component wireframe renderer ---
 
-function ComponentRenderer({ component, componentProps, region, screen, fixtureData, compact, taste }: {
+function ComponentRenderer({ component, componentProps, region, screen, fixtureData, compact, componentSet }: {
 	component: string
 	componentProps?: string
 	region: Region
 	screen: Screen
 	fixtureData?: Record<string, any> | null
 	compact?: boolean
-	taste?: TasteTokens
+	componentSet?: string
 }) {
 	const shape = resolveShape(component)
 	const props = componentProps ? JSON.parse(componentProps) : {}
 	const skinCtx = { skin: 'placeholder' as const, fields: {} }
-	const skinProps = { region, context: skinCtx, fixtureData, screenName: screen.name, compact, taste }
+	const skinProps = { region, context: skinCtx, fixtureData, screenName: screen.name, compact, componentSet }
 
 	switch (shape) {
-		case 'input': return <InputShape label={props.label} placeholder={props.placeholder} type={props.type} taste={taste} componentType={component} />
-		case 'select': return <SelectShape label={props.label} options={props.options ?? props.items} taste={taste} componentType={component} />
-		case 'button': return <ButtonShape label={props.label ?? component} variant={props.variant} taste={taste} componentType={component} />
-		case 'image': return <ImageShape aspect={props.aspect} alt={props.alt} taste={taste} componentType={component} />
-		case 'text': return <TextShape content={props.content} level={props.level} taste={taste} componentType={component} />
+		case 'input': return <InputShape label={props.label} placeholder={props.placeholder} type={props.type} componentSet={componentSet} componentType={component} />
+		case 'select': return <SelectShape label={props.label} options={props.options ?? props.items} componentSet={componentSet} componentType={component} />
+		case 'button': return <ButtonShape label={props.label ?? component} variant={props.variant} componentSet={componentSet} componentType={component} />
+		case 'image': return <ImageShape aspect={props.aspect} alt={props.alt} componentSet={componentSet} componentType={component} />
+		case 'text': return <TextShape content={props.content} level={props.level} componentSet={componentSet} componentType={component} />
 		case 'list': return <DataList {...skinProps} />
 		case 'card': return <Placeholder {...skinProps} />
 		case 'tabs': return <Tabs {...skinProps} />
@@ -194,10 +194,10 @@ function TypeBadge({ type, dark }: { type: string; dark?: boolean }) {
 	)
 }
 
-function InputShape({ label, placeholder, type, taste, componentType }: {
-	label?: string; placeholder?: string; type?: string; taste?: TasteTokens; componentType?: string
+function InputShape({ label, placeholder, type, componentSet, componentType }: {
+	label?: string; placeholder?: string; type?: string; componentSet?: string; componentType?: string
 }) {
-	const dark = taste?.mode === 'dark'
+	const dark = componentSet === "compact" || componentSet === "styled"
 	const isTextarea = type === 'textarea' || componentType === 'Textarea'
 	const isSlider = componentType === 'Slider'
 	const border = dark ? 'border-stone-600' : 'border-stone-300/80'
@@ -209,7 +209,7 @@ function InputShape({ label, placeholder, type, taste, componentType }: {
 				{label && <div className={`text-[8px] font-medium ${dark ? 'text-stone-400' : 'text-stone-500'}`}>{label}</div>}
 				<div className="flex items-center gap-1.5 h-4">
 					<div className={`flex-1 h-[3px] rounded-full ${dark ? 'bg-stone-700' : 'bg-stone-200'} relative`}>
-						<div className="absolute left-0 top-0 h-full w-2/5 rounded-full" style={{ backgroundColor: taste?.accent ?? (dark ? '#666' : '#999') }} />
+						<div className="absolute left-0 top-0 h-full w-2/5 rounded-full" style={{ backgroundColor: dark ? '#666' : '#999' }} />
 						<div className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full bg-white ring-1 ring-stone-300 shadow-sm" style={{ left: '40%' }} />
 					</div>
 				</div>
@@ -233,10 +233,10 @@ function InputShape({ label, placeholder, type, taste, componentType }: {
 	)
 }
 
-function SelectShape({ label, options, taste, componentType }: {
-	label?: string; options?: string[]; taste?: TasteTokens; componentType?: string
+function SelectShape({ label, options, componentSet, componentType }: {
+	label?: string; options?: string[]; componentSet?: string; componentType?: string
 }) {
-	const dark = taste?.mode === 'dark'
+	const dark = componentSet === "compact" || componentSet === "styled"
 	const border = dark ? 'border-stone-600' : 'border-stone-300/80'
 	const bg = dark ? 'bg-stone-800/50' : 'bg-white'
 	const isToggle = componentType === 'Toggle' || componentType === 'Checkbox'
@@ -270,11 +270,11 @@ function SelectShape({ label, options, taste, componentType }: {
 	)
 }
 
-function ButtonShape({ label, variant, taste, componentType }: {
-	label?: string; variant?: string; taste?: TasteTokens; componentType?: string
+function ButtonShape({ label, variant, componentSet, componentType }: {
+	label?: string; variant?: string; componentSet?: string; componentType?: string
 }) {
-	const dark = taste?.mode === 'dark'
-	const accent = taste?.accent
+	const dark = componentSet === "compact" || componentSet === "styled"
+	const accent = undefined
 	const isPrimary = variant === 'primary' || variant === 'default' || !variant
 	const isGhost = variant === 'ghost' || variant === 'outline'
 	const isDestructive = variant === 'destructive'
@@ -307,10 +307,10 @@ function ButtonShape({ label, variant, taste, componentType }: {
 	)
 }
 
-function ImageShape({ aspect, alt, taste, componentType }: {
-	aspect?: string; alt?: string; taste?: TasteTokens; componentType?: string
+function ImageShape({ aspect, alt, componentSet, componentType }: {
+	aspect?: string; alt?: string; componentSet?: string; componentType?: string
 }) {
-	const dark = taste?.mode === 'dark'
+	const dark = componentSet === "compact" || componentSet === "styled"
 	const aspectClass = aspect === 'square' ? 'aspect-square max-h-24'
 		: aspect === 'video' ? 'aspect-video'
 		: 'h-16'
@@ -338,10 +338,10 @@ function ImageShape({ aspect, alt, taste, componentType }: {
 	)
 }
 
-function TextShape({ content, level, taste, componentType }: {
-	content?: string; level?: number; taste?: TasteTokens; componentType?: string
+function TextShape({ content, level, componentSet, componentType }: {
+	content?: string; level?: number; componentSet?: string; componentType?: string
 }) {
-	const dark = taste?.mode === 'dark'
+	const dark = componentSet === "compact" || componentSet === "styled"
 	if (content) {
 		const isHeading = (level && level <= 3) || componentType === 'Heading'
 		return (
@@ -367,8 +367,8 @@ function TextShape({ content, level, taste, componentType }: {
 
 // --- "Set component" prompt ---
 
-function UnboundPrompt({ name, taste }: { name: string; taste?: TasteTokens }) {
-	const dark = taste?.mode === 'dark'
+function UnboundPrompt({ name, componentSet }: { name: string; componentSet?: string }) {
+	const dark = componentSet === "compact" || componentSet === "styled"
 	return (
 		<div className={`flex flex-col items-center justify-center py-3 rounded-md border border-dashed ${
 			dark ? 'border-stone-700' : 'border-stone-300/60'
@@ -382,12 +382,12 @@ function UnboundPrompt({ name, taste }: { name: string; taste?: TasteTokens }) {
 
 // --- Skin dispatcher (reads region.component, falls back to tag, then prompt) ---
 
-function SkinRenderer({ region, screen, fixtureData, compact, taste }: {
+function SkinRenderer({ region, screen, fixtureData, compact, componentSet }: {
 	region: Region
 	screen: Screen
 	fixtureData?: Record<string, any> | null
 	compact?: boolean
-	taste?: TasteTokens
+	componentSet?: string
 }) {
 	// Priority 1: component binding
 	if (region.component) {
@@ -398,12 +398,12 @@ function SkinRenderer({ region, screen, fixtureData, compact, taste }: {
 			screen={screen}
 			fixtureData={fixtureData}
 			compact={compact}
-			taste={taste}
+			componentSet={componentSet}
 		/>
 	}
 
 	// Priority 2: no component → prompt to set
-	return <UnboundPrompt name={region.name} taste={taste} />
+	return <UnboundPrompt name={region.name} componentSet={componentSet} />
 }
 
 // --- Canvas ---
@@ -416,11 +416,11 @@ interface WireframeCanvasProps {
 	activeRegion?: string | null
 	activeEvent?: string | null
 	app: App
-	taste?: TasteTokens
+	componentSet?: string
 	composition?: string | null
 }
 
-export function WireframeCanvas({ screen, currentState, appRegions, fixtures, activeRegion, activeEvent, app, taste, composition }: WireframeCanvasProps) {
+export function WireframeCanvas({ screen, currentState, appRegions, fixtures, activeRegion, activeEvent, app, componentSet, composition }: WireframeCanvasProps) {
 	const visibleRegions = currentState && screen.state_regions
 		? screen.state_regions[currentState]
 		: null
@@ -439,7 +439,7 @@ export function WireframeCanvas({ screen, currentState, appRegions, fixtures, ac
 
 	// App-level regions bypass state_regions filter (they're always visible)
 	const appRegionNames = new Set((appRegions ?? []).map(r => r.name))
-	const regionProps = { visibleRegions, fixtureData, activeRegion, activeEvent, app, screen, taste, composition }
+	const regionProps = { visibleRegions, fixtureData, activeRegion, activeEvent, app, screen, componentSet, composition }
 	const propsFor = (r: Region) => appRegionNames.has(r.name) ? { ...regionProps, visibleRegions: null as string[] | null } : regionProps
 
 	return (
@@ -577,12 +577,12 @@ interface WireframeRegionProps {
 	isOverlay?: boolean
 	app: App
 	screen: Screen
-	taste?: TasteTokens
+	componentSet?: string
 	composition?: string | null
 	style?: React.CSSProperties
 }
 
-function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeRegion, activeEvent, compact, isOverlay, app, screen, taste, composition, style }: WireframeRegionProps) {
+function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeRegion, activeEvent, compact, isOverlay, app, screen, componentSet, composition, style }: WireframeRegionProps) {
 	const hidden = visibleRegions != null && !visibleRegions.includes(region.name)
 	const isActive = activeRegion === region.name
 	const layout = parseLayout(region.tags, composition)
@@ -643,7 +643,7 @@ function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeReg
 					screen={screen}
 					fixtureData={fixtureData}
 					compact={compact}
-					taste={taste}
+					componentSet={componentSet}
 			/>
 
 			{/* Nested regions */}
@@ -663,7 +663,7 @@ function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeReg
 							compact={compact}
 							app={app}
 							screen={screen}
-							taste={taste}
+							componentSet={componentSet}
 						/>
 					))}
 				</div>

@@ -167,8 +167,8 @@ export interface DockProps {
 	onState: (id: string) => void
 	layouts: { id: string; label: string; active: boolean }[]
 	onLayout: (id: string) => void
-	tastes: { id: string; label: string; active: boolean }[]
-	onTaste: (id: string) => void
+	componentSets: { id: string; label: string; active: boolean }[]
+	onComponentSet: (id: string) => void
 	flowMode?: boolean
 	flowSteps?: { type: string; name: string }[]
 	flowIndex?: number
@@ -185,7 +185,7 @@ export function Dock({
 	screens, onScreen,
 	states, onState,
 	layouts, onLayout,
-	tastes, onTaste,
+	componentSets, onComponentSet,
 	flowMode, flowSteps, flowIndex, onFlowStep,
 	mode, onModeToggle, hasFlows,
 	viewportSizes, activeViewportWidth, onViewportSize,
@@ -229,8 +229,8 @@ export function Dock({
 			{/* Layout */}
 			{layouts.length > 0 && <><Div /><Segment items={layouts} onSelect={onLayout} /></>}
 
-			{/* Taste */}
-			{tastes.length > 0 && <><Div /><Segment items={tastes} onSelect={onTaste} /></>}
+			{/* Component Set */}
+			{componentSets.length > 0 && <><Div /><Segment items={componentSets} onSelect={onComponentSet} /></>}
 		</div>
 	)
 }
