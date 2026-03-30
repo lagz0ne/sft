@@ -84,8 +84,8 @@ export function DataList({ region, context, fixtureData, screenName, compact }: 
 	const rowBorder = dark ? 'border-neutral-700' : 'border-neutral-100'
 	const hoverBg = dark ? 'bg-neutral-800' : 'bg-blue-50/40'
 
-	const realCount = Math.min(items.length, compact ? 2 : 3)
-	const placeholderCount = compact ? 1 : 2
+	const realCount = Math.min(items.length, compact ? 3 : 4)
+	const placeholderCount = compact ? 1 : Math.max(1, 5 - realCount)
 	const totalRows = realCount + placeholderCount
 
 	return (

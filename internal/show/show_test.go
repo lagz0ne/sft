@@ -1,6 +1,7 @@
 package show
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/lagz0ne/sft/internal/model"
@@ -284,6 +285,68 @@ func TestLoadTastes(t *testing.T) {
 	}
 	if spec.Tastes[0].Tokens["bg"] != "#000" {
 		t.Errorf("unexpected token: %v", spec.Tastes[0].Tokens)
+	}
+}
+
+// --- malformed JSON error propagation tests ---
+
+func TestMalformedDataTypeFieldsReturnsError(t *testing.T) {
+	s := mustStore(t)
+	app := seedApp(t, s)
+	addScreen(t, s, app.ID, "S1", "screen")
+
+	s.DB.Exec(`INSERT INTO data_types(app_id, name, fields) VALUES(?, 'Email', '{"subject":"string","body":"string"}')`, app.ID)
+	if _, err := Load(s.DB, nil); err != nil {
+		t.Fatalf("valid data type should not error: %v", err)
+	}
+
+	s.DB.Exec(`UPDATE data_types SET fields = '{bad' WHERE name = 'Email'`)
+	_, err := Load(s.DB, nil)
+	if err == nil {
+		t.Fatal("expected error for malformed data_type fields JSON, got nil")
+	}
+	if !strings.Contains(err.Error(), "unmarshal") {
+		t.Errorf("error should mention unmarshal, got: %v", err)
+	}
+}
+
+func TestMalformedEnumValuesReturnsError(t *testing.T) {
+	s := mustStore(t)
+	app := seedApp(t, s)
+	addScreen(t, s, app.ID, "S1", "screen")
+
+	s.DB.Exec(`INSERT INTO enums(app_id, name, "values") VALUES(?, 'Status', '["active","inactive"]')`, app.ID)
+	if _, err := Load(s.DB, nil); err != nil {
+		t.Fatalf("valid enum should not error: %v", err)
+	}
+
+	s.DB.Exec(`UPDATE enums SET "values" = '[broken' WHERE name = 'Status'`)
+	_, err := Load(s.DB, nil)
+	if err == nil {
+		t.Fatal("expected error for malformed enum values JSON, got nil")
+	}
+	if !strings.Contains(err.Error(), "unmarshal") {
+		t.Errorf("error should mention unmarshal, got: %v", err)
+	}
+}
+
+func TestMalformedFixtureDataReturnsError(t *testing.T) {
+	s := mustStore(t)
+	app := seedApp(t, s)
+	addScreen(t, s, app.ID, "S1", "screen")
+
+	s.DB.Exec(`INSERT INTO fixtures(app_id, name, data) VALUES(?, 'default', '{"key":"value"}')`, app.ID)
+	if _, err := Load(s.DB, nil); err != nil {
+		t.Fatalf("valid fixture should not error: %v", err)
+	}
+
+	s.DB.Exec(`UPDATE fixtures SET data = '{{bad' WHERE name = 'default'`)
+	_, err := Load(s.DB, nil)
+	if err == nil {
+		t.Fatal("expected error for malformed fixture data JSON, got nil")
+	}
+	if !strings.Contains(err.Error(), "unmarshal") {
+		t.Errorf("error should mention unmarshal, got: %v", err)
 	}
 }
 

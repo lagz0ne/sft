@@ -21,9 +21,54 @@ var schema string
 const DefaultDir = ".sft"
 const DefaultFile = "db"
 
+// DBTX abstracts *sql.DB and *sql.Tx for transactional flexibility.
+type DBTX interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	Query(query string, args ...any) (*sql.Rows, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
 type Store struct {
 	DB   *sql.DB
 	Path string
+	tx   DBTX // active transaction, nil when not in tx
+}
+
+func (s *Store) db() DBTX {
+	if s.tx != nil {
+		return s.tx
+	}
+	return s.DB
+}
+
+func (s *Store) BeginTx() error {
+	if s.tx != nil {
+		return fmt.Errorf("transaction already active")
+	}
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	s.tx = tx
+	return nil
+}
+
+func (s *Store) CommitTx() error {
+	if s.tx == nil {
+		return fmt.Errorf("no active transaction")
+	}
+	tx := s.tx.(*sql.Tx)
+	s.tx = nil
+	return tx.Commit()
+}
+
+func (s *Store) RollbackTx() {
+	if s.tx == nil {
+		return
+	}
+	tx := s.tx.(*sql.Tx)
+	s.tx = nil
+	tx.Rollback()
 }
 
 func DefaultPath() string {
@@ -94,7 +139,7 @@ func OpenMemory() (*Store, error) {
 func (s *Store) migrateRegionScope() {
 	// Check if old global unique index exists (sqlite_autoindex_regions_1 with 1 column = old schema).
 	var cnt int
-	err := s.DB.QueryRow(`SELECT COUNT(*) FROM pragma_index_info('sqlite_autoindex_regions_1')`).Scan(&cnt)
+	err := s.db().QueryRow(`SELECT COUNT(*) FROM pragma_index_info('sqlite_autoindex_regions_1')`).Scan(&cnt)
 	if err != nil || cnt != 1 {
 		return // already migrated or no old index
 	}
@@ -123,7 +168,7 @@ func (s *Store) Close() error {
 func (s *Store) ResolveApp() (int64, error) {
 	var id int64
 	var count int
-	if err := s.DB.QueryRow("SELECT COUNT(*) FROM apps").Scan(&count); err != nil {
+	if err := s.db().QueryRow("SELECT COUNT(*) FROM apps").Scan(&count); err != nil {
 		return 0, err
 	}
 	if count == 0 {
@@ -132,13 +177,13 @@ func (s *Store) ResolveApp() (int64, error) {
 	if count > 1 {
 		return 0, fmt.Errorf("multiple apps exist — specify with --app")
 	}
-	err := s.DB.QueryRow("SELECT id FROM apps LIMIT 1").Scan(&id)
+	err := s.db().QueryRow("SELECT id FROM apps LIMIT 1").Scan(&id)
 	return id, err
 }
 
 func (s *Store) ResolveScreen(name string) (int64, error) {
 	var id int64
-	err := s.DB.QueryRow("SELECT id FROM screens WHERE name = ?", name).Scan(&id)
+	err := s.db().QueryRow("SELECT id FROM screens WHERE name = ?", name).Scan(&id)
 	if err == sql.ErrNoRows {
 		return 0, fmt.Errorf("screen %q not found", name)
 	}
@@ -146,7 +191,7 @@ func (s *Store) ResolveScreen(name string) (int64, error) {
 }
 
 func (s *Store) ResolveRegion(name string) (int64, error) {
-	rows, err := s.DB.Query("SELECT id FROM regions WHERE name = ?", name)
+	rows, err := s.db().Query("SELECT id FROM regions WHERE name = ?", name)
 	if err != nil {
 		return 0, err
 	}
@@ -166,7 +211,7 @@ func (s *Store) ResolveRegion(name string) (int64, error) {
 		for _, id := range ids {
 			var pt string
 			var pid int64
-			s.DB.QueryRow("SELECT parent_type, parent_id FROM regions WHERE id = ?", id).Scan(&pt, &pid)
+			s.db().QueryRow("SELECT parent_type, parent_id FROM regions WHERE id = ?", id).Scan(&pt, &pid)
 			pName := s.parentName(pt, pid)
 			parents = append(parents, pName)
 		}
@@ -182,7 +227,7 @@ func (s *Store) ResolveRegionIn(name, parentName string) (int64, error) {
 		return 0, err
 	}
 	var id int64
-	err = s.DB.QueryRow("SELECT id FROM regions WHERE name = ? AND parent_type = ? AND parent_id = ?",
+	err = s.db().QueryRow("SELECT id FROM regions WHERE name = ? AND parent_type = ? AND parent_id = ?",
 		name, parentType, parentID).Scan(&id)
 	if err == sql.ErrNoRows {
 		return 0, fmt.Errorf("region %q not found in %s", name, parentName)
@@ -203,11 +248,11 @@ func (s *Store) parentName(pt string, pid int64) string {
 	var name string
 	switch pt {
 	case "app":
-		s.DB.QueryRow("SELECT name FROM apps WHERE id = ?", pid).Scan(&name)
+		s.db().QueryRow("SELECT name FROM apps WHERE id = ?", pid).Scan(&name)
 	case "screen":
-		s.DB.QueryRow("SELECT name FROM screens WHERE id = ?", pid).Scan(&name)
+		s.db().QueryRow("SELECT name FROM screens WHERE id = ?", pid).Scan(&name)
 	case "region":
-		s.DB.QueryRow("SELECT name FROM regions WHERE id = ?", pid).Scan(&name)
+		s.db().QueryRow("SELECT name FROM regions WHERE id = ?", pid).Scan(&name)
 	}
 	return name
 }
@@ -215,7 +260,7 @@ func (s *Store) parentName(pt string, pid int64) string {
 // ResolveParent resolves a name to (type, id). Checks apps, screens, then regions. [C2 fix]
 func (s *Store) ResolveParent(name string) (string, int64, error) {
 	var id int64
-	err := s.DB.QueryRow("SELECT id FROM apps WHERE name = ?", name).Scan(&id)
+	err := s.db().QueryRow("SELECT id FROM apps WHERE name = ?", name).Scan(&id)
 	if err == nil {
 		return "app", id, nil
 	}
@@ -253,13 +298,13 @@ func (s *Store) ResolveOwner(name string) (string, int64, error) {
 func (s *Store) InsertApp(a *model.App) error {
 	// [F1] Prevent duplicate apps — single-app model
 	var count int
-	if err := s.DB.QueryRow("SELECT COUNT(*) FROM apps").Scan(&count); err != nil {
+	if err := s.db().QueryRow("SELECT COUNT(*) FROM apps").Scan(&count); err != nil {
 		return err
 	}
 	if count > 0 {
 		return fmt.Errorf("an app already exists — SFT supports a single app per project")
 	}
-	res, err := s.DB.Exec("INSERT INTO apps (name, description) VALUES (?, ?)", a.Name, a.Description)
+	res, err := s.db().Exec("INSERT INTO apps (name, description) VALUES (?, ?)", a.Name, a.Description)
 	if err != nil {
 		return err
 	}
@@ -270,11 +315,11 @@ func (s *Store) InsertApp(a *model.App) error {
 // [M1 fix] check cross-table name collision
 func (s *Store) InsertScreen(sc *model.Screen) error {
 	var regionCount int
-	s.DB.QueryRow("SELECT COUNT(*) FROM regions WHERE name = ?", sc.Name).Scan(&regionCount)
+	s.db().QueryRow("SELECT COUNT(*) FROM regions WHERE name = ?", sc.Name).Scan(&regionCount)
 	if regionCount > 0 {
 		return fmt.Errorf("name %q already used by a region", sc.Name)
 	}
-	res, err := s.DB.Exec("INSERT INTO screens (app_id, name, description) VALUES (?, ?, ?)",
+	res, err := s.db().Exec("INSERT INTO screens (app_id, name, description) VALUES (?, ?, ?)",
 		sc.AppID, sc.Name, sc.Description)
 	if err != nil {
 		return err
@@ -288,7 +333,7 @@ func (s *Store) InsertRegion(r *model.Region) error {
 	if _, err := s.ResolveScreen(r.Name); err == nil {
 		return fmt.Errorf("name %q already used by a screen", r.Name)
 	}
-	res, err := s.DB.Exec("INSERT INTO regions (app_id, parent_type, parent_id, name, description, discovery_layout, delivery_classes, delivery_component) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+	res, err := s.db().Exec("INSERT INTO regions (app_id, parent_type, parent_id, name, description, discovery_layout, delivery_classes, delivery_component) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 		r.AppID, r.ParentType, r.ParentID, r.Name, r.Description,
 		nilIfEmpty(r.DiscoveryLayout), nilIfEmpty(r.DeliveryClasses), nilIfEmpty(r.DeliveryComponent))
 	if err != nil {
@@ -303,7 +348,7 @@ func (s *Store) InsertRegion(r *model.Region) error {
 }
 
 func (s *Store) InsertTag(t *model.Tag) error {
-	res, err := s.DB.Exec("INSERT INTO tags (entity_type, entity_id, tag) VALUES (?, ?, ?)",
+	res, err := s.db().Exec("INSERT INTO tags (entity_type, entity_id, tag) VALUES (?, ?, ?)",
 		t.EntityType, t.EntityID, t.Tag)
 	if err != nil {
 		return err
@@ -313,7 +358,7 @@ func (s *Store) InsertTag(t *model.Tag) error {
 }
 
 func (s *Store) InsertEvent(e *model.Event) error {
-	res, err := s.DB.Exec("INSERT INTO events (region_id, name, annotation) VALUES (?, ?, ?)",
+	res, err := s.db().Exec("INSERT INTO events (region_id, name, annotation) VALUES (?, ?, ?)",
 		e.RegionID, e.Name, e.Annotation)
 	if err != nil {
 		return err
@@ -323,7 +368,7 @@ func (s *Store) InsertEvent(e *model.Event) error {
 }
 
 func (s *Store) InsertTransition(t *model.Transition) error {
-	res, err := s.DB.Exec("INSERT INTO transitions (owner_type, owner_id, on_event, from_state, to_state, action) VALUES (?, ?, ?, ?, ?, ?)",
+	res, err := s.db().Exec("INSERT INTO transitions (owner_type, owner_id, on_event, from_state, to_state, action) VALUES (?, ?, ?, ?, ?, ?)",
 		t.OwnerType, t.OwnerID, t.OnEvent, t.FromState, t.ToState, t.Action)
 	if err != nil {
 		return err
@@ -333,7 +378,7 @@ func (s *Store) InsertTransition(t *model.Transition) error {
 }
 
 func (s *Store) InsertFlow(f *model.Flow) error {
-	res, err := s.DB.Exec("INSERT INTO flows (app_id, name, description, on_event, sequence) VALUES (?, ?, ?, ?, ?)",
+	res, err := s.db().Exec("INSERT INTO flows (app_id, name, description, on_event, sequence) VALUES (?, ?, ?, ?, ?)",
 		f.AppID, f.Name, f.Description, f.OnEvent, f.Sequence)
 	if err != nil {
 		return err
@@ -353,12 +398,12 @@ func (s *Store) InsertFlow(f *model.Flow) error {
 // IsEvent returns true if a name matches any known event.
 func (s *Store) IsEvent(name string) bool {
 	var count int
-	s.DB.QueryRow("SELECT COUNT(*) FROM events WHERE name = ?", name).Scan(&count)
+	s.db().QueryRow("SELECT COUNT(*) FROM events WHERE name = ?", name).Scan(&count)
 	return count > 0
 }
 
 func (s *Store) InsertFlowStep(fs *model.FlowStep) error {
-	res, err := s.DB.Exec("INSERT INTO flow_steps (flow_id, position, raw, type, name, history, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
+	res, err := s.db().Exec("INSERT INTO flow_steps (flow_id, position, raw, type, name, history, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
 		fs.FlowID, fs.Position, fs.Raw, fs.Type, fs.Name, fs.History, fs.Data)
 	if err != nil {
 		return err
@@ -370,7 +415,7 @@ func (s *Store) InsertFlowStep(fs *model.FlowStep) error {
 // --- Phase 5: State-region visibility ---
 
 func (s *Store) InsertStateRegion(sr *model.StateRegion) error {
-	res, err := s.DB.Exec("INSERT INTO state_regions (owner_type, owner_id, state_name, region_name) VALUES (?, ?, ?, ?)",
+	res, err := s.db().Exec("INSERT INTO state_regions (owner_type, owner_id, state_name, region_name) VALUES (?, ?, ?, ?)",
 		sr.OwnerType, sr.OwnerID, sr.StateName, sr.RegionName)
 	if err != nil {
 		return err
@@ -382,7 +427,7 @@ func (s *Store) InsertStateRegion(sr *model.StateRegion) error {
 // --- Phase 5: Enum inserts ---
 
 func (s *Store) InsertEnum(e *model.Enum) error {
-	res, err := s.DB.Exec(`INSERT INTO enums (app_id, name, "values") VALUES (?, ?, ?)`,
+	res, err := s.db().Exec(`INSERT INTO enums (app_id, name, "values") VALUES (?, ?, ?)`,
 		e.AppID, e.Name, e.Values)
 	if err != nil {
 		return err
@@ -394,7 +439,7 @@ func (s *Store) InsertEnum(e *model.Enum) error {
 // --- Phase 4: State template inserts ---
 
 func (s *Store) InsertStateTemplate(st *model.StateTemplate) error {
-	res, err := s.DB.Exec("INSERT INTO state_templates (app_id, name, definition) VALUES (?, ?, ?)",
+	res, err := s.db().Exec("INSERT INTO state_templates (app_id, name, definition) VALUES (?, ?, ?)",
 		st.AppID, st.Name, st.Definition)
 	if err != nil {
 		return err
@@ -406,7 +451,7 @@ func (s *Store) InsertStateTemplate(st *model.StateTemplate) error {
 // GetStateTemplate returns the definition JSON for a named template, or "" if not found.
 func (s *Store) GetStateTemplate(appID int64, name string) (string, error) {
 	var def string
-	err := s.DB.QueryRow("SELECT definition FROM state_templates WHERE app_id = ? AND name = ?", appID, name).Scan(&def)
+	err := s.db().QueryRow("SELECT definition FROM state_templates WHERE app_id = ? AND name = ?", appID, name).Scan(&def)
 	if err != nil {
 		return "", fmt.Errorf("state template %q not found", name)
 	}
@@ -416,7 +461,7 @@ func (s *Store) GetStateTemplate(appID int64, name string) (string, error) {
 // --- Phase 3: Fixture inserts ---
 
 func (s *Store) InsertFixture(f *model.Fixture) error {
-	res, err := s.DB.Exec("INSERT INTO fixtures (app_id, name, extends, data) VALUES (?, ?, ?, ?)",
+	res, err := s.db().Exec("INSERT INTO fixtures (app_id, name, extends, data) VALUES (?, ?, ?, ?)",
 		f.AppID, f.Name, f.Extends, f.Data)
 	if err != nil {
 		return err
@@ -426,7 +471,7 @@ func (s *Store) InsertFixture(f *model.Fixture) error {
 }
 
 func (s *Store) InsertStateFixture(sf *model.StateFixture) error {
-	res, err := s.DB.Exec("INSERT INTO state_fixtures (owner_type, owner_id, state_name, fixture_name) VALUES (?, ?, ?, ?)",
+	res, err := s.db().Exec("INSERT INTO state_fixtures (owner_type, owner_id, state_name, fixture_name) VALUES (?, ?, ?, ?)",
 		sf.OwnerType, sf.OwnerID, sf.StateName, sf.FixtureName)
 	if err != nil {
 		return err
@@ -438,7 +483,7 @@ func (s *Store) InsertStateFixture(sf *model.StateFixture) error {
 // --- Phase 2: Data model inserts ---
 
 func (s *Store) InsertDataType(dt *model.DataType) error {
-	res, err := s.DB.Exec("INSERT INTO data_types (app_id, name, fields) VALUES (?, ?, ?)",
+	res, err := s.db().Exec("INSERT INTO data_types (app_id, name, fields) VALUES (?, ?, ?)",
 		dt.AppID, dt.Name, dt.Fields)
 	if err != nil {
 		return err
@@ -448,7 +493,7 @@ func (s *Store) InsertDataType(dt *model.DataType) error {
 }
 
 func (s *Store) InsertContextField(cf *model.ContextField) error {
-	res, err := s.DB.Exec("INSERT INTO contexts (owner_type, owner_id, field_name, field_type) VALUES (?, ?, ?, ?)",
+	res, err := s.db().Exec("INSERT INTO contexts (owner_type, owner_id, field_name, field_type) VALUES (?, ?, ?, ?)",
 		cf.OwnerType, cf.OwnerID, cf.FieldName, cf.FieldType)
 	if err != nil {
 		return err
@@ -458,7 +503,7 @@ func (s *Store) InsertContextField(cf *model.ContextField) error {
 }
 
 func (s *Store) InsertAmbientRef(ar *model.AmbientRef) error {
-	res, err := s.DB.Exec("INSERT INTO ambient_refs (region_id, local_name, source, query) VALUES (?, ?, ?, ?)",
+	res, err := s.db().Exec("INSERT INTO ambient_refs (region_id, local_name, source, query) VALUES (?, ?, ?, ?)",
 		ar.RegionID, ar.LocalName, ar.Source, ar.Query)
 	if err != nil {
 		return err
@@ -468,7 +513,7 @@ func (s *Store) InsertAmbientRef(ar *model.AmbientRef) error {
 }
 
 func (s *Store) InsertRegionData(rd *model.RegionData) error {
-	res, err := s.DB.Exec("INSERT INTO region_data (region_id, field_name, field_type) VALUES (?, ?, ?)",
+	res, err := s.db().Exec("INSERT INTO region_data (region_id, field_name, field_type) VALUES (?, ?, ?)",
 		rd.RegionID, rd.FieldName, rd.FieldType)
 	if err != nil {
 		return err
@@ -480,7 +525,7 @@ func (s *Store) InsertRegionData(rd *model.RegionData) error {
 // --- Update helpers [H6 fix] ---
 
 func (s *Store) UpdateScreen(name, newDesc string) error {
-	res, err := s.DB.Exec("UPDATE screens SET description = ? WHERE name = ?", newDesc, name)
+	res, err := s.db().Exec("UPDATE screens SET description = ? WHERE name = ?", newDesc, name)
 	if err != nil {
 		return err
 	}
@@ -496,7 +541,7 @@ func (s *Store) UpdateRegion(name, newDesc string, inParent ...string) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.DB.Exec("UPDATE regions SET description = ? WHERE id = ?", newDesc, id)
+	_, err = s.db().Exec("UPDATE regions SET description = ? WHERE id = ?", newDesc, id)
 	return err
 }
 
@@ -505,7 +550,7 @@ func (s *Store) UpdateDataType(name, fields string) error {
 	if err != nil {
 		return err
 	}
-	res, err := s.DB.Exec("UPDATE data_types SET fields = ? WHERE name = ? AND app_id = ?", fields, name, appID)
+	res, err := s.db().Exec("UPDATE data_types SET fields = ? WHERE name = ? AND app_id = ?", fields, name, appID)
 	if err != nil {
 		return err
 	}
@@ -521,7 +566,7 @@ func (s *Store) UpdateEnum(name, values string) error {
 	if err != nil {
 		return err
 	}
-	res, err := s.DB.Exec(`UPDATE enums SET "values" = ? WHERE name = ? AND app_id = ?`, values, name, appID)
+	res, err := s.db().Exec(`UPDATE enums SET "values" = ? WHERE name = ? AND app_id = ?`, values, name, appID)
 	if err != nil {
 		return err
 	}
@@ -533,7 +578,7 @@ func (s *Store) UpdateEnum(name, values string) error {
 }
 
 func (s *Store) UpdateContextField(field, ownerType string, ownerID int64, newType string) error {
-	res, err := s.DB.Exec("UPDATE contexts SET field_type = ? WHERE field_name = ? AND owner_type = ? AND owner_id = ?",
+	res, err := s.db().Exec("UPDATE contexts SET field_type = ? WHERE field_name = ? AND owner_type = ? AND owner_id = ?",
 		newType, field, ownerType, ownerID)
 	if err != nil {
 		return err
@@ -546,7 +591,7 @@ func (s *Store) UpdateContextField(field, ownerType string, ownerID int64, newTy
 }
 
 func (s *Store) UpdateRegionData(field string, regionID int64, newType string) error {
-	res, err := s.DB.Exec("UPDATE region_data SET field_type = ? WHERE field_name = ? AND region_id = ?",
+	res, err := s.db().Exec("UPDATE region_data SET field_type = ? WHERE field_name = ? AND region_id = ?",
 		newType, field, regionID)
 	if err != nil {
 		return err
@@ -559,7 +604,7 @@ func (s *Store) UpdateRegionData(field string, regionID int64, newType string) e
 }
 
 func (s *Store) UpdateAmbientRef(name string, regionID int64, source, query string) error {
-	res, err := s.DB.Exec("UPDATE ambient_refs SET source = ?, query = ? WHERE local_name = ? AND region_id = ?",
+	res, err := s.db().Exec("UPDATE ambient_refs SET source = ?, query = ? WHERE local_name = ? AND region_id = ?",
 		source, query, name, regionID)
 	if err != nil {
 		return err
@@ -576,7 +621,7 @@ func (s *Store) UpdateFixture(name, data, extends string) error {
 	if err != nil {
 		return err
 	}
-	res, err := s.DB.Exec("UPDATE fixtures SET data = ?, extends = ? WHERE name = ? AND app_id = ?",
+	res, err := s.db().Exec("UPDATE fixtures SET data = ?, extends = ? WHERE name = ? AND app_id = ?",
 		data, extends, name, appID)
 	if err != nil {
 		return err
@@ -589,7 +634,7 @@ func (s *Store) UpdateFixture(name, data, extends string) error {
 }
 
 func (s *Store) UpdateStateFixture(ownerType string, ownerID int64, state, fixture string) error {
-	res, err := s.DB.Exec("UPDATE state_fixtures SET fixture_name = ? WHERE owner_type = ? AND owner_id = ? AND state_name = ?",
+	res, err := s.db().Exec("UPDATE state_fixtures SET fixture_name = ? WHERE owner_type = ? AND owner_id = ? AND state_name = ?",
 		fixture, ownerType, ownerID, state)
 	if err != nil {
 		return err
@@ -617,7 +662,7 @@ func (s *Store) ImpactScreen(name string) ([]Impact, error) {
 	}
 	var impacts []Impact
 
-	rows, err := s.DB.Query("SELECT name FROM regions WHERE parent_type = 'screen' AND parent_id = ?", id)
+	rows, err := s.db().Query("SELECT name FROM regions WHERE parent_type = 'screen' AND parent_id = ?", id)
 	if err != nil {
 		return nil, err
 	}
@@ -628,7 +673,7 @@ func (s *Store) ImpactScreen(name string) ([]Impact, error) {
 	}
 	rows.Close()
 
-	rows, err = s.DB.Query(`SELECT e.name, r.name FROM events e
+	rows, err = s.db().Query(`SELECT e.name, r.name FROM events e
 		JOIN regions r ON r.id = e.region_id
 		WHERE r.parent_type = 'screen' AND r.parent_id = ?`, id)
 	if err != nil {
@@ -641,7 +686,7 @@ func (s *Store) ImpactScreen(name string) ([]Impact, error) {
 	}
 	rows.Close()
 
-	rows, err = s.DB.Query(`SELECT on_event, from_state, to_state FROM transitions
+	rows, err = s.db().Query(`SELECT on_event, from_state, to_state FROM transitions
 		WHERE owner_type = 'screen' AND owner_id = ?`, id)
 	if err != nil {
 		return nil, err
@@ -658,7 +703,7 @@ func (s *Store) ImpactScreen(name string) ([]Impact, error) {
 	}
 	rows.Close()
 
-	rows, err = s.DB.Query(`SELECT f.name FROM flow_steps fs
+	rows, err = s.db().Query(`SELECT f.name FROM flow_steps fs
 		JOIN flows f ON f.id = fs.flow_id
 		WHERE fs.type = 'screen' AND fs.name = ?`, name)
 	if err != nil {
@@ -671,7 +716,7 @@ func (s *Store) ImpactScreen(name string) ([]Impact, error) {
 	}
 	rows.Close()
 
-	rows, err = s.DB.Query("SELECT tag FROM tags WHERE entity_type = 'screen' AND entity_id = ?", id)
+	rows, err = s.db().Query("SELECT tag FROM tags WHERE entity_type = 'screen' AND entity_id = ?", id)
 	if err != nil {
 		return nil, err
 	}
@@ -705,7 +750,7 @@ func (s *Store) ImpactRegion(name string, inParent ...string) ([]Impact, error) 
 	}
 	var impacts []Impact
 
-	rows, err := s.DB.Query("SELECT name FROM regions WHERE parent_type = 'region' AND parent_id = ?", id)
+	rows, err := s.db().Query("SELECT name FROM regions WHERE parent_type = 'region' AND parent_id = ?", id)
 	if err != nil {
 		return nil, err
 	}
@@ -716,7 +761,7 @@ func (s *Store) ImpactRegion(name string, inParent ...string) ([]Impact, error) 
 	}
 	rows.Close()
 
-	rows, err = s.DB.Query("SELECT name FROM events WHERE region_id = ?", id)
+	rows, err = s.db().Query("SELECT name FROM events WHERE region_id = ?", id)
 	if err != nil {
 		return nil, err
 	}
@@ -727,7 +772,7 @@ func (s *Store) ImpactRegion(name string, inParent ...string) ([]Impact, error) 
 	}
 	rows.Close()
 
-	rows, err = s.DB.Query(`SELECT on_event, from_state, to_state FROM transitions
+	rows, err = s.db().Query(`SELECT on_event, from_state, to_state FROM transitions
 		WHERE owner_type = 'region' AND owner_id = ?`, id)
 	if err != nil {
 		return nil, err
@@ -744,7 +789,7 @@ func (s *Store) ImpactRegion(name string, inParent ...string) ([]Impact, error) 
 	}
 	rows.Close()
 
-	rows, err = s.DB.Query(`SELECT f.name FROM flow_steps fs
+	rows, err = s.db().Query(`SELECT f.name FROM flow_steps fs
 		JOIN flows f ON f.id = fs.flow_id
 		WHERE fs.type = 'region' AND fs.name = ?`, name)
 	if err != nil {
@@ -757,7 +802,7 @@ func (s *Store) ImpactRegion(name string, inParent ...string) ([]Impact, error) 
 	}
 	rows.Close()
 
-	rows, err = s.DB.Query("SELECT tag FROM tags WHERE entity_type = 'region' AND entity_id = ?", id)
+	rows, err = s.db().Query("SELECT tag FROM tags WHERE entity_type = 'region' AND entity_id = ?", id)
 	if err != nil {
 		return nil, err
 	}
@@ -788,7 +833,7 @@ func (s *Store) ImpactRegion(name string, inParent ...string) ([]Impact, error) 
 func (s *Store) incomingNavigateRefs(name string) []Impact {
 	target := "navigate(" + name + ")"
 	targetWithParams := "navigate(" + name + ",%"
-	rows, err := s.DB.Query(`SELECT `+ownerCase+` AS owner_name, t.on_event
+	rows, err := s.db().Query(`SELECT `+ownerCase+` AS owner_name, t.on_event
 		FROM transitions t
 		WHERE t.action = ? OR t.action LIKE ?`, target, targetWithParams)
 	if err != nil {
@@ -914,7 +959,7 @@ func (s *Store) DeleteEvent(name, regionName string) error {
 	if err != nil {
 		return err
 	}
-	res, err := s.DB.Exec("DELETE FROM events WHERE name = ? AND region_id = ?", name, regionID)
+	res, err := s.db().Exec("DELETE FROM events WHERE name = ? AND region_id = ?", name, regionID)
 	if err != nil {
 		return err
 	}
@@ -936,7 +981,7 @@ func (s *Store) DeleteTransition(onEvent, ownerName, fromState string) error {
 		q += " AND from_state = ?"
 		args = append(args, fromState)
 	}
-	res, err := s.DB.Exec(q, args...)
+	res, err := s.db().Exec(q, args...)
 	if err != nil {
 		return err
 	}
@@ -955,7 +1000,7 @@ func (s *Store) DeleteTag(tag, entityName string) error {
 	if err != nil {
 		return err
 	}
-	res, err := s.DB.Exec("DELETE FROM tags WHERE tag = ? AND entity_type = ? AND entity_id = ?",
+	res, err := s.db().Exec("DELETE FROM tags WHERE tag = ? AND entity_type = ? AND entity_id = ?",
 		tag, entityType, entityID)
 	if err != nil {
 		return err
@@ -969,12 +1014,12 @@ func (s *Store) DeleteTag(tag, entityName string) error {
 
 func (s *Store) DeleteFlow(name string) error {
 	var flowID int64
-	err := s.DB.QueryRow("SELECT id FROM flows WHERE name = ?", name).Scan(&flowID)
+	err := s.db().QueryRow("SELECT id FROM flows WHERE name = ?", name).Scan(&flowID)
 	if err != nil {
 		return fmt.Errorf("flow %q not found", name)
 	}
-	s.DB.Exec("DELETE FROM flow_steps WHERE flow_id = ?", flowID)
-	s.DB.Exec("DELETE FROM flows WHERE id = ?", flowID)
+	s.db().Exec("DELETE FROM flow_steps WHERE flow_id = ?", flowID)
+	s.db().Exec("DELETE FROM flows WHERE id = ?", flowID)
 	return nil
 }
 
@@ -983,7 +1028,7 @@ func (s *Store) DeleteDataType(name string) error {
 	if err != nil {
 		return err
 	}
-	res, err := s.DB.Exec("DELETE FROM data_types WHERE name = ? AND app_id = ?", name, appID)
+	res, err := s.db().Exec("DELETE FROM data_types WHERE name = ? AND app_id = ?", name, appID)
 	if err != nil {
 		return err
 	}
@@ -999,7 +1044,7 @@ func (s *Store) DeleteEnum(name string) error {
 	if err != nil {
 		return err
 	}
-	res, err := s.DB.Exec("DELETE FROM enums WHERE name = ? AND app_id = ?", name, appID)
+	res, err := s.db().Exec("DELETE FROM enums WHERE name = ? AND app_id = ?", name, appID)
 	if err != nil {
 		return err
 	}
@@ -1011,7 +1056,7 @@ func (s *Store) DeleteEnum(name string) error {
 }
 
 func (s *Store) DeleteContextField(fieldName, ownerType string, ownerID int64) error {
-	res, err := s.DB.Exec("DELETE FROM contexts WHERE field_name = ? AND owner_type = ? AND owner_id = ?",
+	res, err := s.db().Exec("DELETE FROM contexts WHERE field_name = ? AND owner_type = ? AND owner_id = ?",
 		fieldName, ownerType, ownerID)
 	if err != nil {
 		return err
@@ -1024,7 +1069,7 @@ func (s *Store) DeleteContextField(fieldName, ownerType string, ownerID int64) e
 }
 
 func (s *Store) DeleteRegionData(fieldName string, regionID int64) error {
-	res, err := s.DB.Exec("DELETE FROM region_data WHERE field_name = ? AND region_id = ?",
+	res, err := s.db().Exec("DELETE FROM region_data WHERE field_name = ? AND region_id = ?",
 		fieldName, regionID)
 	if err != nil {
 		return err
@@ -1037,7 +1082,7 @@ func (s *Store) DeleteRegionData(fieldName string, regionID int64) error {
 }
 
 func (s *Store) DeleteAmbientRef(localName string, regionID int64) error {
-	res, err := s.DB.Exec("DELETE FROM ambient_refs WHERE local_name = ? AND region_id = ?",
+	res, err := s.db().Exec("DELETE FROM ambient_refs WHERE local_name = ? AND region_id = ?",
 		localName, regionID)
 	if err != nil {
 		return err
@@ -1054,7 +1099,7 @@ func (s *Store) DeleteFixture(name string) error {
 	if err != nil {
 		return err
 	}
-	res, err := s.DB.Exec("DELETE FROM fixtures WHERE name = ? AND app_id = ?", name, appID)
+	res, err := s.db().Exec("DELETE FROM fixtures WHERE name = ? AND app_id = ?", name, appID)
 	if err != nil {
 		return err
 	}
@@ -1066,7 +1111,7 @@ func (s *Store) DeleteFixture(name string) error {
 }
 
 func (s *Store) DeleteStateFixture(ownerType string, ownerID int64, stateName string) error {
-	res, err := s.DB.Exec("DELETE FROM state_fixtures WHERE owner_type = ? AND owner_id = ? AND state_name = ?",
+	res, err := s.db().Exec("DELETE FROM state_fixtures WHERE owner_type = ? AND owner_id = ? AND state_name = ?",
 		ownerType, ownerID, stateName)
 	if err != nil {
 		return err
@@ -1079,7 +1124,7 @@ func (s *Store) DeleteStateFixture(ownerType string, ownerID int64, stateName st
 }
 
 func (s *Store) DeleteStateRegion(regionName, ownerType string, ownerID int64, stateName string) error {
-	res, err := s.DB.Exec("DELETE FROM state_regions WHERE region_name = ? AND owner_type = ? AND owner_id = ? AND state_name = ?",
+	res, err := s.db().Exec("DELETE FROM state_regions WHERE region_name = ? AND owner_type = ? AND owner_id = ? AND state_name = ?",
 		regionName, ownerType, ownerID, stateName)
 	if err != nil {
 		return err
@@ -1111,7 +1156,7 @@ func (s *Store) MoveRegion(name, newParentName string, inParent ...string) error
 		for {
 			var pt string
 			var pid int64
-			err := s.DB.QueryRow("SELECT parent_type, parent_id FROM regions WHERE id = ?", checkID).Scan(&pt, &pid)
+			err := s.db().QueryRow("SELECT parent_type, parent_id FROM regions WHERE id = ?", checkID).Scan(&pt, &pid)
 			if err != nil {
 				break
 			}
@@ -1125,7 +1170,7 @@ func (s *Store) MoveRegion(name, newParentName string, inParent ...string) error
 		}
 	}
 
-	_, err = s.DB.Exec("UPDATE regions SET parent_type = ?, parent_id = ? WHERE id = ?",
+	_, err = s.db().Exec("UPDATE regions SET parent_type = ?, parent_id = ? WHERE id = ?",
 		parentType, parentID, id)
 	return err
 }
@@ -1167,9 +1212,9 @@ func (s *Store) RenameRegion(old, newName string, inParent ...string) error {
 	// Scoped collision check: only block if newName exists under the same parent
 	var parentType string
 	var parentID int64
-	s.DB.QueryRow("SELECT parent_type, parent_id FROM regions WHERE id = ?", id).Scan(&parentType, &parentID)
+	s.db().QueryRow("SELECT parent_type, parent_id FROM regions WHERE id = ?", id).Scan(&parentType, &parentID)
 	var collision int
-	s.DB.QueryRow("SELECT COUNT(*) FROM regions WHERE name = ? AND parent_type = ? AND parent_id = ? AND id != ?",
+	s.db().QueryRow("SELECT COUNT(*) FROM regions WHERE name = ? AND parent_type = ? AND parent_id = ? AND id != ?",
 		newName, parentType, parentID, id).Scan(&collision)
 	if collision > 0 {
 		return fmt.Errorf("region %q already exists in %s", newName, s.parentName(parentType, parentID))
@@ -1189,7 +1234,7 @@ func (s *Store) RenameRegion(old, newName string, inParent ...string) error {
 }
 
 func (s *Store) RenameFlow(old, newName string) error {
-	res, err := s.DB.Exec("UPDATE flows SET name = ? WHERE name = ?", newName, old)
+	res, err := s.db().Exec("UPDATE flows SET name = ? WHERE name = ?", newName, old)
 	if err != nil {
 		return err
 	}
@@ -1226,7 +1271,7 @@ func (s *Store) RenameDataType(old, newName string) error {
 		return err
 	}
 	var count int
-	s.DB.QueryRow("SELECT COUNT(*) FROM data_types WHERE name = ? AND app_id = ?", old, appID).Scan(&count)
+	s.db().QueryRow("SELECT COUNT(*) FROM data_types WHERE name = ? AND app_id = ?", old, appID).Scan(&count)
 	if count == 0 {
 		return fmt.Errorf("data type %q not found", old)
 	}
@@ -1246,7 +1291,7 @@ func (s *Store) RenameEnum(old, newName string) error {
 		return err
 	}
 	var count int
-	s.DB.QueryRow("SELECT COUNT(*) FROM enums WHERE name = ? AND app_id = ?", old, appID).Scan(&count)
+	s.db().QueryRow("SELECT COUNT(*) FROM enums WHERE name = ? AND app_id = ?", old, appID).Scan(&count)
 	if count == 0 {
 		return fmt.Errorf("enum %q not found", old)
 	}
@@ -1266,7 +1311,7 @@ func (s *Store) RenameFixture(old, newName string) error {
 		return err
 	}
 	var count int
-	s.DB.QueryRow("SELECT COUNT(*) FROM fixtures WHERE name = ? AND app_id = ?", old, appID).Scan(&count)
+	s.db().QueryRow("SELECT COUNT(*) FROM fixtures WHERE name = ? AND app_id = ?", old, appID).Scan(&count)
 	if count == 0 {
 		return fmt.Errorf("fixture %q not found", old)
 	}
@@ -1323,7 +1368,7 @@ func (s *Store) SetComponent(entityName, component, props, onActions, visible st
 	if err != nil {
 		return err
 	}
-	_, err = s.DB.Exec(
+	_, err = s.db().Exec(
 		`INSERT INTO components (entity_type, entity_id, component, props, on_actions, visible)
 		 VALUES (?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(entity_type, entity_id) DO UPDATE SET
@@ -1336,7 +1381,7 @@ func (s *Store) SetComponent(entityName, component, props, onActions, visible st
 func (s *Store) GetComponent(entityType string, entityID int64) *Component {
 	var c Component
 	var onActions, visible sql.NullString
-	err := s.DB.QueryRow(
+	err := s.db().QueryRow(
 		"SELECT entity_type, entity_id, component, props, on_actions, visible FROM components WHERE entity_type = ? AND entity_id = ?",
 		entityType, entityID).Scan(&c.EntityType, &c.EntityID, &c.Component, &c.Props, &onActions, &visible)
 	if err != nil {
@@ -1392,7 +1437,7 @@ func (s *Store) RemoveComponent(entityName string) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.DB.Exec("DELETE FROM components WHERE entity_type = ? AND entity_id = ?", entityType, entityID)
+	_, err = s.db().Exec("DELETE FROM components WHERE entity_type = ? AND entity_id = ?", entityType, entityID)
 	return err
 }
 
@@ -1439,7 +1484,7 @@ func (s *Store) Attach(entity, srcPath, asName, contentID string) (string, error
 
 func (s *Store) AttachContent(entity, name, contentID string, content []byte) error {
 	hash := contentHash(content)
-	_, err := s.DB.Exec(
+	_, err := s.db().Exec(
 		`INSERT INTO attachments (entity, name, content, content_id, content_hash) VALUES (?, ?, ?, ?, ?)
 		 ON CONFLICT(entity, name) DO UPDATE SET content = excluded.content, content_id = excluded.content_id, content_hash = excluded.content_hash`,
 		entity, name, content, nilIfEmpty(contentID), hash)
@@ -1447,7 +1492,7 @@ func (s *Store) AttachContent(entity, name, contentID string, content []byte) er
 }
 
 func (s *Store) Detach(entity, name string) error {
-	res, err := s.DB.Exec("DELETE FROM attachments WHERE entity = ? AND name = ?", entity, name)
+	res, err := s.db().Exec("DELETE FROM attachments WHERE entity = ? AND name = ?", entity, name)
 	if err != nil {
 		return err
 	}
@@ -1465,7 +1510,7 @@ func (s *Store) ListAttachments(filterEntity string) ([]Attachment, error) {
 		q = "SELECT entity, name, content_id, hex(content_hash) FROM attachments WHERE entity = ? ORDER BY name"
 		args = append(args, filterEntity)
 	}
-	rows, err := s.DB.Query(q, args...)
+	rows, err := s.db().Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1488,7 +1533,7 @@ func (s *Store) ListAttachments(filterEntity string) ([]Attachment, error) {
 }
 
 func (s *Store) SetContentID(entity, name, contentID string) error {
-	res, err := s.DB.Exec("UPDATE attachments SET content_id = ? WHERE entity = ? AND name = ?",
+	res, err := s.db().Exec("UPDATE attachments SET content_id = ? WHERE entity = ? AND name = ?",
 		nilIfEmpty(contentID), entity, name)
 	if err != nil {
 		return err
@@ -1501,7 +1546,7 @@ func (s *Store) SetContentID(entity, name, contentID string) error {
 }
 
 func (s *Store) backfillAttachmentHashes() {
-	rows, err := s.DB.Query("SELECT id, content FROM attachments WHERE content_hash IS NULL")
+	rows, err := s.db().Query("SELECT id, content FROM attachments WHERE content_hash IS NULL")
 	if err != nil {
 		return
 	}
@@ -1533,7 +1578,7 @@ func (s *Store) backfillAttachmentHashes() {
 }
 
 func (s *Store) AttachmentsFor(entity string) []string {
-	rows, _ := s.DB.Query("SELECT name FROM attachments WHERE entity = ? ORDER BY name", entity)
+	rows, _ := s.db().Query("SELECT name FROM attachments WHERE entity = ? ORDER BY name", entity)
 	if rows == nil {
 		return nil
 	}
@@ -1549,7 +1594,7 @@ func (s *Store) AttachmentsFor(entity string) []string {
 
 func (s *Store) ReadAttachment(entity, name string) ([]byte, error) {
 	var content []byte
-	err := s.DB.QueryRow("SELECT content FROM attachments WHERE entity = ? AND name = ?", entity, name).Scan(&content)
+	err := s.db().QueryRow("SELECT content FROM attachments WHERE entity = ? AND name = ?", entity, name).Scan(&content)
 	if err != nil {
 		return nil, fmt.Errorf("attachment %s/%s not found", entity, name)
 	}
@@ -1559,7 +1604,7 @@ func (s *Store) ReadAttachment(entity, name string) ([]byte, error) {
 // --- Tastes ---
 
 func (s *Store) InsertTaste(appID int64, name, tokens string) (int64, error) {
-	res, err := s.DB.Exec("INSERT INTO tastes (app_id, name, tokens) VALUES (?, ?, ?)", appID, name, tokens)
+	res, err := s.db().Exec("INSERT INTO tastes (app_id, name, tokens) VALUES (?, ?, ?)", appID, name, tokens)
 	if err != nil {
 		return 0, err
 	}
@@ -1567,18 +1612,18 @@ func (s *Store) InsertTaste(appID int64, name, tokens string) (int64, error) {
 }
 
 func (s *Store) UpdateTaste(appID int64, name, tokens string) error {
-	_, err := s.DB.Exec("UPDATE tastes SET tokens = ? WHERE app_id = ? AND name = ?", tokens, appID, name)
+	_, err := s.db().Exec("UPDATE tastes SET tokens = ? WHERE app_id = ? AND name = ?", tokens, appID, name)
 	return err
 }
 
 func (s *Store) GetTaste(appID int64, name string) (string, error) {
 	var tokens string
-	err := s.DB.QueryRow("SELECT tokens FROM tastes WHERE app_id = ? AND name = ?", appID, name).Scan(&tokens)
+	err := s.db().QueryRow("SELECT tokens FROM tastes WHERE app_id = ? AND name = ?", appID, name).Scan(&tokens)
 	return tokens, err
 }
 
 func (s *Store) ListTastes(appID int64) ([]struct{ Name, Tokens string }, error) {
-	rows, err := s.DB.Query("SELECT name, tokens FROM tastes WHERE app_id = ? ORDER BY name", appID)
+	rows, err := s.db().Query("SELECT name, tokens FROM tastes WHERE app_id = ? ORDER BY name", appID)
 	if err != nil {
 		return nil, err
 	}
@@ -1593,14 +1638,14 @@ func (s *Store) ListTastes(appID int64) ([]struct{ Name, Tokens string }, error)
 }
 
 func (s *Store) DeleteTaste(appID int64, name string) error {
-	_, err := s.DB.Exec("DELETE FROM tastes WHERE app_id = ? AND name = ?", appID, name)
+	_, err := s.db().Exec("DELETE FROM tastes WHERE app_id = ? AND name = ?", appID, name)
 	return err
 }
 
 // --- Discovery/Delivery layout ---
 
 func (s *Store) InsertLayout(l *model.Layout) error {
-	res, err := s.DB.Exec("INSERT INTO layouts (app_id, name, classes) VALUES (?, ?, ?)",
+	res, err := s.db().Exec("INSERT INTO layouts (app_id, name, classes) VALUES (?, ?, ?)",
 		l.AppID, l.Name, l.Classes)
 	if err != nil {
 		return err
@@ -1610,7 +1655,7 @@ func (s *Store) InsertLayout(l *model.Layout) error {
 }
 
 func (s *Store) GetLayouts(appID int64) ([]model.Layout, error) {
-	rows, err := s.DB.Query("SELECT id, app_id, name, classes FROM layouts WHERE app_id = ? ORDER BY name", appID)
+	rows, err := s.db().Query("SELECT id, app_id, name, classes FROM layouts WHERE app_id = ? ORDER BY name", appID)
 	if err != nil {
 		return nil, err
 	}
@@ -1628,7 +1673,7 @@ func (s *Store) GetLayouts(appID int64) ([]model.Layout, error) {
 
 func (s *Store) GetLayout(appID int64, name string) (*model.Layout, error) {
 	var l model.Layout
-	err := s.DB.QueryRow("SELECT id, app_id, name, classes FROM layouts WHERE app_id = ? AND name = ?", appID, name).
+	err := s.db().QueryRow("SELECT id, app_id, name, classes FROM layouts WHERE app_id = ? AND name = ?", appID, name).
 		Scan(&l.ID, &l.AppID, &l.Name, &l.Classes)
 	if err != nil {
 		return nil, err

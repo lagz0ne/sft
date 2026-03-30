@@ -60,7 +60,6 @@ function PlaygroundPage() {
 	const states = screen?.states ?? []
 	const activeState = search.state || states[0] || null
 	const currentComposition = search.layout || null
-	const viewportWidth = search.width || null
 
 	const flow = search.flow ? spec.flows?.find(f => f.name === search.flow) : spec.flows?.[0]
 	const steps = flow?.steps ?? []
@@ -99,6 +98,14 @@ function PlaygroundPage() {
 		}
 		return sizes
 	}, [compositions])
+
+	const viewportWidth = useMemo(() => {
+		const match = viewportSizes.find(s =>
+			(search.layout && s.composition === search.layout) ||
+			(search.width && s.width === search.width)
+		)
+		return match?.width ?? (search.width || null)
+	}, [viewportSizes, search.layout, search.width])
 
 	const switchScreen = (name: string) => set({ screen: name, state: '' })
 	const goToStep = (i: number) => set({ step: Math.max(0, Math.min(i, steps.length - 1)) })

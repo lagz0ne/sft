@@ -1446,3 +1446,276 @@ func TestDiscoveryDeliveryOldFormat(t *testing.T) {
 		t.Errorf("layouts = %d, want 2", len(layouts))
 	}
 }
+
+func TestLoadAtomicity(t *testing.T) {
+	// Load() with a duplicate screen name should fail AND leave no partial data.
+	const badYAML = `app:
+  name: TestAtomicity
+  description: Atomicity test
+  screens:
+    - name: Valid
+      description: First screen
+      regions:
+        - name: GoodRegion
+          description: Works fine
+    - name: Valid
+      description: Duplicate name should fail
+`
+	s := mustStore(t)
+	tmp := t.TempDir() + "/atomicity.sft.yaml"
+	if err := os.WriteFile(tmp, []byte(badYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := Load(s, tmp)
+	if err == nil {
+		t.Fatal("expected Load to fail on duplicate screen name")
+	}
+
+	// After failure, the DB must be clean — no partial data
+	var appCount int
+	s.DB.QueryRow("SELECT COUNT(*) FROM apps").Scan(&appCount)
+	if appCount != 0 {
+		t.Errorf("expected 0 apps after failed load, got %d", appCount)
+	}
+	var screenCount int
+	s.DB.QueryRow("SELECT COUNT(*) FROM screens").Scan(&screenCount)
+	if screenCount != 0 {
+		t.Errorf("expected 0 screens after failed load, got %d", screenCount)
+	}
+	var regionCount int
+	s.DB.QueryRow("SELECT COUNT(*) FROM regions").Scan(&regionCount)
+	if regionCount != 0 {
+		t.Errorf("expected 0 regions after failed load, got %d", regionCount)
+	}
+}
+
+// --- D1: Tag → discovery.layout auto-conversion ---
+
+func TestTagToDiscoveryLayoutMigration(t *testing.T) {
+	s := mustStore(t)
+	importYAML(t, s, `
+app:
+  name: TestMigration
+  description: Tag migration test
+  screens:
+    - name: Home
+      description: Home screen
+      regions:
+        - name: Nav
+          description: Navigation
+          tags: [sidebar, elevated]
+        - name: Top
+          description: Top bar
+          tags: [header]
+        - name: Panel
+          description: Already has discovery
+          discovery:
+            layout: [sidebar-far]
+          tags: [elevated]
+`)
+
+	var navID int64
+	s.DB.QueryRow("SELECT id FROM regions WHERE name = 'Nav'").Scan(&navID)
+
+	var dlJSON sql.NullString
+	s.DB.QueryRow("SELECT discovery_layout FROM regions WHERE id = ?", navID).Scan(&dlJSON)
+	if !dlJSON.Valid {
+		t.Fatal("Nav: discovery_layout should be set")
+	}
+	var navLayout []string
+	if err := json.Unmarshal([]byte(dlJSON.String), &navLayout); err != nil {
+		t.Fatalf("Nav: unmarshal discovery_layout: %v", err)
+	}
+	if len(navLayout) != 1 || navLayout[0] != "sidebar" {
+		t.Errorf("Nav: discovery_layout = %v, want [sidebar]", navLayout)
+	}
+
+	var tagCount int
+	s.DB.QueryRow("SELECT COUNT(*) FROM tags WHERE entity_type = 'region' AND entity_id = ?", navID).Scan(&tagCount)
+	if tagCount != 1 {
+		t.Errorf("Nav: expected 1 tag, got %d", tagCount)
+	}
+	var tag string
+	s.DB.QueryRow("SELECT tag FROM tags WHERE entity_type = 'region' AND entity_id = ?", navID).Scan(&tag)
+	if tag != "elevated" {
+		t.Errorf("Nav: remaining tag = %q, want elevated", tag)
+	}
+
+	var topID int64
+	s.DB.QueryRow("SELECT id FROM regions WHERE name = 'Top'").Scan(&topID)
+	s.DB.QueryRow("SELECT discovery_layout FROM regions WHERE id = ?", topID).Scan(&dlJSON)
+	if !dlJSON.Valid {
+		t.Fatal("Top: discovery_layout should be set")
+	}
+	var topLayout []string
+	json.Unmarshal([]byte(dlJSON.String), &topLayout)
+	if len(topLayout) != 1 || topLayout[0] != "header" {
+		t.Errorf("Top: discovery_layout = %v, want [header]", topLayout)
+	}
+	s.DB.QueryRow("SELECT COUNT(*) FROM tags WHERE entity_type = 'region' AND entity_id = ?", topID).Scan(&tagCount)
+	if tagCount != 0 {
+		t.Errorf("Top: expected 0 tags, got %d", tagCount)
+	}
+
+	var panelID int64
+	s.DB.QueryRow("SELECT id FROM regions WHERE name = 'Panel'").Scan(&panelID)
+	s.DB.QueryRow("SELECT discovery_layout FROM regions WHERE id = ?", panelID).Scan(&dlJSON)
+	if !dlJSON.Valid {
+		t.Fatal("Panel: discovery_layout should be set")
+	}
+	var panelLayout []string
+	json.Unmarshal([]byte(dlJSON.String), &panelLayout)
+	if len(panelLayout) != 1 || panelLayout[0] != "sidebar-far" {
+		t.Errorf("Panel: discovery_layout = %v, want [sidebar-far]", panelLayout)
+	}
+	s.DB.QueryRow("SELECT COUNT(*) FROM tags WHERE entity_type = 'region' AND entity_id = ?", panelID).Scan(&tagCount)
+	if tagCount != 1 {
+		t.Errorf("Panel: expected 1 tag, got %d", tagCount)
+	}
+}
+
+func TestTagToDiscoveryLayoutCompositionTags(t *testing.T) {
+	s := mustStore(t)
+	importYAML(t, s, `
+app:
+  name: CompTest
+  description: Composition tag test
+  screens:
+    - name: Main
+      description: Main
+      regions:
+        - name: BottomBar
+          description: Bottom bar
+          tags: [mobile:bottomnav, elevated]
+        - name: Wide
+          description: Wide panel
+          tags: [split:wide]
+`)
+	var bbID int64
+	s.DB.QueryRow("SELECT id FROM regions WHERE name = 'BottomBar'").Scan(&bbID)
+	var dlJSON sql.NullString
+	s.DB.QueryRow("SELECT discovery_layout FROM regions WHERE id = ?", bbID).Scan(&dlJSON)
+	if !dlJSON.Valid {
+		t.Fatal("BottomBar: discovery_layout should be set")
+	}
+	var bbLayout []string
+	json.Unmarshal([]byte(dlJSON.String), &bbLayout)
+	if len(bbLayout) != 1 || bbLayout[0] != "mobile:bottomnav" {
+		t.Errorf("BottomBar: discovery_layout = %v, want [mobile:bottomnav]", bbLayout)
+	}
+	var tagCount int
+	s.DB.QueryRow("SELECT COUNT(*) FROM tags WHERE entity_type = 'region' AND entity_id = ?", bbID).Scan(&tagCount)
+	if tagCount != 1 {
+		t.Errorf("BottomBar: expected 1 remaining tag (elevated), got %d", tagCount)
+	}
+
+	var wideID int64
+	s.DB.QueryRow("SELECT id FROM regions WHERE name = 'Wide'").Scan(&wideID)
+	s.DB.QueryRow("SELECT discovery_layout FROM regions WHERE id = ?", wideID).Scan(&dlJSON)
+	if !dlJSON.Valid {
+		t.Fatal("Wide: discovery_layout should be set")
+	}
+	var wideLayout []string
+	json.Unmarshal([]byte(dlJSON.String), &wideLayout)
+	if len(wideLayout) != 1 || wideLayout[0] != "split:wide" {
+		t.Errorf("Wide: discovery_layout = %v, want [split:wide]", wideLayout)
+	}
+}
+
+// --- D3: Flat format export ---
+
+func TestExportFlat(t *testing.T) {
+	s := mustStore(t)
+	importYAML(t, s, `
+app:
+  name: FlatTest
+  description: Flat export test
+  screens:
+    - name: Home
+      description: Landing page
+      regions:
+        - name: Hero
+          description: Hero section
+  flows:
+    - name: Landing
+      sequence: "Home → Home"
+`)
+	spec := loadSpec(t, s)
+	var buf bytes.Buffer
+	if err := ExportFlat(spec, &buf); err != nil {
+		t.Fatalf("ExportFlat: %v", err)
+	}
+	out := buf.String()
+
+	if !strings.Contains(out, "app: FlatTest") {
+		t.Errorf("expected scalar app name, got:\n%s", out)
+	}
+	if strings.Contains(out, "- name: Home") {
+		t.Errorf("expected mapping screens, not sequence, got:\n%s", out)
+	}
+	if !strings.Contains(out, "screens:") {
+		t.Errorf("expected screens: key, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Home:") {
+		t.Errorf("expected Home: as mapping key, got:\n%s", out)
+	}
+	if !strings.Contains(out, "flows:") {
+		t.Errorf("expected flows: key, got:\n%s", out)
+	}
+}
+
+func TestExportFlatWithDataTypes(t *testing.T) {
+	s := mustStore(t)
+	importYAML(t, s, `
+app:
+  name: FlatDataTest
+  description: Flat with data
+  data:
+    email:
+      subject: string
+      sender: string
+  enums:
+    status: [draft, sent, archived]
+  context:
+    user: string
+  screens:
+    - name: Inbox
+      description: Email inbox
+      context:
+        emails: email[]
+      regions:
+        - name: List
+          description: Email list
+          events: [select]
+      state_machine:
+        idle:
+          on:
+            select: viewing
+        viewing:
+`)
+	spec := loadSpec(t, s)
+	var buf bytes.Buffer
+	if err := ExportFlat(spec, &buf); err != nil {
+		t.Fatalf("ExportFlat: %v", err)
+	}
+	out := buf.String()
+
+	if !strings.Contains(out, "data_types:") {
+		t.Errorf("expected data_types: key, got:\n%s", out)
+	}
+	if !strings.Contains(out, "enums:") {
+		t.Errorf("expected enums: key, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Inbox:") {
+		t.Errorf("expected Inbox: as mapping key, got:\n%s", out)
+	}
+	if strings.Contains(out, "- name: List") {
+		t.Errorf("expected mapping regions, not sequence, got:\n%s", out)
+	}
+	if !strings.Contains(out, "List:") {
+		t.Errorf("expected List: as mapping key, got:\n%s", out)
+	}
+	if !strings.Contains(out, "state_machine:") {
+		t.Errorf("expected state_machine: in export, got:\n%s", out)
+	}
+}

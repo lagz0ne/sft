@@ -128,8 +128,13 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 	if err := row.Scan(&appID, &spec.App.Name, &spec.App.Description); err != nil {
 		return nil, fmt.Errorf("no app found: %w", err)
 	}
-	spec.App.DataTypes = loadDataTypes(db, appID)
-	spec.App.Enums = loadEnums(db, appID)
+	var err error
+	if spec.App.DataTypes, err = loadDataTypes(db, appID); err != nil {
+		return nil, err
+	}
+	if spec.App.Enums, err = loadEnums(db, appID); err != nil {
+		return nil, err
+	}
 	spec.App.Context = loadContext(db, "app", appID)
 	spec.App.Regions = loadRegions(db, "app", appID, al)
 	spec.App.Transitions = loadTransitions(db, "app", appID)
@@ -190,7 +195,9 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 	}
 
 	// Fixtures
-	spec.Fixtures = loadFixtures(db, appID)
+	if spec.Fixtures, err = loadFixtures(db, appID); err != nil {
+		return nil, err
+	}
 
 	// Tastes
 	spec.Tastes = loadTastes(db, appID)
@@ -328,10 +335,10 @@ func loadTransitions(db *sql.DB, ownerType string, ownerID int64) []Transition {
 	return transitions
 }
 
-func loadDataTypes(db *sql.DB, appID int64) map[string]map[string]string {
+func loadDataTypes(db *sql.DB, appID int64) (map[string]map[string]string, error) {
 	rows, _ := db.Query("SELECT name, fields FROM data_types WHERE app_id = ? ORDER BY name", appID)
 	if rows == nil {
-		return nil
+		return nil, nil
 	}
 	defer rows.Close()
 	result := map[string]map[string]string{}
@@ -339,19 +346,21 @@ func loadDataTypes(db *sql.DB, appID int64) map[string]map[string]string {
 		var name, fieldsJSON string
 		rows.Scan(&name, &fieldsJSON)
 		var fields map[string]string
-		json.Unmarshal([]byte(fieldsJSON), &fields)
+		if err := json.Unmarshal([]byte(fieldsJSON), &fields); err != nil {
+			return nil, fmt.Errorf("unmarshal fields for data type %s: %w", name, err)
+		}
 		result[name] = fields
 	}
 	if len(result) == 0 {
-		return nil
+		return nil, nil
 	}
-	return result
+	return result, nil
 }
 
-func loadEnums(db *sql.DB, appID int64) map[string][]string {
+func loadEnums(db *sql.DB, appID int64) (map[string][]string, error) {
 	rows, _ := db.Query(`SELECT name, "values" FROM enums WHERE app_id = ? ORDER BY name`, appID)
 	if rows == nil {
-		return nil
+		return nil, nil
 	}
 	defer rows.Close()
 	result := map[string][]string{}
@@ -359,13 +368,15 @@ func loadEnums(db *sql.DB, appID int64) map[string][]string {
 		var name, valuesJSON string
 		rows.Scan(&name, &valuesJSON)
 		var values []string
-		json.Unmarshal([]byte(valuesJSON), &values)
+		if err := json.Unmarshal([]byte(valuesJSON), &values); err != nil {
+			return nil, fmt.Errorf("unmarshal values for enum %s: %w", name, err)
+		}
 		result[name] = values
 	}
 	if len(result) == 0 {
-		return nil
+		return nil, nil
 	}
-	return result
+	return result, nil
 }
 
 func loadContext(db *sql.DB, ownerType string, ownerID int64) map[string]string {
@@ -422,10 +433,10 @@ func loadRegionData(db *sql.DB, regionID int64) map[string]string {
 	return result
 }
 
-func loadFixtures(db *sql.DB, appID int64) []Fixture {
+func loadFixtures(db *sql.DB, appID int64) ([]Fixture, error) {
 	rows, _ := db.Query("SELECT name, extends, data FROM fixtures WHERE app_id = ? ORDER BY id", appID)
 	if rows == nil {
-		return nil
+		return nil, nil
 	}
 	defer rows.Close()
 	var fixtures []Fixture
@@ -435,10 +446,12 @@ func loadFixtures(db *sql.DB, appID int64) []Fixture {
 		var dataJSON string
 		rows.Scan(&f.Name, &extends, &dataJSON)
 		f.Extends = extends.String
-		json.Unmarshal([]byte(dataJSON), &f.Data)
+		if err := json.Unmarshal([]byte(dataJSON), &f.Data); err != nil {
+			return nil, fmt.Errorf("unmarshal data for fixture %s: %w", f.Name, err)
+		}
 		fixtures = append(fixtures, f)
 	}
-	return fixtures
+	return fixtures, nil
 }
 
 func loadTastes(db *sql.DB, appID int64) []Taste {

@@ -1,4 +1,5 @@
 import type { App, Fixture, Region, Screen } from '../lib/types'
+import { parseComponentProps } from '../lib/component-props'
 import { DataList } from './skins/data-list'
 import { Tabs } from './skins/tabs'
 import { Placeholder } from './skins/placeholder'
@@ -46,9 +47,12 @@ function groupByPosition(regions: Region[], composition?: string | null): Layout
 	for (const r of regions) {
 		const resolved = resolveLayout(r, composition)
 		let position = resolved.position
-		// Auto-remap positions for narrow compositions when region has no explicit composition tag
 		if (isNarrow && !hasCompositionTag(r, composition!)) {
-			position = NARROW_REMAP[position] ?? position
+			// Trust explicit discovery_layout presets over NARROW_REMAP defaults
+			const dp = r.discovery_layout?.length ? parseDiscoveryLayout(r.discovery_layout).position : null
+			if (!dp || dp === position) {
+				position = NARROW_REMAP[position] ?? position
+			}
 		}
 		groups[position].push(r)
 	}
@@ -176,10 +180,10 @@ export function ZoneLegend({ positions }: { positions: Set<string> }) {
 	const entries = Object.entries(POSITION_ZONE).filter(([k]) => positions.has(k))
 	if (entries.length <= 1) return null
 	return (
-		<div className="flex items-center gap-3 px-2 py-1 text-[8px] font-mono text-stone-400">
+		<div role="list" aria-label="Zone pattern legend" className="flex items-center gap-3 px-2 py-1 text-[8px] font-mono text-stone-400">
 			{entries.map(([key, z]) => (
-				<span key={key} className="flex items-center gap-1">
-					<span className="w-2.5 h-2.5 border" style={{
+				<span key={key} role="listitem" className="flex items-center gap-1">
+					<span role="img" aria-label={`${z.label} zone pattern`} className="w-2.5 h-2.5 border" style={{
 						borderColor: z.accent,
 						borderLeftWidth: 2,
 						borderLeftColor: z.accent,
@@ -187,7 +191,7 @@ export function ZoneLegend({ positions }: { positions: Set<string> }) {
 						backgroundImage: z.pattern,
 						backgroundSize: 'auto',
 					}} />
-					<span>{z.label}</span>
+					<span aria-hidden="true">{z.label}</span>
 				</span>
 			))}
 		</div>
@@ -280,7 +284,7 @@ function ComponentRenderer({ component, componentProps, region, screen, fixtureD
 	componentSet?: string
 }) {
 	const shape = resolveShape(component)
-	const props = componentProps ? JSON.parse(componentProps) : {}
+	const props = parseComponentProps(componentProps)
 	const skinCtx = { skin: 'placeholder' as const, fields: {} }
 	const skinProps = { region, context: skinCtx, fixtureData, screenName: screen.name, compact, componentSet }
 
@@ -552,6 +556,7 @@ export function WireframeCanvas({ screen, currentState, appRegions, fixtures, ac
 	const allRegions = [...(appRegions ?? []), ...(screen.regions ?? [])]
 	const groups = groupByPosition(allRegions, composition)
 	const gridStyle = buildGridTemplate(groups, composition)
+	const isNarrow = composition != null && NARROW_COMPOSITIONS.has(composition)
 
 	// App-level regions bypass state_regions filter (they're always visible)
 	const appRegionNames = new Set((appRegions ?? []).map(r => r.name))
@@ -673,15 +678,23 @@ export function WireframeCanvas({ screen, currentState, appRegions, fixtures, ac
 				</div>
 			)}
 
-			{/* Drawer: attached to right edge */}
+			{/* Drawer: stacks below main on narrow viewports, overlays on right otherwise */}
 			{groups.drawer.length > 0 && (
-				<div className="absolute inset-y-0 right-0 pointer-events-none flex items-stretch p-2">
-					<div className="pointer-events-auto flex flex-col gap-1.5 w-72">
+				isNarrow ? (
+					<div className="flex flex-col gap-1.5 border-t border-stone-200 pt-2 mt-2">
 						{groups.drawer.map(r => (
-							<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)} isOverlay />
+							<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)} />
 						))}
 					</div>
-				</div>
+				) : (
+					<div className="absolute inset-y-0 right-0 pointer-events-none flex items-stretch p-2">
+						<div className="pointer-events-auto flex flex-col gap-1.5 w-72">
+							{groups.drawer.map(r => (
+								<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)} isOverlay />
+							))}
+						</div>
+					</div>
+				)
 			)}
 				</div>
 		</div>
@@ -752,6 +765,7 @@ function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeReg
 					: (stretch ? 'flex-1 min-h-[36px]' : 'flex-none'),
 				depth > 0 ? 'ml-1' : '',
 				containWidth ? (isFab ? 'w-fit self-end' : 'w-fit self-start') : '',
+				componentSet === 'styled' && region.delivery_classes?.length ? region.delivery_classes.join(' ') : '',
 			].join(' ')}
 		>
 			{/* Region label — inline top bar, not floating pill */}

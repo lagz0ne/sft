@@ -79,6 +79,24 @@ type yamlDelivery struct {
 	Component string   `yaml:"component,omitempty"`
 }
 
+var layoutPositions = map[string]bool{
+	"sidebar": true, "header": true, "toolbar": true, "footer": true,
+	"bottomnav": true, "aside": true, "overlay": true, "modal": true,
+	"drawer": true, "banner": true, "split": true, "main": true,
+}
+
+// isLayoutTag returns true if the tag should be migrated to discovery.layout.
+func isLayoutTag(tag string) bool {
+	base, variant, hasColon := strings.Cut(tag, ":")
+	if layoutPositions[base] {
+		return true
+	}
+	if hasColon && layoutPositions[variant] {
+		return true
+	}
+	return false
+}
+
 type yamlTransition struct {
 	On     string `yaml:"on"`
 	From   string `yaml:"from,omitempty"`
@@ -141,6 +159,11 @@ func Load(s *store.Store, path string) error {
 	if app.Name == "" {
 		return fmt.Errorf("missing app.name in %s", path)
 	}
+
+	if err := s.BeginTx(); err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer s.RollbackTx()
 
 	// App
 	a := &model.App{Name: app.Name, Description: app.Description}
@@ -262,6 +285,9 @@ func Load(s *store.Store, path string) error {
 		}
 	}
 
+	if err := s.CommitTx(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
 	return nil
 }
 
@@ -303,6 +329,26 @@ func loadFixtures(s *store.Store, appID int64, node *yaml.Node) error {
 }
 
 func insertRegion(s *store.Store, appID int64, parentType string, parentID int64, r yamlRegion) error {
+	hasExplicitDiscovery := r.Discovery != nil && len(r.Discovery.Layout) > 0
+	var tagsToInsert []string
+	if hasExplicitDiscovery {
+		tagsToInsert = r.Tags
+	} else {
+		var layoutTags []string
+		for _, tag := range r.Tags {
+			if isLayoutTag(tag) {
+				layoutTags = append(layoutTags, tag)
+			} else {
+				tagsToInsert = append(tagsToInsert, tag)
+			}
+		}
+		if len(layoutTags) > 0 {
+			r.Discovery = &yamlDiscovery{Layout: layoutTags}
+		} else {
+			tagsToInsert = r.Tags
+		}
+	}
+
 	region := &model.Region{
 		AppID: appID, ParentType: parentType, ParentID: parentID,
 		Name: r.Name, Description: r.Description,
@@ -336,7 +382,7 @@ func insertRegion(s *store.Store, appID int64, parentType string, parentID int64
 			return fmt.Errorf("event %s in %s: %w", ev.Name, r.Name, err)
 		}
 	}
-	for _, tag := range r.Tags {
+	for _, tag := range tagsToInsert {
 		if err := s.InsertTag(&model.Tag{EntityType: "region", EntityID: region.ID, Tag: tag}); err != nil {
 			return fmt.Errorf("tag [%s] on %s: %w", tag, r.Name, err)
 		}
@@ -904,6 +950,155 @@ func validateTypeSuffix(fieldType string) error {
 	return nil
 }
 
+// ExportFlat serializes a Spec to flat-format YAML (mapping-style screens/regions).
+func strNode(v string) *yaml.Node { return &yaml.Node{Kind: yaml.ScalarNode, Value: v, Tag: "!!str"} }
+func mapNode() *yaml.Node          { return &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"} }
+func seqNode() *yaml.Node          { return &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"} }
+
+func appendPair(n *yaml.Node, k, v string) {
+	n.Content = append(n.Content, strNode(k), strNode(v))
+}
+func appendKey(n *yaml.Node, k string, v *yaml.Node) {
+	n.Content = append(n.Content, strNode(k), v)
+}
+
+func ExportFlat(spec *show.Spec, w io.Writer) error {
+	root := mapNode()
+
+	appendPair(root, "app", spec.App.Name)
+	if spec.App.Description != "" {
+		appendPair(root, "description", spec.App.Description)
+	}
+	if len(spec.App.DataTypes) > 0 {
+		dtNode := mapNode()
+		for name, fields := range spec.App.DataTypes {
+			fieldsNode := mapNode()
+			for fn, ft := range fields {
+				appendPair(fieldsNode, fn, ft)
+			}
+			appendKey(dtNode, name, fieldsNode)
+		}
+		appendKey(root, "data_types", dtNode)
+	}
+	if len(spec.App.Enums) > 0 {
+		enumNode := mapNode()
+		for name, values := range spec.App.Enums {
+			s := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle}
+			for _, v := range values {
+				s.Content = append(s.Content, strNode(v))
+			}
+			appendKey(enumNode, name, s)
+		}
+		appendKey(root, "enums", enumNode)
+	}
+	if len(spec.App.Context) > 0 {
+		ctxNode := mapNode()
+		for fn, ft := range spec.App.Context {
+			appendPair(ctxNode, fn, ft)
+		}
+		appendKey(root, "context", ctxNode)
+	}
+	if len(spec.Screens) > 0 {
+		screensNode := mapNode()
+		for _, sc := range spec.Screens {
+			body := mapNode()
+			if sc.Description != "" {
+				appendPair(body, "description", sc.Description)
+			}
+			if len(sc.Context) > 0 {
+				ctxNode := mapNode()
+				for fn, ft := range sc.Context {
+					appendPair(ctxNode, fn, ft)
+				}
+				appendKey(body, "context", ctxNode)
+			}
+			if len(sc.Tags) > 0 {
+				tagsNode := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle}
+				for _, t := range sc.Tags {
+					tagsNode.Content = append(tagsNode.Content, strNode(t))
+				}
+				appendKey(body, "tags", tagsNode)
+			}
+			if len(sc.Regions) > 0 {
+				appendKey(body, "regions", flatRegionsNode(sc.Regions))
+			}
+			if sm := exportStateMachine(sc.Transitions, sc.StateFixtures, sc.StateRegions); sm != nil {
+				appendKey(body, "state_machine", sm)
+			}
+			appendKey(screensNode, sc.Name, body)
+		}
+		appendKey(root, "screens", screensNode)
+	}
+	if len(spec.Flows) > 0 {
+		flowsNode := seqNode()
+		for _, f := range spec.Flows {
+			item := mapNode()
+			appendPair(item, "name", f.Name)
+			if f.Description != "" {
+				appendPair(item, "description", f.Description)
+			}
+			if f.OnEvent != "" {
+				appendPair(item, "on", f.OnEvent)
+			}
+			appendPair(item, "sequence", f.Sequence)
+			flowsNode.Content = append(flowsNode.Content, item)
+		}
+		appendKey(root, "flows", flowsNode)
+	}
+
+	doc := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{root}}
+	enc := yaml.NewEncoder(w)
+	enc.SetIndent(2)
+	if err := enc.Encode(doc); err != nil {
+		return err
+	}
+	return enc.Close()
+}
+
+// flatRegionsNode builds a MappingNode of region name → body for flat export.
+func flatRegionsNode(regions []show.Region) *yaml.Node {
+	node := mapNode()
+	for _, r := range regions {
+		body := mapNode()
+		if r.Description != "" {
+			appendPair(body, "description", r.Description)
+		}
+		if len(r.Tags) > 0 {
+			tagsNode := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle}
+			for _, t := range r.Tags {
+				tagsNode.Content = append(tagsNode.Content, strNode(t))
+			}
+			appendKey(body, "tags", tagsNode)
+		}
+		if len(r.Events) > 0 {
+			evNode := exportEvents(r.Events)
+			appendKey(body, "events", &evNode)
+		}
+		if len(r.Ambient) > 0 {
+			ambNode := mapNode()
+			for k, v := range r.Ambient {
+				appendPair(ambNode, k, v)
+			}
+			appendKey(body, "ambient", ambNode)
+		}
+		if len(r.RegionData) > 0 {
+			dataNode := mapNode()
+			for k, v := range r.RegionData {
+				appendPair(dataNode, k, v)
+			}
+			appendKey(body, "data", dataNode)
+		}
+		if len(r.Regions) > 0 {
+			appendKey(body, "regions", flatRegionsNode(r.Regions))
+		}
+		if sm := exportStateMachine(r.Transitions, r.StateFixtures, r.StateRegions); sm != nil {
+			appendKey(body, "state_machine", sm)
+		}
+		appendKey(node, r.Name, body)
+	}
+	return node
+}
+
 // Export serializes a Spec tree to SFT YAML format.
 func Export(spec *show.Spec, w io.Writer) error {
 	app := yamlApp{
@@ -1273,9 +1468,14 @@ func exportFixtures(fixtures []show.Fixture) yaml.Node {
 		// Marshal data back to yaml.Node
 		if f.Data != nil {
 			var dataNode yaml.Node
-			dataBytes, _ := json.Marshal(f.Data)
+			dataBytes, err := json.Marshal(f.Data)
+			if err != nil {
+				continue // skip fixture with unmarshalable data
+			}
 			var dataMap any
-			json.Unmarshal(dataBytes, &dataMap)
+			if err := json.Unmarshal(dataBytes, &dataMap); err != nil {
+				continue // skip fixture with corrupt data
+			}
 			if err := dataNode.Encode(dataMap); err == nil && dataNode.Kind == yaml.DocumentNode && len(dataNode.Content) > 0 {
 				inner := dataNode.Content[0]
 				if inner.Kind == yaml.MappingNode {
