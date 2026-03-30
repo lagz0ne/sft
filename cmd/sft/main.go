@@ -102,7 +102,7 @@ func main() {
 	}
 }
 
-const usage = `sft — behavioral spec tool for UI screens, regions, events, flows, and components.
+const usage = `sft — behavioral spec tool for UI screens, regions, events, and components.
 
 All output includes @refs (e.g. @s1, @r3) for stable entity addressing.
 All output supports --json. The spec lives in .sft/db.
@@ -110,13 +110,13 @@ All output supports --json. The spec lives in .sft/db.
 Workflow:
   sft init spec.yaml             # bootstrap from YAML (one-time, empty DB only)
   sft show                       # full spec tree with @refs
-  sft query screens              # list screens, regions, events, flows
+  sft query screens              # list screens, regions, events
   sft validate                   # check for issues
   sft view                       # open in browser
 
 Reading:
   show                             full spec tree with @refs (text or --json)
-  query  <type>                    screens | regions | events | flows | tags | types | enums | fixtures | contexts | attachments | steps <flow>
+  query  <type>                    screens | regions | events | tags | types | enums | fixtures | contexts | attachments
   query  states <name>             transitions for a screen/region
   query  <SELECT ...>              raw SQL against the spec DB
   impact <screen|region> <name>    what depends on this entity
@@ -129,7 +129,6 @@ Mutating (use @refs or names):
   add event <name(annotation)> --in <@ref|region>
   add transition --on <event> --in <@ref|owner> [--from <s>] [--to <s>] [--action <a>]
   add tag <tag> --on <@ref|entity>
-  add flow <name> <sequence> [--description <d>] [--on <event>]
   set <screen|region> <name> --description <new> [--in <parent>]
   set type <name> --fields <json>
   set enum <name> --values <json>
@@ -139,7 +138,7 @@ Mutating (use @refs or names):
   set fixture <name> --data <json> [--extends <f>]
   set state-fixture --in <owner> --state <s> --fixture <f>
   set attachment <entity> <name> --content-id <id>
-  rename <screen|region|flow|type|enum|fixture> <old> <new> [--in <parent>]
+  rename <screen|region|type|enum|fixture> <old> <new> [--in <parent>]
   rm <type> <name> [--in/--on <parent>]
   mv region <name> --to <@ref|parent> [--in <current-parent>]
   reorder <parent> <child1> <child2> ...
@@ -173,7 +172,6 @@ Diff:
 Diagrams:
   diagram states <name>           state machine for a screen/region
   diagram nav                     navigation graph
-  diagram flow <name>             flow sequence
 
 View:
   view [--port N]                 open spec in browser
@@ -203,7 +201,7 @@ func runShow(s *store.Store) {
 
 func runQuery(s *store.Store, args []string) {
 	if len(args) == 0 {
-		die("usage: sft query <screens|events|states|flows|tags|regions|types|enums|fixtures|contexts|attachments|layouts|SELECT ...>")
+		die("usage: sft query <screens|events|states|tags|regions|types|enums|fixtures|contexts|attachments|layouts|SELECT ...>")
 	}
 	name := args[0]
 	var results []map[string]any
@@ -214,15 +212,10 @@ func runQuery(s *store.Store, args []string) {
 			die("usage: sft query states <name>")
 		}
 		results, err = query.States(s.DB, args[1])
-	} else if name == "steps" {
-		if len(args) < 2 {
-			die("usage: sft query steps <flow-name>")
-		}
-		results, err = query.Steps(s.DB, args[1])
 	} else {
 		results, err = query.Run(s.DB, name)
 		if name != "screens" && name != "regions" && name != "events" &&
-			name != "flows" && name != "tags" && name != "types" &&
+			name != "tags" && name != "types" &&
 			name != "enums" && name != "fixtures" && name != "contexts" &&
 			name != "layouts" {
 			queryKey = ""
@@ -257,7 +250,7 @@ func runValidate(s *store.Store) {
 
 func runAdd(s *store.Store, args []string) {
 	if len(args) == 0 {
-		die("usage: sft add <app|screen|region|event|transition|tag|flow> ...")
+		die("usage: sft add <app|screen|region|event|transition|tag> ...")
 	}
 	entity := args[0]
 	args = args[1:]
@@ -344,21 +337,6 @@ func runAdd(s *store.Store, args []string) {
 		t := &model.Tag{EntityType: entityType, EntityID: entityID, Tag: tagVal}
 		must(s.InsertTag(t))
 		ok("tag [%s] on %s", tagVal, targetName)
-
-	case "flow":
-		if len(args) < 2 {
-			die("usage: sft add flow <name> <sequence> [--description <d>] [--on <event>]")
-		}
-		appID := mustResolveApp(s)
-		f := &model.Flow{
-			AppID:       appID,
-			Name:        args[0],
-			Sequence:    args[1],
-			Description: flagVal(args, "--description"),
-			OnEvent:     flagVal(args, "--on"),
-		}
-		must(s.InsertFlow(f))
-		ok("flow %s", f.Name)
 
 	case "type":
 		need(args, 2, "sft add type <name> <fields_json>")
@@ -452,7 +430,7 @@ func runAdd(s *store.Store, args []string) {
 		ok("state-region %s → %s/%s", sr.RegionName, in, state)
 
 	default:
-		die("unknown entity %q (use: app, screen, region, event, transition, tag, flow, type, enum, context, field, ambient, fixture, state-fixture, state-region)", entity)
+		die("unknown entity %q (use: app, screen, region, event, transition, tag, type, enum, context, field, ambient, fixture, state-fixture, state-region)", entity)
 	}
 }
 
@@ -627,7 +605,7 @@ func runDiff(s *store.Store, args []string) {
 
 func runRename(s *store.Store, args []string) {
 	if len(args) < 3 {
-		die("usage: sft rename <screen|region|flow|type|enum|fixture> <old> <new> [--in <parent>]")
+		die("usage: sft rename <screen|region|type|enum|fixture> <old> <new> [--in <parent>]")
 	}
 	entity, old, newName := args[0], args[1], args[2]
 	in := flagVal(args, "--in")
@@ -636,8 +614,6 @@ func runRename(s *store.Store, args []string) {
 		must(s.RenameScreen(old, newName))
 	case "region":
 		must(s.RenameRegion(old, newName, in))
-	case "flow":
-		must(s.RenameFlow(old, newName))
 	case "type":
 		must(s.RenameDataType(old, newName))
 	case "enum":
@@ -645,7 +621,7 @@ func runRename(s *store.Store, args []string) {
 	case "fixture":
 		must(s.RenameFixture(old, newName))
 	default:
-		die("rename supports: screen, region, flow, type, enum, fixture")
+		die("rename supports: screen, region, type, enum, fixture")
 	}
 	ok("renamed %s %s → %s", entity, old, newName)
 }
@@ -673,7 +649,7 @@ func runRm(s *store.Store, args []string) {
 		args = append([]string{entityType, entityName}, args[1:]...)
 	}
 	if len(args) < 2 {
-		die("usage: sft rm <screen|region|event|transition|tag|flow> <name> [--in/--on <parent>]")
+		die("usage: sft rm <screen|region|event|transition|tag> <name> [--in/--on <parent>]")
 	}
 	entity, name := args[0], args[1]
 
@@ -719,10 +695,6 @@ func runRm(s *store.Store, args []string) {
 		}
 		must(s.DeleteTag(name, on))
 		ok("deleted tag [%s] from %s", name, on)
-
-	case "flow":
-		must(s.DeleteFlow(name))
-		ok("deleted flow %s", name)
 
 	case "type":
 		must(s.DeleteDataType(name))
@@ -797,7 +769,7 @@ func runRm(s *store.Store, args []string) {
 		ok("deleted state-region %s from %s/%s", name, in, state)
 
 	default:
-		die("rm supports: screen, region, event, transition, tag, flow, type, enum, context, field, ambient, fixture, state-fixture, state-region")
+		die("rm supports: screen, region, event, transition, tag, type, enum, context, field, ambient, fixture, state-fixture, state-region")
 	}
 }
 
@@ -1059,7 +1031,7 @@ func runView(s *store.Store, args []string) {
 
 func runDiagram(s *store.Store, args []string) {
 	if len(args) == 0 {
-		die("usage: sft diagram <states <name> | nav | flow <name>>")
+		die("usage: sft diagram <states <name> | nav>")
 	}
 	var out string
 	var err error
@@ -1069,11 +1041,8 @@ func runDiagram(s *store.Store, args []string) {
 		out, err = diagram.States(s.DB, args[1])
 	case "nav":
 		out, err = diagram.Nav(s.DB)
-	case "flow":
-		need(args, 2, "sft diagram flow <name>")
-		out, err = diagram.Flow(s.DB, args[1])
 	default:
-		die("unknown diagram type %q (available: states, nav, flow)", args[0])
+		die("unknown diagram type %q (available: states, nav)", args[0])
 	}
 	if err != nil {
 		die("%v", err)
