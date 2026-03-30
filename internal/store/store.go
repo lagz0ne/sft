@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/lagz0ne/sft/internal/flow"
 	"github.com/lagz0ne/sft/internal/model"
 	_ "modernc.org/sqlite"
 )
@@ -377,39 +376,11 @@ func (s *Store) InsertTransition(t *model.Transition) error {
 	return nil
 }
 
-func (s *Store) InsertFlow(f *model.Flow) error {
-	res, err := s.db().Exec("INSERT INTO flows (app_id, name, description, on_event, sequence) VALUES (?, ?, ?, ?, ?)",
-		f.AppID, f.Name, f.Description, f.OnEvent, f.Sequence)
-	if err != nil {
-		return err
-	}
-	f.ID, _ = res.LastInsertId()
-
-	// Parse sequence into flow_steps
-	steps := flow.ParseSequence(f.Sequence, f.ID, s)
-	for i := range steps {
-		if err := s.InsertFlowStep(&steps[i]); err != nil {
-			return fmt.Errorf("flow step %d: %w", i+1, err)
-		}
-	}
-	return nil
-}
-
 // IsEvent returns true if a name matches any known event.
 func (s *Store) IsEvent(name string) bool {
 	var count int
 	s.db().QueryRow("SELECT COUNT(*) FROM events WHERE name = ?", name).Scan(&count)
 	return count > 0
-}
-
-func (s *Store) InsertFlowStep(fs *model.FlowStep) error {
-	res, err := s.db().Exec("INSERT INTO flow_steps (flow_id, position, raw, type, name, history, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		fs.FlowID, fs.Position, fs.Raw, fs.Type, fs.Name, fs.History, fs.Data)
-	if err != nil {
-		return err
-	}
-	fs.ID, _ = res.LastInsertId()
-	return nil
 }
 
 // --- Phase 5: State-region visibility ---
@@ -1012,17 +983,6 @@ func (s *Store) DeleteTag(tag, entityName string) error {
 	return nil
 }
 
-func (s *Store) DeleteFlow(name string) error {
-	var flowID int64
-	err := s.db().QueryRow("SELECT id FROM flows WHERE name = ?", name).Scan(&flowID)
-	if err != nil {
-		return fmt.Errorf("flow %q not found", name)
-	}
-	s.db().Exec("DELETE FROM flow_steps WHERE flow_id = ?", flowID)
-	s.db().Exec("DELETE FROM flows WHERE id = ?", flowID)
-	return nil
-}
-
 func (s *Store) DeleteDataType(name string) error {
 	appID, err := s.ResolveApp()
 	if err != nil {
@@ -1231,18 +1191,6 @@ func (s *Store) RenameRegion(old, newName string, inParent ...string) error {
 		"navigate("+old+",", "navigate("+newName+",", "navigate("+old+",%")
 	tx.Exec("UPDATE attachments SET entity = ? WHERE entity = ?", newName, old)
 	return tx.Commit()
-}
-
-func (s *Store) RenameFlow(old, newName string) error {
-	res, err := s.db().Exec("UPDATE flows SET name = ? WHERE name = ?", newName, old)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("flow %q not found", old)
-	}
-	return nil
 }
 
 // renameTypeInFields cascades a type/enum rename through contexts.field_type and region_data.field_type.

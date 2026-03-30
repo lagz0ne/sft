@@ -50,26 +50,6 @@ CREATE TABLE IF NOT EXISTS transitions (
   action     TEXT
 );
 
-CREATE TABLE IF NOT EXISTS flows (
-  id          INTEGER PRIMARY KEY,
-  app_id      INTEGER NOT NULL REFERENCES apps(id),
-  name        TEXT NOT NULL UNIQUE,
-  description TEXT,
-  on_event    TEXT,
-  sequence    TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS flow_steps (
-  id       INTEGER PRIMARY KEY,
-  flow_id  INTEGER NOT NULL REFERENCES flows(id),
-  position INTEGER NOT NULL,
-  raw      TEXT NOT NULL,
-  type     TEXT NOT NULL CHECK(type IN ('screen','region','event','back','action','activate')),
-  name     TEXT NOT NULL,
-  history  INTEGER NOT NULL DEFAULT 0,
-  data     TEXT
-);
-
 CREATE TABLE IF NOT EXISTS components (
   id          INTEGER PRIMARY KEY,
   entity_type TEXT NOT NULL CHECK(entity_type IN ('app','screen','region')),
@@ -189,7 +169,9 @@ CREATE INDEX IF NOT EXISTS idx_events_region ON events(region_id);
 CREATE INDEX IF NOT EXISTS idx_transitions_owner ON transitions(owner_type, owner_id);
 CREATE INDEX IF NOT EXISTS idx_transitions_on_event ON transitions(on_event);
 CREATE INDEX IF NOT EXISTS idx_tags_entity ON tags(entity_type, entity_id);
-CREATE INDEX IF NOT EXISTS idx_flow_steps_type_name ON flow_steps(type, name);
+-- Cleanup: remove legacy flow tables from existing databases
+DROP TABLE IF EXISTS flow_steps;
+DROP TABLE IF EXISTS flows;
 
 -- Cross-cutting views
 CREATE VIEW IF NOT EXISTS event_index AS

@@ -112,34 +112,6 @@ func TestInsertScreenBlockedByRegionName(t *testing.T) {
 	}
 }
 
-func TestInsertFlowPopulatesSteps(t *testing.T) {
-	s := mustOpen(t)
-	a := seedApp(t, s)
-
-	sc := &model.Screen{AppID: a.ID, Name: "Home", Description: "h"}
-	if err := s.InsertScreen(sc); err != nil {
-		t.Fatal(err)
-	}
-
-	f := &model.Flow{AppID: a.ID, Name: "TestFlow", Sequence: "Home → action → Home(H)"}
-	if err := s.InsertFlow(f); err != nil {
-		t.Fatal(err)
-	}
-
-	var count int
-	s.DB.QueryRow("SELECT COUNT(*) FROM flow_steps WHERE flow_id = ?", f.ID).Scan(&count)
-	if count != 3 {
-		t.Errorf("expected 3 flow steps, got %d", count)
-	}
-
-	// First step should be classified as "screen"
-	var stepType string
-	s.DB.QueryRow("SELECT type FROM flow_steps WHERE flow_id = ? AND position = 1", f.ID).Scan(&stepType)
-	if stepType != "screen" {
-		t.Errorf("step 1 type = %q, want screen", stepType)
-	}
-}
-
 func TestIsEvent(t *testing.T) {
 	s := mustOpen(t)
 	a := seedApp(t, s)

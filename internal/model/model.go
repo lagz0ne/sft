@@ -49,26 +49,6 @@ type Transition struct {
 	Action    string `json:"action,omitempty"`
 }
 
-type Flow struct {
-	ID          int64  `json:"id"`
-	AppID       int64  `json:"app_id"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	OnEvent     string `json:"on_event,omitempty"`
-	Sequence    string `json:"sequence"`
-}
-
-type FlowStep struct {
-	ID       int64  `json:"id"`
-	FlowID   int64  `json:"flow_id"`
-	Position int    `json:"position"`
-	Raw      string `json:"raw"`
-	Type     string `json:"type"`
-	Name     string `json:"name"`
-	History  int    `json:"history"`
-	Data     string `json:"data,omitempty"`
-}
-
 // Phase 4: State machine templates
 
 type StateTemplate struct {
