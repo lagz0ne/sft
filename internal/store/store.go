@@ -674,19 +674,6 @@ func (s *Store) ImpactScreen(name string) ([]Impact, error) {
 	}
 	rows.Close()
 
-	rows, err = s.db().Query(`SELECT f.name FROM flow_steps fs
-		JOIN flows f ON f.id = fs.flow_id
-		WHERE fs.type = 'screen' AND fs.name = ?`, name)
-	if err != nil {
-		return nil, err
-	}
-	for rows.Next() {
-		var flowName string
-		rows.Scan(&flowName)
-		impacts = append(impacts, Impact{Entity: "flow", Type: "references", Name: flowName})
-	}
-	rows.Close()
-
 	rows, err = s.db().Query("SELECT tag FROM tags WHERE entity_type = 'screen' AND entity_id = ?", id)
 	if err != nil {
 		return nil, err
@@ -757,19 +744,6 @@ func (s *Store) ImpactRegion(name string, inParent ...string) ([]Impact, error) 
 			detail += " " + from.String + " → " + to.String
 		}
 		impacts = append(impacts, Impact{Entity: "transition", Type: "owned", Name: onEvent, Detail: detail})
-	}
-	rows.Close()
-
-	rows, err = s.db().Query(`SELECT f.name FROM flow_steps fs
-		JOIN flows f ON f.id = fs.flow_id
-		WHERE fs.type = 'region' AND fs.name = ?`, name)
-	if err != nil {
-		return nil, err
-	}
-	for rows.Next() {
-		var flowName string
-		rows.Scan(&flowName)
-		impacts = append(impacts, Impact{Entity: "flow", Type: "references", Name: flowName})
 	}
 	rows.Close()
 

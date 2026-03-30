@@ -117,7 +117,7 @@ func Load(s *store.Store, path string) error {
 	var app yamlApp
 	switch f.App.Kind {
 	case yaml.ScalarNode:
-		// Flat format: app is just a name, screens/layouts/flows are top-level
+		// Flat format: app is just a name, screens/layouts are top-level
 		app.Name = f.App.Value
 		app.Layouts = f.Layouts
 		if err := decodeFlatScreens(&f.Screens, &app); err != nil {

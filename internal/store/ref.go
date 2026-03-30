@@ -2,7 +2,7 @@ package store
 
 import "fmt"
 
-// ResolveRef takes a ref like "@s1", "@r7", "@f2" and returns (entityType, entityID, entityName, error).
+// ResolveRef takes a ref like "@s1", "@r7", "@e3" and returns (entityType, entityID, entityName, error).
 // Prefix mapping: s=screen, r=region, f=flow, e=event, t=transition
 func (s *Store) ResolveRef(ref string) (entityType string, entityID int64, entityName string, err error) {
 	if len(ref) < 3 || ref[0] != '@' {
@@ -20,8 +20,6 @@ func (s *Store) ResolveRef(ref string) (entityType string, entityID int64, entit
 		table, nameCol, entityType = "screens", "name", "screen"
 	case 'r':
 		table, nameCol, entityType = "regions", "name", "region"
-	case 'f':
-		table, nameCol, entityType = "flows", "name", "flow"
 	case 'e':
 		table, nameCol, entityType = "events", "name", "event"
 	case 't':

@@ -100,11 +100,6 @@ var Queries = map[string][]Column{
 		{Key: "to_state", Header: "TO"},
 		{Key: "action", Header: "ACTION"},
 	},
-	"flows": {
-		{Key: "name", Header: "NAME"},
-		{Key: "on_event", Header: "TRIGGER"},
-		{Key: "sequence", Header: "SEQUENCE"},
-	},
 	"tags": {
 		{Key: "tag", Header: "TAG"},
 		{Key: "entity_type", Header: "TYPE"},
