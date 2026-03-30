@@ -30,9 +30,6 @@ func Compare(current, target *show.Spec) []Change {
 	// Screens
 	changes = append(changes, diffScreens(current.Screens, target.Screens)...)
 
-	// Flows
-	changes = append(changes, diffFlows(current.Flows, target.Flows)...)
-
 	return changes
 }
 
@@ -185,48 +182,6 @@ func diffTransitions(cur, tgt []show.Transition, parent string) []Change {
 	return changes
 }
 
-func diffFlows(cur, tgt []show.Flow) []Change {
-	var changes []Change
-	curMap := make(map[string]show.Flow)
-	for _, f := range cur {
-		curMap[f.Name] = f
-	}
-	tgtMap := make(map[string]show.Flow)
-	for _, f := range tgt {
-		tgtMap[f.Name] = f
-	}
-
-	for _, f := range tgt {
-		if _, ok := curMap[f.Name]; !ok {
-			changes = append(changes, Change{Op: "+", Entity: "flow", Name: f.Name})
-		}
-	}
-	for _, f := range cur {
-		if _, ok := tgtMap[f.Name]; !ok {
-			changes = append(changes, Change{Op: "-", Entity: "flow", Name: f.Name})
-		}
-	}
-	for _, f := range tgt {
-		cf, ok := curMap[f.Name]
-		if !ok {
-			continue
-		}
-		var details []string
-		if cf.Description != f.Description {
-			details = append(details, "description")
-		}
-		if cf.Sequence != f.Sequence {
-			details = append(details, "sequence")
-		}
-		if cf.OnEvent != f.OnEvent {
-			details = append(details, "on_event")
-		}
-		if len(details) > 0 {
-			changes = append(changes, Change{Op: "~", Entity: "flow", Name: f.Name, Detail: strings.Join(details, ", ") + " changed"})
-		}
-	}
-	return changes
-}
 
 func transitionName(t show.Transition) string {
 	s := t.OnEvent
