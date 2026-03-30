@@ -103,8 +103,6 @@ function PlaygroundPage() {
 								currentState={activeState}
 								appRegions={spec.app.regions}
 								fixtures={spec.fixtures}
-								activeRegion={null}
-								activeEvent={null}
 								app={spec.app}
 								componentSet={search.set}
 								composition={currentComposition}
@@ -118,7 +116,7 @@ function PlaygroundPage() {
 				screens={spec.screens.map(s => ({
 					id: s.name, label: s.name, active: screen?.name === s.name,
 				}))}
-				onScreen={(id: string) => switchScreen(id)}
+				onScreen={switchScreen}
 				states={states.map(s => ({ id: s, label: s, active: activeState === s }))}
 				onState={(id: string) => set({ state: id })}
 				layouts={[

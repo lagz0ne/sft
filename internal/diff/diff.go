@@ -182,7 +182,6 @@ func diffTransitions(cur, tgt []show.Transition, parent string) []Change {
 	return changes
 }
 
-
 func transitionName(t show.Transition) string {
 	s := t.OnEvent
 	if t.FromState != "" {
