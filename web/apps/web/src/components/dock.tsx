@@ -1,12 +1,112 @@
 import { useState, useRef, useEffect } from 'react'
-import { ArrowLeft, Monitor, Smartphone, Tablet, Maximize, Play, Layers, ChevronUp } from 'lucide-react'
-// ArrowLeft still used by FlowStrip nav arrows
+import { Monitor, Smartphone, Tablet, Maximize, Layers, ChevronDown, Search, X } from 'lucide-react'
 
-// Consistent sizes — everything aligns to a 20px row height
 const ICON = 11
-const ROW = 'h-5' // 20px — unified height for all interactive elements
+const ROW = 'h-5'
 
-// --- Segment ---
+// --- Picker ---
+// Popover panel for selecting from large lists (screens)
+
+interface PickerItem { id: string; label: string; active: boolean }
+
+function Picker({ items, onSelect, accent }: {
+	items: PickerItem[]
+	onSelect: (id: string) => void
+	accent?: string
+}) {
+	const [open, setOpen] = useState(false)
+	const [query, setQuery] = useState('')
+	const ref = useRef<HTMLDivElement>(null)
+	const inputRef = useRef<HTMLInputElement>(null)
+
+	useEffect(() => {
+		if (!open) return
+		const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+		document.addEventListener('mousedown', h)
+		return () => document.removeEventListener('mousedown', h)
+	}, [open])
+
+	useEffect(() => {
+		if (open) {
+			setQuery('')
+			requestAnimationFrame(() => inputRef.current?.focus())
+		}
+	}, [open])
+
+	if (items.length === 0) return null
+
+	const active = items.find(i => i.active)
+	const ac = accent ?? '#48484a'
+	const showSearch = items.length > 6
+	const filtered = query
+		? items.filter(i => i.label.toLowerCase().includes(query.toLowerCase()))
+		: items
+
+	return (
+		<div ref={ref} className="relative">
+			<button
+				onClick={() => setOpen(!open)}
+				className={`${ROW} flex items-center gap-0.5 px-1.5 text-[9px] leading-none font-medium transition-colors duration-100`}
+				style={{ color: ac }}
+			>
+				<span className="truncate max-w-[120px]">{active?.label ?? 'Select'}</span>
+				<ChevronDown size={7} className={`opacity-50 transition-transform duration-150 shrink-0 ${open ? 'rotate-180' : ''}`} />
+			</button>
+
+			{open && (
+				<div
+					className="absolute bottom-full left-0 mb-2 bg-white rounded-lg overflow-hidden z-50"
+					style={{
+						minWidth: 180,
+						maxWidth: 280,
+						boxShadow: '0 8px 32px rgba(0,0,0,0.08), 0 0 0 0.5px rgba(0,0,0,0.06)',
+					}}
+				>
+					{showSearch && (
+						<div className="flex items-center gap-1.5 px-2.5 h-8 border-b border-stone-100">
+							<Search size={10} className="text-stone-300 shrink-0" />
+							<input
+								ref={inputRef}
+								value={query}
+								onChange={e => setQuery(e.target.value)}
+								placeholder="Search…"
+								className="flex-1 text-[10px] bg-transparent outline-none placeholder:text-stone-300"
+							/>
+							{query && (
+								<button onClick={() => setQuery('')} className="text-stone-300 hover:text-stone-500 shrink-0">
+									<X size={8} />
+								</button>
+							)}
+						</div>
+					)}
+					<div className="max-h-60 overflow-y-auto py-0.5 overscroll-contain">
+						{filtered.length === 0 ? (
+							<div className="px-2.5 py-3 text-[9px] text-stone-300 text-center">No matches</div>
+						) : (
+							filtered.map(item => (
+								<button
+									key={item.id}
+									onClick={() => { onSelect(item.id); setOpen(false) }}
+									className={`w-full h-7 px-2.5 text-[10px] text-left flex items-center gap-2 transition-colors duration-100 ${
+										item.active ? 'font-semibold text-stone-800' : 'text-stone-500 hover:bg-stone-50 hover:text-stone-700'
+									}`}
+								>
+									<span
+										className={`w-1 h-1 rounded-full shrink-0 transition-opacity ${item.active ? 'opacity-100' : 'opacity-0'}`}
+										style={{ backgroundColor: ac }}
+									/>
+									<span className="truncate">{item.label}</span>
+								</button>
+							))
+						)}
+					</div>
+				</div>
+			)}
+		</div>
+	)
+}
+
+// --- Segment (kept for small lists: states, layouts, component sets) ---
 
 interface SegmentProps {
 	items: { id: string; label: string; active: boolean }[]
@@ -56,7 +156,7 @@ function Segment({ items, onSelect, accent, maxInline = 4 }: SegmentProps) {
 						)}
 						<button onClick={() => setOpen(!open)}
 							className={`${ROW} flex items-center text-stone-400 hover:text-stone-500 transition-colors duration-100`}>
-							<ChevronUp size={8} />
+							<ChevronDown size={7} className={`transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
 						</button>
 					</>
 				)}
@@ -124,36 +224,6 @@ function ViewportControl({ sizes, activeWidth, onSelect }: {
 	)
 }
 
-// --- Flow ---
-
-function FlowStrip({ steps, currentIndex, onStep }: {
-	steps: { type: string; name: string }[]
-	currentIndex: number
-	onStep: (index: number) => void
-}) {
-	const ic: Record<string, string> = { screen: '◻', back: '←', region: '▪', event: '⚡', action: '▶', activate: '●' }
-	return (
-		<div className={`flex items-center overflow-x-auto max-w-[200px] ${ROW}`}>
-			<button disabled={currentIndex <= 0} onClick={() => onStep(currentIndex - 1)}
-				className={`${ROW} w-4 flex items-center justify-center text-stone-400 hover:text-stone-600 disabled:opacity-20 shrink-0`}>
-				<ArrowLeft size={9} />
-			</button>
-			{steps.map((step, i) => (
-				<button key={i} onClick={() => onStep(i)}
-					className={`${ROW} px-1 text-[7px] leading-none shrink-0 transition-colors duration-100 ${
-						i === currentIndex ? 'text-stone-800 font-semibold' : 'text-stone-400 hover:text-stone-600'
-					}`}>
-					<span className="opacity-40 mr-px">{ic[step.type] ?? '·'}</span>{step.name}
-				</button>
-			))}
-			<button disabled={currentIndex >= steps.length - 1} onClick={() => onStep(currentIndex + 1)}
-				className={`${ROW} w-4 flex items-center justify-center text-stone-400 hover:text-stone-600 disabled:opacity-20 shrink-0 rotate-180`}>
-				<ArrowLeft size={9} />
-			</button>
-		</div>
-	)
-}
-
 // --- Divider ---
 
 function Div() { return <div className="w-px h-3 bg-stone-200/50 mx-0.5 shrink-0" /> }
@@ -169,13 +239,6 @@ export interface DockProps {
 	onLayout: (id: string) => void
 	componentSets: { id: string; label: string; active: boolean }[]
 	onComponentSet: (id: string) => void
-	flowMode?: boolean
-	flowSteps?: { type: string; name: string }[]
-	flowIndex?: number
-	onFlowStep?: (index: number) => void
-	mode: 'screen' | 'flow'
-	onModeToggle: () => void
-	hasFlows: boolean
 	viewportSizes: ViewportSize[]
 	activeViewportWidth: number | null
 	onViewportSize: (size: ViewportSize) => void
@@ -186,51 +249,37 @@ export function Dock({
 	states, onState,
 	layouts, onLayout,
 	componentSets, onComponentSet,
-	flowMode, flowSteps, flowIndex, onFlowStep,
-	mode, onModeToggle, hasFlows,
 	viewportSizes, activeViewportWidth, onViewportSize,
 }: DockProps) {
 	return (
 		<div
-			className="fixed bottom-2 left-1/2 -translate-x-1/2 z-40 flex items-center bg-white/92 backdrop-blur-lg rounded-[10px] px-1 max-w-[95vw]"
+			className="fixed bottom-2 left-1/2 -translate-x-1/2 z-40 bg-white/92 backdrop-blur-lg rounded-[10px] max-w-[95vw]"
 			style={{ boxShadow: '0 1px 12px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(0,0,0,0.06)' }}
 		>
-			{/* Mode */}
-			{hasFlows && (
-				<>
-					<div className={`flex items-center ${ROW}`}>
-						<button onClick={() => mode !== 'screen' && onModeToggle()} title="Screen"
-							className={`${ROW} w-5 flex items-center justify-center transition-colors duration-100 ${
-								mode === 'screen' ? 'text-stone-700' : 'text-stone-300 hover:text-stone-500'
-							}`}><Layers size={ICON} strokeWidth={mode === 'screen' ? 1.8 : 1.2} /></button>
-						<button onClick={() => mode !== 'flow' && onModeToggle()} title="Flow"
-							className={`${ROW} w-5 flex items-center justify-center transition-colors duration-100 ${
-								mode === 'flow' ? 'text-stone-700' : 'text-stone-300 hover:text-stone-500'
-							}`}><Play size={ICON} strokeWidth={mode === 'flow' ? 1.8 : 1.2} /></button>
+			{/* Controls row */}
+			<div className="flex items-center px-1">
+				{/* Screen mode icon */}
+				<div className={`flex items-center ${ROW}`}>
+					<div className={`${ROW} w-5 flex items-center justify-center text-stone-700`}>
+						<Layers size={ICON} strokeWidth={1.8} />
 					</div>
-					<Div />
-				</>
-			)}
+				</div>
+				<Div />
 
-			{/* Screens */}
-			<Segment items={screens} onSelect={onScreen} />
+				{/* Screen picker + states */}
+				<Picker items={screens} onSelect={onScreen} />
+				{states.length > 0 && <><Div /><Segment items={states} onSelect={onState} accent="#34a065" /></>}
 
-			{/* States / Flow */}
-			{flowMode && flowSteps && flowIndex != null && onFlowStep ? (
-				<><Div /><FlowStrip steps={flowSteps} currentIndex={flowIndex} onStep={onFlowStep} /></>
-			) : states.length > 0 ? (
-				<><Div /><Segment items={states} onSelect={onState} accent="#34a065" /></>
-			) : null}
+				{/* Viewport */}
+				<Div />
+				<ViewportControl sizes={viewportSizes} activeWidth={activeViewportWidth} onSelect={onViewportSize} />
 
-			{/* Viewport */}
-			<Div />
-			<ViewportControl sizes={viewportSizes} activeWidth={activeViewportWidth} onSelect={onViewportSize} />
+				{/* Layout */}
+				{layouts.length > 0 && <><Div /><Segment items={layouts} onSelect={onLayout} /></>}
 
-			{/* Layout */}
-			{layouts.length > 0 && <><Div /><Segment items={layouts} onSelect={onLayout} /></>}
-
-			{/* Component Set */}
-			{componentSets.length > 0 && <><Div /><Segment items={componentSets} onSelect={onComponentSet} /></>}
+				{/* Component Set */}
+				{componentSets.length > 0 && <><Div /><Segment items={componentSets} onSelect={onComponentSet} /></>}
+			</div>
 		</div>
 	)
 }

@@ -48,22 +48,6 @@ export interface App {
   transitions?: Transition[]
 }
 
-export interface FlowStep {
-  position: number
-  type: 'screen' | 'region' | 'event' | 'back' | 'action' | 'activate'
-  name: string
-  history?: number
-  data?: string
-}
-
-export interface Flow {
-  name: string
-  description?: string
-  on_event?: string
-  sequence: string
-  steps?: FlowStep[]
-}
-
 export interface Fixture {
   name: string
   extends?: string
@@ -73,7 +57,6 @@ export interface Fixture {
 export interface Spec {
   app: App
   screens: Screen[]
-  flows?: Flow[]
   fixtures?: Fixture[]
   layouts?: Record<string, string[]>
 }

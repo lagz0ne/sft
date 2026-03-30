@@ -4,14 +4,10 @@ import { useMemo } from 'react'
 import { WireframeCanvas } from '../components/wireframe-canvas'
 import { Dock, PRESET_SIZES, type ViewportSizeType } from '../components/dock'
 import { discoverCompositions } from '../lib/layout-tags'
-import type { FlowStep } from '../lib/types'
 
 type PlaygroundSearch = {
 	screen: string
 	state: string
-	mode: 'screen' | 'flow'
-	flow: string
-	step: number
 	set: string
 	layout: string
 	width: number
@@ -21,9 +17,6 @@ export const Route = createFileRoute('/playground')({
 	validateSearch: (search: Record<string, unknown>): PlaygroundSearch => ({
 		screen: (search.screen as string) || '',
 		state: (search.state as string) || '',
-		mode: search.mode === 'flow' ? 'flow' : 'screen',
-		flow: (search.flow as string) || '',
-		step: Number(search.step) || 0,
 		set: (search.set as string) || 'wireframe',
 		layout: (search.layout as string) || '',
 		width: Number(search.width) || 0,
@@ -36,13 +29,6 @@ const COMPONENT_SETS = [
 	{ id: 'styled', label: 'styled' },
 	{ id: 'compact', label: 'compact' },
 ]
-
-function findScreenForStep(steps: FlowStep[], index: number): string | null {
-	for (let i = index; i >= 0; i--) {
-		if (steps[i].type === 'screen') return steps[i].name
-	}
-	return null
-}
 
 function PlaygroundPage() {
 	const { spec, loading } = useSpecContext()
@@ -61,22 +47,9 @@ function PlaygroundPage() {
 	const activeState = search.state || states[0] || null
 	const currentComposition = search.layout || null
 
-	const flow = search.flow ? spec.flows?.find(f => f.name === search.flow) : spec.flows?.[0]
-	const steps = flow?.steps ?? []
-	const currentStep = steps[search.step] ?? null
-
-	const flowScreenName = steps.length > 0 ? findScreenForStep(steps, search.step) : null
-	const flowScreen = flowScreenName ? spec.screens.find(s => s.name === flowScreenName) : null
-
-	const effectiveScreen = search.mode === 'flow' && flowScreen ? flowScreen : screen
-	const effectiveState = search.mode === 'flow' ? (flowScreen?.states?.[0] ?? null) : activeState
-
-	const activeRegion = search.mode === 'flow' && currentStep?.type === 'region' ? currentStep.name : null
-	const activeEvent = search.mode === 'flow' && currentStep?.type === 'event' ? currentStep.name : null
-
 	const allRegions = useMemo(() =>
-		[...(spec.app.regions ?? []), ...(effectiveScreen?.regions ?? [])],
-		[spec.app.regions, effectiveScreen?.regions]
+		[...(spec.app.regions ?? []), ...(screen?.regions ?? [])],
+		[spec.app.regions, screen?.regions]
 	)
 	const compositions = useMemo(() => {
 		const found = discoverCompositions(allRegions)
@@ -108,7 +81,6 @@ function PlaygroundPage() {
 	}, [viewportSizes, search.layout, search.width])
 
 	const switchScreen = (name: string) => set({ screen: name, state: '' })
-	const goToStep = (i: number) => set({ step: Math.max(0, Math.min(i, steps.length - 1)) })
 
 	const handleViewportSize = (size: ViewportSizeType) => {
 		set({
@@ -124,15 +96,15 @@ function PlaygroundPage() {
 				style={{ width: viewportWidth ? `${viewportWidth}px` : '100%', maxWidth: '100%' }}
 			>
 				<div className="h-full p-3 pb-12">
-					{effectiveScreen && (
+					{screen && (
 						<div className="h-full">
 							<WireframeCanvas
-								screen={effectiveScreen}
-								currentState={effectiveState}
+								screen={screen}
+								currentState={activeState}
 								appRegions={spec.app.regions}
 								fixtures={spec.fixtures}
-								activeRegion={activeRegion}
-								activeEvent={activeEvent}
+								activeRegion={null}
+								activeEvent={null}
 								app={spec.app}
 								componentSet={search.set}
 								composition={currentComposition}
@@ -144,10 +116,10 @@ function PlaygroundPage() {
 
 			<Dock
 				screens={spec.screens.map(s => ({
-					id: s.name, label: s.name, active: effectiveScreen?.name === s.name,
+					id: s.name, label: s.name, active: screen?.name === s.name,
 				}))}
-				onScreen={(id: string) => { if (search.mode === 'flow') set({ mode: 'screen' }); switchScreen(id) }}
-				states={states.map(s => ({ id: s, label: s, active: effectiveState === s }))}
+				onScreen={(id: string) => switchScreen(id)}
+				states={states.map(s => ({ id: s, label: s, active: activeState === s }))}
 				onState={(id: string) => set({ state: id })}
 				layouts={[
 					{ id: '__default', label: 'default', active: currentComposition === null },
@@ -156,16 +128,6 @@ function PlaygroundPage() {
 				onLayout={(id: string) => set({ layout: id === '__default' ? '' : id })}
 				componentSets={COMPONENT_SETS.map(s => ({ ...s, active: search.set === s.id }))}
 				onComponentSet={(id: string) => set({ set: id })}
-				mode={search.mode}
-				onModeToggle={() => {
-					if (search.mode === 'screen') set({ mode: 'flow', step: 0 })
-					else set({ mode: 'screen' })
-				}}
-				hasFlows={(spec.flows?.length ?? 0) > 0}
-				flowMode={search.mode === 'flow'}
-				flowSteps={steps}
-				flowIndex={search.step}
-				onFlowStep={goToStep}
 				viewportSizes={viewportSizes}
 				activeViewportWidth={viewportWidth}
 				onViewportSize={handleViewportSize}

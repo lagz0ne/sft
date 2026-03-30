@@ -15,11 +15,6 @@ function ScreenDetail() {
   const screen = spec?.screens?.find(s => s.name === name)
   if (!screen) return <div className="p-8 text-neutral-400">Screen not found: {name}</div>
 
-  const flowsThrough = spec?.flows?.filter(f =>
-    f.steps?.some(s => s.type === 'screen' && s.name === name)
-    || f.sequence?.includes(name)
-  ) ?? []
-
   // State management — initial state, visible regions
   const [currentState, setCurrentState] = useState<string | null>(null)
   const effectiveState = currentState ?? screen.states?.[0] ?? null
@@ -58,21 +53,6 @@ function ScreenDetail() {
         <div className="mb-6">
           <div className="text-xs uppercase tracking-wider text-neutral-400 mb-2">What's on this screen</div>
           <RegionList regions={screen.regions} visibleRegions={visibleRegions} />
-        </div>
-      )}
-
-      {flowsThrough.length > 0 && (
-        <div>
-          <div className="text-xs uppercase tracking-wider text-neutral-400 mb-2">Flows through this screen</div>
-          <div className="flex flex-col gap-1">
-            {flowsThrough.map(flow => (
-              <Link key={flow.name} to="/flows/$name" params={{ name: flow.name }}
-                className="px-3 py-2 border border-neutral-200 rounded-lg bg-white text-sm hover:border-neutral-300 flex items-center">
-                <span className="font-medium flex-1">{flow.name}</span>
-                <span className="text-neutral-300">→</span>
-              </Link>
-            ))}
-          </div>
         </div>
       )}
     </div>

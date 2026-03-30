@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as PlaygroundRouteImport } from './routes/playground'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ScreensNameRouteImport } from './routes/screens.$name'
-import { Route as FlowsNameRouteImport } from './routes/flows.$name'
 
 const PlaygroundRoute = PlaygroundRouteImport.update({
   id: '/playground',
@@ -29,43 +28,34 @@ const ScreensNameRoute = ScreensNameRouteImport.update({
   path: '/screens/$name',
   getParentRoute: () => rootRouteImport,
 } as any)
-const FlowsNameRoute = FlowsNameRouteImport.update({
-  id: '/flows/$name',
-  path: '/flows/$name',
-  getParentRoute: () => rootRouteImport,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/playground': typeof PlaygroundRoute
-  '/flows/$name': typeof FlowsNameRoute
   '/screens/$name': typeof ScreensNameRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/playground': typeof PlaygroundRoute
-  '/flows/$name': typeof FlowsNameRoute
   '/screens/$name': typeof ScreensNameRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/playground': typeof PlaygroundRoute
-  '/flows/$name': typeof FlowsNameRoute
   '/screens/$name': typeof ScreensNameRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/playground' | '/flows/$name' | '/screens/$name'
+  fullPaths: '/' | '/playground' | '/screens/$name'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/playground' | '/flows/$name' | '/screens/$name'
-  id: '__root__' | '/' | '/playground' | '/flows/$name' | '/screens/$name'
+  to: '/' | '/playground' | '/screens/$name'
+  id: '__root__' | '/' | '/playground' | '/screens/$name'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   PlaygroundRoute: typeof PlaygroundRoute
-  FlowsNameRoute: typeof FlowsNameRoute
   ScreensNameRoute: typeof ScreensNameRoute
 }
 
@@ -92,20 +82,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ScreensNameRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/flows/$name': {
-      id: '/flows/$name'
-      path: '/flows/$name'
-      fullPath: '/flows/$name'
-      preLoaderRoute: typeof FlowsNameRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   PlaygroundRoute: PlaygroundRoute,
-  FlowsNameRoute: FlowsNameRoute,
   ScreensNameRoute: ScreensNameRoute,
 }
 export const routeTree = rootRouteImport
