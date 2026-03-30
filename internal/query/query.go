@@ -9,7 +9,6 @@ import (
 var namedQueries = map[string]string{
 	"screens":  "SELECT id, app_id, name, description FROM screens",
 	"events":   "SELECT event, emitted_by, parent_type, handled_at, from_state, to_state, action FROM event_index",
-	"flows":    "SELECT id, name, description, on_event, sequence FROM flows",
 	"tags":     "SELECT tag, entity_type, entity_name FROM tag_index",
 	"regions":  "SELECT id, name, description, parent_type, parent_name, event_count, has_states FROM region_tree",
 	"types":    "SELECT name, fields FROM data_types",
@@ -27,7 +26,7 @@ func Run(db *sql.DB, input string, args ...string) ([]map[string]any, error) {
 		if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(input)), "SELECT") {
 			q = input
 		} else {
-			return nil, fmt.Errorf("unknown query %q (available: screens, events, flows, tags, regions, types, enums, fixtures, contexts, attachments, layouts, or raw SELECT)", input)
+			return nil, fmt.Errorf("unknown query %q (available: screens, events, tags, regions, types, enums, fixtures, contexts, attachments, layouts, or raw SELECT)", input)
 		}
 	}
 
@@ -46,13 +45,6 @@ func States(db *sql.DB, name string) ([]map[string]any, error) {
 	q := `SELECT owner_type, owner_name, on_event, from_state, to_state, action
 	      FROM state_machines WHERE owner_name = ?`
 	return execQuery(db, q, name)
-}
-
-// Steps returns parsed flow steps for a given flow name.
-func Steps(db *sql.DB, flowName string) ([]map[string]any, error) {
-	return execQuery(db, `SELECT fs.position, fs.raw, fs.type, fs.name, fs.history, fs.data
-		FROM flow_steps fs JOIN flows f ON f.id = fs.flow_id
-		WHERE f.name = ? ORDER BY fs.position`, flowName)
 }
 
 func execQuery(db *sql.DB, query string, args ...any) ([]map[string]any, error) {

@@ -15,7 +15,6 @@ import (
 type Spec struct {
 	App      App                    `json:"app"`
 	Screens  []Screen               `json:"screens"`
-	Flows    []Flow                 `json:"flows,omitempty"`
 	Fixtures []Fixture              `json:"fixtures,omitempty"`
 	Layouts  map[string][]string    `json:"layouts,omitempty"`
 }
@@ -86,24 +85,6 @@ type Transition struct {
 	Action    string `json:"action,omitempty"`
 }
 
-type FlowStep struct {
-	Position int    `json:"position"`
-	Type     string `json:"type"`
-	Name     string `json:"name"`
-	History  int    `json:"history,omitempty"`
-	Data     string `json:"data,omitempty"`
-}
-
-type Flow struct {
-	ID          int64      `json:"id"`
-	Ref         string     `json:"ref"`
-	Name        string     `json:"name"`
-	Description string     `json:"description,omitempty"`
-	OnEvent     string     `json:"on_event,omitempty"`
-	Sequence    string     `json:"sequence"`
-	Steps       []FlowStep `json:"steps,omitempty"`
-}
-
 // Enricher provides attachment and component data during spec loading.
 type Enricher interface {
 	AttachmentsFor(entity string) []string
@@ -165,27 +146,6 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 			}
 		}
 		spec.Screens = append(spec.Screens, s)
-	}
-
-	// Flows
-	frows, err := db.Query("SELECT id, name, description, on_event, sequence FROM flows ORDER BY id")
-	if err != nil {
-		return nil, err
-	}
-	defer frows.Close()
-	for frows.Next() {
-		var f Flow
-		var flowID int64
-		var desc, onEvent sql.NullString
-		if err := frows.Scan(&flowID, &f.Name, &desc, &onEvent, &f.Sequence); err != nil {
-			return nil, fmt.Errorf("scan flow: %w", err)
-		}
-		f.ID = flowID
-		f.Ref = fmt.Sprintf("@f%d", flowID)
-		f.Description = desc.String
-		f.OnEvent = onEvent.String
-		f.Steps, _ = loadFlowSteps(db, flowID)
-		spec.Flows = append(spec.Flows, f)
 	}
 
 	// Fixtures
@@ -503,25 +463,6 @@ func loadStateFixtures(db *sql.DB, ownerType string, ownerID int64) map[string]s
 	return result
 }
 
-func loadFlowSteps(db *sql.DB, flowID int64) ([]FlowStep, error) {
-	rows, err := db.Query(`SELECT position, type, name, history, data FROM flow_steps WHERE flow_id = ? ORDER BY position`, flowID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var steps []FlowStep
-	for rows.Next() {
-		var s FlowStep
-		var data sql.NullString
-		if err := rows.Scan(&s.Position, &s.Type, &s.Name, &s.History, &data); err != nil {
-			return nil, fmt.Errorf("scan flow_step: %w", err)
-		}
-		s.Data = data.String
-		steps = append(steps, s)
-	}
-	return steps, nil
-}
-
 // --- Text rendering ---
 
 func Render(w io.Writer, spec *Spec) {
@@ -577,21 +518,6 @@ func Render(w io.Writer, spec *Spec) {
 		}
 	}
 
-	if len(spec.Flows) > 0 {
-		fmt.Fprintln(w)
-		fmt.Fprintf(w, "flows:\n")
-		for _, f := range spec.Flows {
-			fmt.Fprintf(w, "  %s %s", f.Ref, f.Name)
-			if f.OnEvent != "" {
-				fmt.Fprintf(w, " (on %s)", f.OnEvent)
-			}
-			fmt.Fprintln(w)
-			if f.Description != "" {
-				fmt.Fprintf(w, "    %s\n", f.Description)
-			}
-			fmt.Fprintf(w, "    %s\n", f.Sequence)
-		}
-	}
 }
 
 func renderRegions(w io.Writer, regions []Region, indent string) {
