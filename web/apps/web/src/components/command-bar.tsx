@@ -91,7 +91,7 @@ export function CommandBar({ items, open, onClose }: CommandBarProps) {
 						value={query}
 						onChange={e => { setQuery(e.target.value); setSelectedIndex(0) }}
 						onKeyDown={handleKeyDown}
-						placeholder="Switch screen, layout, taste, state..."
+						placeholder="Switch screen, layout, state..."
 						className="w-full text-sm outline-none text-neutral-800 placeholder:text-neutral-400"
 					/>
 				</div>
@@ -146,11 +146,10 @@ export function CommandBar({ items, open, onClose }: CommandBarProps) {
 }
 
 /** Tiny floating badge showing current context — click to open command bar */
-export function ContextBadge({ screen, state, layout, taste, onOpen }: {
+export function ContextBadge({ screen, state, layout, onOpen }: {
 	screen: string
 	state?: string | null
 	layout?: string | null
-	taste?: string | null
 	onOpen: () => void
 }) {
 	return (
@@ -169,12 +168,6 @@ export function ContextBadge({ screen, state, layout, taste, onOpen }: {
 				<>
 					<span className="text-neutral-300">/</span>
 					<span>{layout}</span>
-				</>
-			)}
-			{taste && (
-				<>
-					<span className="text-neutral-300">/</span>
-					<span>{taste}</span>
 				</>
 			)}
 			<span className="text-neutral-400 ml-1">/</span>

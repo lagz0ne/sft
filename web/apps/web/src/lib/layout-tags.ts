@@ -1,18 +1,16 @@
 /**
  * SFT Layout Tag Vocabulary
  *
- * Tags are Tailwind-like explicit instructions. Three concerns:
+ * Tags are Tailwind-like explicit instructions. Two concerns:
  *
  *   POSITION (where)  → sidebar, header, split:wide, mobile:bottomnav
- *   SKIN (what)       → list, form, tabs, detail, metric, card-grid, etc.
  *   VISUAL (how)      → elevated
  *
  * Position format: position[:modifier] or composition:position[:modifier]
- * Skin format: just the skin name as a standalone tag
  * Visual format: just the visual name as a standalone tag
  *
- * Example: tags: [sidebar, list, elevated]
- *   → position=sidebar, skin=list, elevated=true
+ * Example: tags: [sidebar, elevated]
+ *   → position=sidebar, elevated=true
  */
 
 // --- Vocabulary definition ---
@@ -39,10 +37,6 @@ const POSITION_MODIFIERS: Record<string, readonly string[]> = {
 /** Visual tags — standalone, can coexist with any position */
 const VISUAL_TAGS = new Set(['elevated'])
 
-/** Skin tags removed — component bindings handle what regions render as */
-export type SkinTag = 'placeholder'
-
-const SKIN_TAGS = new Set<string>()
 
 /** Check if a string is a known position */
 function isPosition(s: string): boolean {
@@ -138,7 +132,7 @@ export function discoverCompositions(regions: { tags?: string[] }[]): string[] {
 		for (const tag of r.tags ?? []) {
 			const parts = tag.split(':')
 			// A composition tag has 2+ parts and the first part is NOT a position
-			if (parts.length >= 2 && !isPosition(parts[0]) && !VISUAL_TAGS.has(parts[0]) && !SKIN_TAGS.has(parts[0])) {
+			if (parts.length >= 2 && !isPosition(parts[0]) && !VISUAL_TAGS.has(parts[0])) {
 				compositions.add(parts[0])
 			}
 		}

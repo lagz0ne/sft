@@ -1,8 +1,6 @@
 import type { App, Fixture, Region, Screen } from '../lib/types'
 import { parseComponentProps } from '../lib/component-props'
-import { DataList } from './skins/data-list'
-import { Tabs } from './skins/tabs'
-import { Placeholder } from './skins/placeholder'
+import { DataList, Tabs, Placeholder } from './wireframe-parts'
 
 // --- Layout system ---
 
@@ -285,8 +283,6 @@ function ComponentRenderer({ component, componentProps, region, screen, fixtureD
 }) {
 	const shape = resolveShape(component)
 	const props = parseComponentProps(componentProps)
-	const skinCtx = { skin: 'placeholder' as const, fields: {} }
-	const skinProps = { region, context: skinCtx, fixtureData, screenName: screen.name, compact, componentSet }
 
 	switch (shape) {
 		case 'input': return <InputShape label={props.label} placeholder={props.placeholder} type={props.type} componentSet={componentSet} componentType={component} />
@@ -294,10 +290,10 @@ function ComponentRenderer({ component, componentProps, region, screen, fixtureD
 		case 'button': return <ButtonShape label={props.label ?? component} variant={props.variant} componentSet={componentSet} componentType={component} />
 		case 'image': return <ImageShape aspect={props.aspect} alt={props.alt} componentSet={componentSet} componentType={component} />
 		case 'text': return <TextShape content={props.content} level={props.level} componentSet={componentSet} componentType={component} />
-		case 'list': return <DataList {...skinProps} />
-		case 'card': return <Placeholder {...skinProps} />
-		case 'tabs': return <Tabs {...skinProps} />
-		default: return <Placeholder {...skinProps} />
+		case 'list': return <DataList region={region} fixtureData={fixtureData} screenName={screen.name} compact={compact} />
+		case 'card': return <Placeholder region={region} compact={compact} />
+		case 'tabs': return <Tabs compact={compact} />
+		default: return <Placeholder region={region} compact={compact} />
 	}
 }
 
@@ -500,9 +496,9 @@ function UnboundPrompt({ name, componentSet }: { name: string; componentSet?: st
 	)
 }
 
-// --- Skin dispatcher (reads region.component, falls back to tag, then prompt) ---
+// --- Region renderer (component binding or prompt) ---
 
-function SkinRenderer({ region, screen, fixtureData, compact, componentSet }: {
+function RegionRenderer({ region, screen, fixtureData, compact, componentSet }: {
 	region: Region
 	screen: Screen
 	fixtureData?: Record<string, any> | null
@@ -781,7 +777,7 @@ function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeReg
 			)}
 
 			{/* Component content */}
-			<SkinRenderer
+			<RegionRenderer
 					region={region}
 					screen={screen}
 					fixtureData={fixtureData}

@@ -17,13 +17,7 @@ type Spec struct {
 	Screens  []Screen               `json:"screens"`
 	Flows    []Flow                 `json:"flows,omitempty"`
 	Fixtures []Fixture              `json:"fixtures,omitempty"`
-	Tastes   []Taste                `json:"tastes,omitempty"`
 	Layouts  map[string][]string    `json:"layouts,omitempty"`
-}
-
-type Taste struct {
-	Name   string         `json:"name"`
-	Tokens map[string]any `json:"tokens"`
 }
 
 type Fixture struct {
@@ -198,9 +192,6 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 	if spec.Fixtures, err = loadFixtures(db, appID); err != nil {
 		return nil, err
 	}
-
-	// Tastes
-	spec.Tastes = loadTastes(db, appID)
 
 	// Layouts
 	spec.Layouts = loadLayouts(db, appID)
@@ -452,23 +443,6 @@ func loadFixtures(db *sql.DB, appID int64) ([]Fixture, error) {
 		fixtures = append(fixtures, f)
 	}
 	return fixtures, nil
-}
-
-func loadTastes(db *sql.DB, appID int64) []Taste {
-	rows, _ := db.Query("SELECT name, tokens FROM tastes WHERE app_id = ? ORDER BY name", appID)
-	if rows == nil {
-		return nil
-	}
-	defer rows.Close()
-	var tastes []Taste
-	for rows.Next() {
-		var t Taste
-		var tokensJSON string
-		rows.Scan(&t.Name, &tokensJSON)
-		json.Unmarshal([]byte(tokensJSON), &t.Tokens)
-		tastes = append(tastes, t)
-	}
-	return tastes
 }
 
 func loadLayouts(db *sql.DB, appID int64) map[string][]string {
