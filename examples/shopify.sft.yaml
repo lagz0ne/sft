@@ -265,16 +265,6 @@ app:
             description: API keys, webhooks, and custom app management
             tags: [developer_plan]
 
-    flows:
-      - name: fulfillment
-        description: Ship an order and notify the customer
-        on: start_fulfillment
-        sequence: "order_detail → fulfillment_confirmation → confirm_fulfillment → order_detail"
-
-      - name: product_from_list
-        description: Edit a product and return to the catalog with position preserved
-        sequence: "product_list → product_detail → [Back] → product_list(H)"
-
   - name: shopify_storefront
     description: Customer-facing shop — browse products, manage cart, and checkout
 
@@ -460,13 +450,3 @@ app:
             description: Estimated shipping date and tracking info when available
             ambient:
               order: "data(order_confirmation, .order)"
-
-    flows:
-      - name: purchase
-        description: End-to-end buying journey from product discovery to order confirmation
-        sequence: "product_page{selected variant} → cart{cart items} → checkout{shipping + payment} → order_confirmation{order ID}"
-
-      - name: add_to_cart
-        description: Add a product and see it reflected in the cart drawer
-        on: add_to_cart
-        sequence: "product_page → cart_drawer activates"

@@ -230,17 +230,3 @@ app:
         query: "invoice"
         results:
           - { subject: "Invoice #1234", sender: { name: "Billing" }, read: true }
-
-  flows:
-    - name: email_from_inbox
-      description: Read an email from the inbox and return with scroll position preserved
-      sequence: "inbox → thread_view → [Back] → inbox(H)"
-
-    - name: email_from_search
-      description: Read a search result and return to the same result set
-      sequence: "search_results → thread_view → [Back] → search_results(H)"
-
-    - name: compose_and_send
-      description: Create and send a new email from anywhere in the app
-      on: start_compose
-      sequence: "compose_window activates → fill → send_email"

@@ -116,14 +116,6 @@ screens:
       - {on: select_email, from: has_selection, to: has_selection}
       - {on: open_compose, to: compose}
 
-    flows:
-      read_email:
-        description: "Select an email from the inbox list and read it in the preview pane"
-        sequence: "inbox → email_list → select_email → reading_pane"
-      start_composing:
-        description: "Open the compose screen from the inbox"
-        sequence: "inbox → compose_fab → open_compose → compose"
-
   compose:
     regions:
       compose_header:
@@ -192,8 +184,3 @@ screens:
     transitions:
       - {on: send, from: drafting, to: inbox}
       - {on: discard, from: drafting, to: inbox}
-
-    flows:
-      compose_and_send:
-        description: "Write a new email and send it, returning to the inbox"
-        sequence: "compose → compose_body → edit_body → compose_header → send → inbox"

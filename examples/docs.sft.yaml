@@ -241,28 +241,6 @@ app:
             resolve_thread: .
             select_version: .
 
-  flows:
-    - name: login_to_workspace
-      description: Authenticate and land in the workspace — includes MFA if required
-      on: submit_login
-      sequence: "login → verifying → workspace"
-
-    - name: edit_with_undo
-      description: Edit a document, undo a mistake via toolbar or Cmd+Z, redo if needed
-      sequence: "editor → edit_content → undo → redo"
-
-    - name: offline_sync
-      description: Edit while offline, reconnect, and resolve any sync conflicts
-      sequence: "editor{queued edits} → reconnect → sync_indicator → resolve_conflict → editor{synced}"
-
-    - name: context_menu_action
-      description: Right-click a document card and perform an action
-      sequence: "workspace → context_menu_document → context_menu activates → rename_doc → workspace"
-
-    - name: onboard_to_editor
-      description: New user completes tour then opens first document
-      sequence: "onboarding_tour activates → finish_tour → workspace → editor"
-
   fixtures:
     tour_dismissed:
       onboarding_tour:

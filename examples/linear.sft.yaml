@@ -212,17 +212,3 @@ app:
         - name: team_settings
           description: Team-specific workflow, labels, and automation rules
           tags: [team_admin]
-
-  flows:
-    - name: issue_from_list
-      description: Open an issue from the list and return with scroll position preserved
-      sequence: "my_issues → issue_detail → [Back] → my_issues(H)"
-
-    - name: issue_from_board
-      description: Open an issue from the board and return to the same board state
-      sequence: "board_view → issue_detail → [Back] → board_view(H)"
-
-    - name: create_issue
-      description: Quick-create an issue from anywhere via keyboard shortcut
-      on: create_issue
-      sequence: "create_issue_modal activates → fill fields → submit_issue"

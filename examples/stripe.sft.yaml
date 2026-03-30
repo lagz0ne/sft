@@ -412,31 +412,3 @@ app:
     evidence_submitted:
       dispute_detail.evidence_uploader:
         uploaded_files: ["receipt.pdf", "tracking.png"]
-
-  flows:
-    - name: refund_payment
-      description: Issue a refund with amount and reason confirmation
-      on: start_refund
-      sequence: "payment_detail{payment ID} → refund_confirmation{refund amount + reason} → confirm_refund → payment_detail{updated status}"
-
-    - name: refund_failed
-      description: Refund processing fails — user sees error and retries or abandons
-      sequence: "payment_detail → refund_confirmation → confirm_refund → error → retry or cancel_refund"
-
-    - name: cancel_subscription
-      description: Cancel a subscription with timing choice and revenue impact warning
-      on: start_cancel
-      sequence: "subscription_detail{subscription ID} → cancel_confirmation{cancellation timing} → confirm_cancel → subscription_detail{updated status}"
-
-    - name: dispute_response
-      description: Collect and submit evidence for a payment dispute before the deadline
-      sequence: "dispute_detail{dispute ID + deadline} → upload_evidence{evidence files} → submit_evidence → await resolution{submission confirmation}"
-
-    - name: payment_from_list
-      description: Inspect a payment and return to the list with position preserved
-      sequence: "payment_list → payment_detail → [Back] → payment_list(H)"
-
-    - name: payment_from_notification
-      description: Navigate from a failed payment notification to investigate and resolve
-      on: select_notification
-      sequence: "notification_drawer activates → payment_detail → refund or retry"

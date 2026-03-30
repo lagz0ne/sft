@@ -179,17 +179,6 @@ screens:
       - {on: search, from: browsing, to: browsing}
       - {on: search, from: playing, to: playing}
 
-    flows:
-      discover_and_play:
-        description: "Browse content cards, select a track, and begin playback"
-        sequence: "browse → content_area → play_track → browse(playing) → player_bar"
-      search_and_play:
-        description: "Search for music and play a result"
-        sequence: "browse → top_bar → search_input → search → content_area → play_track → browse(playing)"
-      manage_queue:
-        description: "Open the queue drawer and review upcoming tracks"
-        sequence: "browse(playing) → player_bar → open_queue → queue_drawer"
-
   now_playing:
     regions:
       album_art:
@@ -298,11 +287,3 @@ screens:
       - {on: back_to_browse, from: playing, to: browse}
       - {on: next_track, from: playing, to: playing}
       - {on: prev_track, from: playing, to: playing}
-
-    flows:
-      play_flow:
-        description: "Play a track from browse, view it full-screen, then skip to the next"
-        sequence: "browse → content_area → play_track → browse(playing) → player_bar → next_track"
-      view_lyrics:
-        description: "Open the lyrics overlay while a track is playing"
-        sequence: "now_playing → toggle_lyrics → lyrics_modal → toggle_lyrics → now_playing"
