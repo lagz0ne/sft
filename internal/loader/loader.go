@@ -20,7 +20,6 @@ type yamlFile struct {
 	App     yaml.Node           `yaml:"app"`
 	Layouts map[string][]string `yaml:"layouts,omitempty"`
 	Screens yaml.Node           `yaml:"screens,omitempty"`
-	Flows   yaml.Node           `yaml:"flows,omitempty"`
 }
 
 type yamlApp struct {
@@ -33,7 +32,6 @@ type yamlApp struct {
 	Layouts        map[string][]string          `yaml:"layouts,omitempty"`
 	Regions        []yamlRegion                 `yaml:"regions,omitempty"`
 	Screens        []yamlScreen                 `yaml:"screens,omitempty"`
-	Flows          []yamlFlow                   `yaml:"flows,omitempty"`
 	Fixtures       yaml.Node                    `yaml:"fixtures,omitempty"`
 }
 
@@ -49,7 +47,6 @@ type yamlScreen struct {
 	Regions      []yamlRegion      `yaml:"regions,omitempty"`
 	States       []yamlTransition  `yaml:"states,omitempty"`
 	StateMachine yaml.Node         `yaml:"state_machine,omitempty"`
-	flows        []yamlFlow        // unexported: screen-level flows (flat format only)
 }
 
 type yamlRegion struct {
@@ -104,13 +101,6 @@ type yamlTransition struct {
 	Action string `yaml:"action,omitempty"`
 }
 
-type yamlFlow struct {
-	Name        string `yaml:"name"`
-	Description string `yaml:"description,omitempty"`
-	On          string `yaml:"on,omitempty"`
-	Sequence    string `yaml:"sequence"`
-}
-
 // Load parses an SFT YAML file and populates the store.
 func Load(s *store.Store, path string) error {
 	data, err := os.ReadFile(path)
@@ -132,9 +122,6 @@ func Load(s *store.Store, path string) error {
 		app.Layouts = f.Layouts
 		if err := decodeFlatScreens(&f.Screens, &app); err != nil {
 			return fmt.Errorf("decode screens in %s: %w", path, err)
-		}
-		if err := decodeFlatFlows(&f.Flows, &app); err != nil {
-			return fmt.Errorf("decode flows in %s: %w", path, err)
 		}
 	case yaml.MappingNode:
 		if err := f.App.Decode(&app); err != nil {
@@ -260,21 +247,6 @@ func Load(s *store.Store, path string) error {
 		}
 		if err := insertTransitions(s, a.ID, "screen", screen.ID, sc.Name, sc.States, &sc.StateMachine); err != nil {
 			return err
-		}
-	}
-
-	// Collect screen-level flows (flat format puts flows inside screens)
-	for _, sc := range app.Screens {
-		app.Flows = append(app.Flows, sc.flows...)
-	}
-
-	// Flows
-	for _, fl := range app.Flows {
-		if err := s.InsertFlow(&model.Flow{
-			AppID: a.ID, Name: fl.Name, Description: fl.Description,
-			OnEvent: fl.On, Sequence: fl.Sequence,
-		}); err != nil {
-			return fmt.Errorf("flow %s: %w", fl.Name, err)
 		}
 	}
 
@@ -696,13 +668,6 @@ func decodeFlatScreen(name string, node *yaml.Node) (yamlScreen, error) {
 				return sc, fmt.Errorf("transitions: %w", err)
 			}
 			sc.States = transitions
-		case "flows":
-			flows, err := decodeFlatFlowsMapping(val)
-			if err != nil {
-				return sc, fmt.Errorf("flows: %w", err)
-			}
-			// Screen-level flows get merged into app-level flows
-			sc.flows = flows
 		case "state_machine":
 			sc.StateMachine = *val
 		case "tags":
@@ -827,50 +792,6 @@ func decodeFlatTransitions(node *yaml.Node) ([]yamlTransition, error) {
 		transitions = append(transitions, t)
 	}
 	return transitions, nil
-}
-
-// decodeFlatFlows parses top-level flows as a mapping node.
-func decodeFlatFlows(node *yaml.Node, app *yamlApp) error {
-	if node == nil || node.Kind == 0 {
-		return nil
-	}
-	if node.Kind == yaml.MappingNode {
-		flows, err := decodeFlatFlowsMapping(node)
-		if err != nil {
-			return err
-		}
-		app.Flows = append(app.Flows, flows...)
-	}
-	return nil
-}
-
-// decodeFlatFlowsMapping parses a flow mapping (name → {description, sequence}).
-func decodeFlatFlowsMapping(node *yaml.Node) ([]yamlFlow, error) {
-	if node.Kind != yaml.MappingNode {
-		return nil, nil
-	}
-	var flows []yamlFlow
-	for i := 0; i < len(node.Content)-1; i += 2 {
-		flowName := node.Content[i].Value
-		flowDef := node.Content[i+1]
-		f := yamlFlow{Name: flowName}
-		if flowDef.Kind == yaml.MappingNode {
-			for j := 0; j < len(flowDef.Content)-1; j += 2 {
-				k := flowDef.Content[j].Value
-				v := flowDef.Content[j+1]
-				switch k {
-				case "description":
-					f.Description = v.Value
-				case "sequence":
-					f.Sequence = v.Value
-				case "on":
-					f.On = v.Value
-				}
-			}
-		}
-		flows = append(flows, f)
-	}
-	return flows, nil
 }
 
 // encodePropsNode converts a YAML node (scalar or mapping) to a JSON string for storage.
@@ -1029,23 +950,6 @@ func ExportFlat(spec *show.Spec, w io.Writer) error {
 		}
 		appendKey(root, "screens", screensNode)
 	}
-	if len(spec.Flows) > 0 {
-		flowsNode := seqNode()
-		for _, f := range spec.Flows {
-			item := mapNode()
-			appendPair(item, "name", f.Name)
-			if f.Description != "" {
-				appendPair(item, "description", f.Description)
-			}
-			if f.OnEvent != "" {
-				appendPair(item, "on", f.OnEvent)
-			}
-			appendPair(item, "sequence", f.Sequence)
-			flowsNode.Content = append(flowsNode.Content, item)
-		}
-		appendKey(root, "flows", flowsNode)
-	}
-
 	doc := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{root}}
 	enc := yaml.NewEncoder(w)
 	enc.SetIndent(2)
@@ -1110,7 +1014,6 @@ func Export(spec *show.Spec, w io.Writer) error {
 		Layouts:     spec.Layouts,
 		Regions:     exportRegions(spec.App.Regions),
 		Screens:     exportScreens(spec.Screens),
-		Flows:       exportFlows(spec.Flows),
 		Fixtures:    exportFixtures(spec.Fixtures),
 	}
 	out := struct {
@@ -1489,18 +1392,3 @@ func exportFixtures(fixtures []show.Fixture) yaml.Node {
 	return root
 }
 
-func exportFlows(flows []show.Flow) []yamlFlow {
-	if len(flows) == 0 {
-		return nil
-	}
-	var out []yamlFlow
-	for _, f := range flows {
-		out = append(out, yamlFlow{
-			Name:        f.Name,
-			Description: f.Description,
-			On:          f.OnEvent,
-			Sequence:    f.Sequence,
-		})
-	}
-	return out
-}

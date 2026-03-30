@@ -44,11 +44,6 @@ const testYAML = `app:
           to: active
     - name: Detail
       description: Detail view
-  flows:
-    - name: Landing
-      description: User lands and clicks CTA
-      on: page-load
-      sequence: "Home → Detail → [Back] → Home(H)"
 `
 
 func importYAML(t *testing.T, s *store.Store, yaml string) {
@@ -114,15 +109,6 @@ func TestRoundTrip(t *testing.T) {
 		}
 		if len(sc.Transitions) != len(sc2.Transitions) {
 			t.Errorf("screen %s transitions: %d vs %d", sc.Name, len(sc.Transitions), len(sc2.Transitions))
-		}
-	}
-	if len(spec1.Flows) != len(spec2.Flows) {
-		t.Fatalf("flows: %d vs %d", len(spec1.Flows), len(spec2.Flows))
-	}
-	for i, f := range spec1.Flows {
-		f2 := spec2.Flows[i]
-		if f.Name != f2.Name || f.Sequence != f2.Sequence || f.OnEvent != f2.OnEvent {
-			t.Errorf("flow %d mismatch: %+v vs %+v", i, f, f2)
 		}
 	}
 	if len(spec1.App.Regions) != len(spec2.App.Regions) {
@@ -513,24 +499,6 @@ func TestLegacyStatesFormatStillWorks(t *testing.T) {
 	tr := home.Transitions[0]
 	if tr.OnEvent != "cta-click" || tr.FromState != "idle" || tr.ToState != "active" {
 		t.Errorf("unexpected transition: %+v", tr)
-	}
-}
-
-func TestFlowStepsAfterImport(t *testing.T) {
-	s := mustStore(t)
-	importYAML(t, s, testYAML)
-
-	var count int
-	s.DB.QueryRow("SELECT COUNT(*) FROM flow_steps").Scan(&count)
-	if count == 0 {
-		t.Error("expected flow steps to be populated after import")
-	}
-
-	var flowID int64
-	s.DB.QueryRow("SELECT id FROM flows WHERE name = 'Landing'").Scan(&flowID)
-	s.DB.QueryRow("SELECT COUNT(*) FROM flow_steps WHERE flow_id = ?", flowID).Scan(&count)
-	if count != 4 {
-		t.Errorf("Landing flow: expected 4 steps, got %d", count)
 	}
 }
 
@@ -1278,11 +1246,6 @@ func TestGoldenGmailImport(t *testing.T) {
 		t.Errorf("inbox transitions = %d, want >= 2", len(inbox.Transitions))
 	}
 
-	// Check flows
-	if len(spec.Flows) < 3 {
-		t.Errorf("flows = %d, want >= 3", len(spec.Flows))
-	}
-
 	// Check layouts stored
 	appID, _ := s.ResolveApp()
 	layouts, _ := s.GetLayouts(appID)
@@ -1345,10 +1308,6 @@ func TestGoldenRoundTrip(t *testing.T) {
 			}
 		}
 	}
-	if len(spec1.Flows) != len(spec2.Flows) {
-		t.Fatalf("flows: %d vs %d", len(spec1.Flows), len(spec2.Flows))
-	}
-
 	// Layouts round-tripped
 	a1, _ := s1.ResolveApp()
 	a2, _ := s2.ResolveApp()
@@ -1636,9 +1595,6 @@ app:
       regions:
         - name: Hero
           description: Hero section
-  flows:
-    - name: Landing
-      sequence: "Home → Home"
 `)
 	spec := loadSpec(t, s)
 	var buf bytes.Buffer
@@ -1658,9 +1614,6 @@ app:
 	}
 	if !strings.Contains(out, "Home:") {
 		t.Errorf("expected Home: as mapping key, got:\n%s", out)
-	}
-	if !strings.Contains(out, "flows:") {
-		t.Errorf("expected flows: key, got:\n%s", out)
 	}
 }
 
