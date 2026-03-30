@@ -14,12 +14,15 @@ type Screen struct {
 }
 
 type Region struct {
-	ID          int64  `json:"id"`
-	AppID       int64  `json:"app_id"`
-	ParentType  string `json:"parent_type"`
-	ParentID    int64  `json:"parent_id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	ID                int64  `json:"id"`
+	AppID             int64  `json:"app_id"`
+	ParentType        string `json:"parent_type"`
+	ParentID          int64  `json:"parent_id"`
+	Name              string `json:"name"`
+	Description       string `json:"description"`
+	DiscoveryLayout   string `json:"discovery_layout,omitempty"`
+	DeliveryClasses   string `json:"delivery_classes,omitempty"`
+	DeliveryComponent string `json:"delivery_component,omitempty"`
 }
 
 type Tag struct {
@@ -101,6 +104,15 @@ type StateRegion struct {
 	OwnerID    int64  `json:"owner_id"`
 	StateName  string `json:"state_name"`
 	RegionName string `json:"region_name"`
+}
+
+// Discovery/Delivery layout model
+
+type Layout struct {
+	ID      int64  `json:"id"`
+	AppID   int64  `json:"app_id"`
+	Name    string `json:"name"`
+	Classes string `json:"classes"` // JSON array of Tailwind classes
 }
 
 // Phase 5: Enums

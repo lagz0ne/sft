@@ -260,3 +260,4 @@ func errJSON(err error) []byte {
 	data, _ := json.Marshal(map[string]string{"error": err.Error()})
 	return data
 }
+

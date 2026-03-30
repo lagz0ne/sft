@@ -5,7 +5,7 @@ import { Placeholder } from './skins/placeholder'
 
 // --- Layout system ---
 
-import { parseLayout, modifierToCol, modifierToFlex } from '../lib/layout-tags'
+import { parseLayout, parseDiscoveryLayout, modifierToCol, modifierToFlex } from '../lib/layout-tags'
 
 interface LayoutGroups {
 	banner: Region[]
@@ -22,19 +22,52 @@ interface LayoutGroups {
 	split: Region[]
 }
 
+/** Resolve layout: try tags first, fall back to discovery_layout presets */
+function resolveLayout(region: Region, composition?: string | null) {
+	const fromTags = parseLayout(region.tags, composition)
+	if (region.tags && region.tags.length > 0) return fromTags
+	return parseDiscoveryLayout(region.discovery_layout)
+}
+
+/** Default position remapping when a narrow composition is active but regions lack composition-specific tags */
+const NARROW_REMAP: Partial<Record<Position, Position>> = {
+	sidebar: 'drawer',
+	aside: 'drawer',
+	split: 'main',
+	banner: 'header',
+}
+
+const NARROW_COMPOSITIONS = new Set(['mobile', 'compact', 'narrow'])
+
 /** Parse all regions' tags and group by position, respecting active composition */
 function groupByPosition(regions: Region[], composition?: string | null): LayoutGroups {
 	const groups: LayoutGroups = { banner: [], header: [], sidebar: [], toolbar: [], main: [], aside: [], footer: [], bottomnav: [], overlay: [], modal: [], drawer: [], split: [] }
+	const isNarrow = composition != null && NARROW_COMPOSITIONS.has(composition)
 	for (const r of regions) {
-		const { position } = parseLayout(r.tags, composition)
+		const resolved = resolveLayout(r, composition)
+		let position = resolved.position
+		// Auto-remap positions for narrow compositions when region has no explicit composition tag
+		if (isNarrow && !hasCompositionTag(r, composition!)) {
+			position = NARROW_REMAP[position] ?? position
+		}
 		groups[position].push(r)
 	}
 	return groups
 }
 
+/** Check if a region has a tag prefixed with the given composition name */
+function hasCompositionTag(r: Region, composition: string): boolean {
+	if (r.tags) {
+		for (const tag of r.tags) {
+			if (tag.startsWith(composition + ':')) return true
+		}
+	}
+	return false
+}
+
 function sizeToCol(regions: Region[], fallback: string, composition?: string | null): string {
 	for (const r of regions) {
-		const { modifier } = parseLayout(r.tags, composition)
+		const { modifier } = resolveLayout(r, composition)
 		if (modifier) return modifierToCol(modifier, fallback)
 	}
 	return fallback
@@ -96,6 +129,71 @@ function buildGridTemplate(g: LayoutGroups, composition?: string | null): React.
 	}
 }
 
+// --- Position zone styling ---
+// Each zone gets a unique visual signature: SVG background pattern + thick left accent + badge color.
+// Patterns provide colorblind-accessible differentiation. Colors reinforce for sighted users.
+
+import type { Position } from '../lib/layout-tags'
+
+interface ZoneStyle {
+	accent: string      // CSS color for left border
+	bg: string          // Tailwind bg class
+	badge: string       // Tailwind classes for position badge pill
+	pattern?: string    // SVG data URI for repeating background pattern
+	label: string       // Human label for legend
+}
+
+// SVG pattern generators (tiny, inline, no network requests)
+const dot = (color: string, r = 1, sp = 8) =>
+	`url("data:image/svg+xml,%3Csvg width='${sp}' height='${sp}' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='${sp/2}' cy='${sp/2}' r='${r}' fill='${encodeURIComponent(color)}'/%3E%3C/svg%3E")`
+
+const diag = (color: string, w = 1, sp = 6) =>
+	`url("data:image/svg+xml,%3Csvg width='${sp}' height='${sp}' xmlns='http://www.w3.org/2000/svg'%3E%3Cline x1='0' y1='${sp}' x2='${sp}' y2='0' stroke='${encodeURIComponent(color)}' stroke-width='${w}'/%3E%3C/svg%3E")`
+
+const cross = (color: string, w = 0.5, sp = 8) =>
+	`url("data:image/svg+xml,%3Csvg width='${sp}' height='${sp}' xmlns='http://www.w3.org/2000/svg'%3E%3Cline x1='${sp/2}' y1='0' x2='${sp/2}' y2='${sp}' stroke='${encodeURIComponent(color)}' stroke-width='${w}'/%3E%3Cline x1='0' y1='${sp/2}' x2='${sp}' y2='${sp/2}' stroke='${encodeURIComponent(color)}' stroke-width='${w}'/%3E%3C/svg%3E")`
+
+const horiz = (color: string, w = 0.5, sp = 6) =>
+	`url("data:image/svg+xml,%3Csvg width='${sp}' height='${sp}' xmlns='http://www.w3.org/2000/svg'%3E%3Cline x1='0' y1='${sp/2}' x2='${sp}' y2='${sp/2}' stroke='${encodeURIComponent(color)}' stroke-width='${w}'/%3E%3C/svg%3E")`
+
+const POSITION_ZONE: Record<Position | string, ZoneStyle> = {
+	header:    { accent: '#38bdf8', bg: 'bg-sky-50/40',      badge: 'bg-sky-50 text-sky-500 ring-sky-200',          pattern: horiz('#7dd3fc', 0.35, 6), label: 'Header' },
+	sidebar:   { accent: '#a78bfa', bg: 'bg-violet-50/35',   badge: 'bg-violet-50 text-violet-500 ring-violet-200', pattern: diag('#c4b5fd', 0.4, 8),   label: 'Sidebar' },
+	main:      { accent: '#a8a29e', bg: 'bg-white',           badge: 'bg-stone-50 text-stone-400 ring-stone-200',    pattern: undefined,                  label: 'Content' },
+	aside:     { accent: '#fbbf24', bg: 'bg-amber-50/35',    badge: 'bg-amber-50 text-amber-500 ring-amber-200',    pattern: dot('#fcd34d', 0.7, 7),    label: 'Aside' },
+	footer:    { accent: '#5eead4', bg: 'bg-teal-50/35',     badge: 'bg-teal-50 text-teal-500 ring-teal-200',       pattern: horiz('#99f6e4', 0.35, 6), label: 'Footer' },
+	bottomnav: { accent: '#5eead4', bg: 'bg-teal-50/35',     badge: 'bg-teal-50 text-teal-500 ring-teal-200',       pattern: horiz('#99f6e4', 0.35, 5), label: 'Bottom Nav' },
+	toolbar:   { accent: '#7dd3fc', bg: 'bg-sky-50/30',      badge: 'bg-sky-50 text-sky-500 ring-sky-200',          pattern: horiz('#93c5fd', 0.3, 5),  label: 'Toolbar' },
+	banner:    { accent: '#818cf8', bg: 'bg-indigo-50/35',   badge: 'bg-indigo-50 text-indigo-500 ring-indigo-200', pattern: cross('#a5b4fc', 0.35, 11),label: 'Banner' },
+	overlay:   { accent: '#fb7185', bg: 'bg-rose-50/35',     badge: 'bg-rose-50 text-rose-500 ring-rose-200',       pattern: dot('#fda4af', 0.7, 7),    label: 'Overlay' },
+	modal:     { accent: '#d946ef', bg: 'bg-fuchsia-50/35',  badge: 'bg-fuchsia-50 text-fuchsia-500 ring-fuchsia-200', pattern: cross('#e879f9', 0.35, 9), label: 'Modal' },
+	drawer:    { accent: '#fb923c', bg: 'bg-orange-50/35',   badge: 'bg-orange-50 text-orange-500 ring-orange-200', pattern: diag('#fdba74', 0.4, 8),   label: 'Drawer' },
+	split:     { accent: '#6ee7b7', bg: 'bg-emerald-50/35',  badge: 'bg-emerald-50 text-emerald-500 ring-emerald-200', pattern: dot('#86efac', 0.7, 7), label: 'Split' },
+}
+
+/** Compact legend showing all active zone types */
+export function ZoneLegend({ positions }: { positions: Set<string> }) {
+	const entries = Object.entries(POSITION_ZONE).filter(([k]) => positions.has(k))
+	if (entries.length <= 1) return null
+	return (
+		<div className="flex items-center gap-3 px-2 py-1 text-[8px] font-mono text-stone-400">
+			{entries.map(([key, z]) => (
+				<span key={key} className="flex items-center gap-1">
+					<span className="w-2.5 h-2.5 border" style={{
+						borderColor: z.accent,
+						borderLeftWidth: 2,
+						borderLeftColor: z.accent,
+						backgroundColor: z.pattern ? undefined : 'white',
+						backgroundImage: z.pattern,
+						backgroundSize: 'auto',
+					}} />
+					<span>{z.label}</span>
+				</span>
+			))}
+		</div>
+	)
+}
+
 // --- Fixture resolution ---
 
 function resolveFixture(name: string, fixtures: Fixture[]): Record<string, any> | null {
@@ -152,6 +250,24 @@ function resolveShape(componentType: string | undefined): WireframeShape | null 
 	return COMPONENT_SHAPE[componentType] ?? null
 }
 
+/** Shapes that contain scrollable/expandable content and SHOULD stretch */
+const STRETCH_SHAPES = new Set<WireframeShape>(['list', 'card', 'tabs'])
+
+/** Determine if a region should use flex-1 (stretch) or flex-none (intrinsic size) */
+function shouldStretch(region: Region): boolean {
+	const hasChildren = region.regions && region.regions.length > 0
+	if (hasChildren) return true
+	const shape = resolveShape(region.component)
+	if (!shape) return true // unbound regions stretch
+	return STRETCH_SHAPES.has(shape)
+}
+
+/** Shapes that should be width-contained (not stretch to fill parent width) */
+function shouldContainWidth(region: Region): boolean {
+	const shape = resolveShape(region.component)
+	return shape === 'button'
+}
+
 // --- Component wireframe renderer ---
 
 function ComponentRenderer({ component, componentProps, region, screen, fixtureData, compact, componentSet }: {
@@ -188,7 +304,7 @@ function ComponentRenderer({ component, componentProps, region, screen, fixtureD
 // Shared: component type badge
 function TypeBadge({ type, dark }: { type: string; dark?: boolean }) {
 	return (
-		<span className={`absolute top-0 right-0 translate-x-0.5 -translate-y-1/2 text-[6px] px-1 py-px rounded-full leading-none font-mono ${
+		<span className={`absolute top-0 right-0 translate-x-0.5 -translate-y-1/2 text-[6px] px-1 py-px leading-none font-mono ${
 			dark ? 'bg-stone-700 text-stone-400 ring-1 ring-stone-600' : 'bg-stone-100 text-stone-500 ring-1 ring-stone-200'
 		}`}>{type}</span>
 	)
@@ -221,7 +337,7 @@ function InputShape({ label, placeholder, type, componentSet, componentType }: {
 		<div className="flex flex-col gap-1 w-full relative">
 			{componentType && <TypeBadge type={componentType} dark={dark} />}
 			{label && <div className={`text-[8px] font-medium ${dark ? 'text-stone-400' : 'text-stone-500'}`}>{label}</div>}
-			<div className={`${isTextarea ? 'min-h-[3rem]' : 'h-7'} rounded-md border ${border} ${bg} flex items-start px-2 ${isTextarea ? 'pt-1.5' : 'items-center'}`}
+			<div className={`${isTextarea ? 'min-h-[3rem]' : 'h-7'} border ${border} ${bg} flex items-start px-2 ${isTextarea ? 'pt-1.5' : 'items-center'}`}
 				style={{ boxShadow: dark ? 'none' : 'inset 0 1px 2px rgba(0,0,0,0.04)' }}>
 				{placeholder ? (
 					<span className={`text-[9px] ${dark ? 'text-stone-600' : 'text-stone-400'}`}>{placeholder}</span>
@@ -257,7 +373,7 @@ function SelectShape({ label, options, componentSet, componentType }: {
 		<div className="flex flex-col gap-1 w-full relative">
 			{componentType && <TypeBadge type={componentType} dark={dark} />}
 			{label && <div className={`text-[8px] font-medium ${dark ? 'text-stone-400' : 'text-stone-500'}`}>{label}</div>}
-			<div className={`h-7 rounded-md border ${border} ${bg} flex items-center justify-between px-2`}
+			<div className={`h-7 border ${border} ${bg} flex items-center justify-between px-2`}
 				style={{ boxShadow: dark ? 'none' : 'inset 0 1px 2px rgba(0,0,0,0.04)' }}>
 				<span className={`text-[9px] ${dark ? 'text-stone-500' : 'text-stone-500'}`}>
 					{options?.[0] ?? 'Select...'}
@@ -279,7 +395,7 @@ function ButtonShape({ label, variant, componentSet, componentType }: {
 	const isGhost = variant === 'ghost' || variant === 'outline'
 	const isDestructive = variant === 'destructive'
 
-	let className = 'inline-flex items-center justify-center h-7 px-3.5 rounded-md text-[9px] font-medium tracking-wide transition-colors relative'
+	let className = 'inline-flex items-center justify-center h-7 px-3.5 text-[9px] font-medium tracking-wide transition-colors relative'
 
 	if (isDestructive) {
 		className += ' bg-red-500/90 text-white'
@@ -316,7 +432,7 @@ function ImageShape({ aspect, alt, componentSet, componentType }: {
 		: 'h-16'
 
 	return (
-		<div className={`${aspectClass} w-full rounded-md overflow-hidden relative ${dark ? 'bg-stone-800' : 'bg-stone-50'}`}
+		<div className={`${aspectClass} w-full overflow-hidden relative ${dark ? 'bg-stone-800' : 'bg-stone-50'}`}
 			style={{
 				backgroundImage: dark
 					? 'linear-gradient(45deg, #292524 25%, transparent 25%, transparent 75%, #292524 75%), linear-gradient(45deg, #292524 25%, transparent 25%, transparent 75%, #292524 75%)'
@@ -358,9 +474,9 @@ function TextShape({ content, level, componentSet, componentType }: {
 		<div className="flex flex-col gap-1.5 w-full relative">
 			{componentType && <TypeBadge type={componentType} dark={dark} />}
 			<div className={`h-2.5 rounded w-3/5 ${bar}`} />
-			<div className={`h-[5px] rounded-sm w-full ${line}`} />
-			<div className={`h-[5px] rounded-sm w-11/12 ${line}`} />
-			<div className={`h-[5px] rounded-sm w-4/5 ${line}`} />
+			<div className={`h-[5px] w-full ${line}`} />
+			<div className={`h-[5px] w-11/12 ${line}`} />
+			<div className={`h-[5px] w-4/5 ${line}`} />
 		</div>
 	)
 }
@@ -370,7 +486,7 @@ function TextShape({ content, level, componentSet, componentType }: {
 function UnboundPrompt({ name, componentSet }: { name: string; componentSet?: string }) {
 	const dark = componentSet === "compact" || componentSet === "styled"
 	return (
-		<div className={`flex flex-col items-center justify-center py-3 rounded-md border border-dashed ${
+		<div className={`flex flex-col items-center justify-center py-3 border border-dashed ${
 			dark ? 'border-stone-700' : 'border-stone-300/60'
 		}`}>
 			<div className={`text-[9px] font-mono ${dark ? 'text-stone-600' : 'text-stone-400'}`}>
@@ -442,9 +558,17 @@ export function WireframeCanvas({ screen, currentState, appRegions, fixtures, ac
 	const regionProps = { visibleRegions, fixtureData, activeRegion, activeEvent, app, screen, componentSet, composition }
 	const propsFor = (r: Region) => appRegionNames.has(r.name) ? { ...regionProps, visibleRegions: null as string[] | null } : regionProps
 
+	// Collect active positions for legend
+	const activePositions = new Set<string>()
+	for (const [pos, regs] of Object.entries(groups)) {
+		if (regs.length > 0) activePositions.add(pos)
+	}
+
 	return (
-		<div style={{ position: 'relative', height: '100%' }}>
-			<div style={gridStyle}>
+		<div className="flex flex-col" style={{ height: '100%' }}>
+			<ZoneLegend positions={activePositions} />
+			<div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+				<div style={gridStyle}>
 				{groups.banner.length > 0 && (
 					<div style={{ gridArea: 'banner' }} className="flex flex-col gap-1">
 						{groups.banner.map(r => (
@@ -488,13 +612,13 @@ export function WireframeCanvas({ screen, currentState, appRegions, fixtures, ac
 							<div className="flex gap-1.5 flex-1 min-h-0">
 								{groups.split.map(r => (
 									<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)}
-										style={{ flex: modifierToFlex(parseLayout(r.tags, composition).modifier) }}
+										style={{ flex: modifierToFlex(resolveLayout(r, composition).modifier) }}
 									/>
 								))}
 							</div>
 						)}
 						{groups.main.length === 0 && groups.split.length === 0 && (
-							<div className="flex-1 flex items-center justify-center border border-dashed border-neutral-200 rounded-lg text-neutral-300 text-sm">
+							<div className="flex-1 flex items-center justify-center border border-dashed border-neutral-200 text-neutral-300 text-sm">
 								No main regions
 							</div>
 						)}
@@ -526,11 +650,10 @@ export function WireframeCanvas({ screen, currentState, appRegions, fixtures, ac
 				)}
 			</div>
 
-			{/* Overlays float above the grid */}
-			{/* Overlay: anchored to bottom center */}
+			{/* Overlays: FABs anchor bottom-right */}
 			{groups.overlay.length > 0 && (
-				<div className="absolute inset-0 pointer-events-none flex items-end justify-center p-4">
-					<div className="pointer-events-auto flex flex-col gap-1.5 w-full max-w-lg">
+				<div className="absolute inset-0 pointer-events-none flex items-end justify-end p-4">
+					<div className="pointer-events-auto flex flex-col items-end gap-1.5">
 						{groups.overlay.map(r => (
 							<WireframeRegion key={r.name} region={r} depth={0} {...propsFor(r)} isOverlay />
 						))}
@@ -560,6 +683,7 @@ export function WireframeCanvas({ screen, currentState, appRegions, fixtures, ac
 					</div>
 				</div>
 			)}
+				</div>
 		</div>
 	)
 }
@@ -585,7 +709,7 @@ interface WireframeRegionProps {
 function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeRegion, activeEvent, compact, isOverlay, app, screen, componentSet, composition, style }: WireframeRegionProps) {
 	const hidden = visibleRegions != null && !visibleRegions.includes(region.name)
 	const isActive = activeRegion === region.name
-	const layout = parseLayout(region.tags, composition)
+	const layout = resolveLayout(region, composition)
 	const hasOwnStateMachine = region.states && region.states.length > 0
 	const hasFixtureContent = fixtureData && (fixtureData[region.name] != null)
 	const hasChildren = region.regions && region.regions.length > 0
@@ -600,31 +724,46 @@ function WireframeRegion({ region, depth, visibleRegions, fixtureData, activeReg
 	// Hidden regions don't render — click a different state to see them
 	if (effectiveHidden) return null
 
+	const stretch = shouldStretch(region)
+	const containWidth = shouldContainWidth(region)
+	const zone = POSITION_ZONE[layout.position] ?? POSITION_ZONE.main
+
+	const isFab = layout.position === 'overlay'
+
 	return (
 		<div
-			style={style}
+			style={{
+				...style,
+				borderLeftColor: layout.elevated ? undefined : zone.accent,
+				backgroundImage: (!layout.elevated && zone.pattern) ? zone.pattern : undefined,
+				backgroundSize: 'auto',
+			}}
 			className={[
 				'transition-all duration-300 flex flex-col relative',
-				layout.elevated ? 'rounded-xl shadow-lg bg-white border border-neutral-100' : 'rounded-lg border border-stone-200',
+				layout.elevated
+					? 'shadow-lg bg-white border border-neutral-100'
+					: `border border-stone-200/80 ${zone.bg} border-l-[3px]`,
 				isActive ? 'ring-2 ring-blue-400 ring-offset-1 border-blue-300' : '',
 				hasFixtureContent && !layout.elevated ? 'bg-amber-50/50 border-amber-200' : '',
 				isOverlay ? 'shadow-lg bg-white border-violet-300' : '',
 				compact ? 'p-2' : 'p-3',
-				depth === 0 ? 'flex-1 min-h-[48px]' : 'min-h-[36px]',
+				depth === 0
+					? (stretch ? 'flex-1 min-h-[48px]' : 'flex-none')
+					: (stretch ? 'flex-1 min-h-[36px]' : 'flex-none'),
+				depth > 0 ? 'ml-1' : '',
+				containWidth ? (isFab ? 'w-fit self-end' : 'w-fit self-start') : '',
 			].join(' ')}
 		>
-			{/* Region name — floating badge, top-left, like TypeBadge */}
+			{/* Region label — inline top bar, not floating pill */}
 			{!layout.elevated && (
-				<span className="absolute top-0 left-2 -translate-y-1/2 flex items-center gap-1 text-[7px] leading-none font-mono">
-					<span className="bg-white px-1 py-px rounded-full ring-1 ring-stone-200 text-stone-500 font-medium">
+				<div className="flex items-center gap-1.5 mb-1 text-[9px] leading-none font-mono">
+					<span className="text-stone-500 font-medium">
 						{region.name}
 					</span>
-					{layout.position !== 'main' && (
-						<span className="bg-blue-50 text-blue-500 px-1 py-px rounded-full ring-1 ring-blue-200">
-							{layout.position}
-						</span>
-					)}
-				</span>
+					<span className={`px-1 py-px text-[8px] ${zone.badge}`}>
+						{layout.position}
+					</span>
+				</div>
 			)}
 
 			{/* Component content */}

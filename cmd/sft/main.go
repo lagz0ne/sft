@@ -204,7 +204,7 @@ func runShow(s *store.Store) {
 
 func runQuery(s *store.Store, args []string) {
 	if len(args) == 0 {
-		die("usage: sft query <screens|events|states|flows|tags|regions|types|enums|fixtures|contexts|attachments|SELECT ...>")
+		die("usage: sft query <screens|events|states|flows|tags|regions|types|enums|fixtures|contexts|attachments|layouts|SELECT ...>")
 	}
 	name := args[0]
 	var results []map[string]any
@@ -234,7 +234,8 @@ func runQuery(s *store.Store, args []string) {
 		results, err = query.Run(s.DB, name)
 		if name != "screens" && name != "regions" && name != "events" &&
 			name != "flows" && name != "tags" && name != "types" &&
-			name != "enums" && name != "fixtures" && name != "contexts" {
+			name != "enums" && name != "fixtures" && name != "contexts" &&
+			name != "layouts" {
 			queryKey = ""
 		}
 	}

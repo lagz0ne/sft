@@ -1221,3 +1221,228 @@ func TestParseDataRef(t *testing.T) {
 		}
 	}
 }
+
+func TestGoldenGmailImport(t *testing.T) {
+	s := mustStore(t)
+	if err := Load(s, "../../examples/golden/gmail.sft.yaml"); err != nil {
+		t.Fatalf("Load golden gmail: %v", err)
+	}
+	spec := loadSpec(t, s)
+
+	if spec.App.Name != "gmail" {
+		t.Errorf("app name = %q, want gmail", spec.App.Name)
+	}
+	if len(spec.Screens) != 2 {
+		t.Fatalf("screens = %d, want 2 (inbox, compose)", len(spec.Screens))
+	}
+
+	// Check inbox screen
+	inbox := spec.Screens[0]
+	if inbox.Name != "inbox" {
+		t.Errorf("first screen = %q, want inbox", inbox.Name)
+	}
+	if len(inbox.Regions) != 5 {
+		t.Errorf("inbox regions = %d, want 5", len(inbox.Regions))
+	}
+
+	// Check discovery.layout on first region
+	sr := inbox.Regions[0]
+	if sr.Name != "search_header" {
+		t.Errorf("first region = %q, want search_header", sr.Name)
+	}
+	if len(sr.DiscoveryLayout) != 1 || sr.DiscoveryLayout[0] != "sticky-top-bar" {
+		t.Errorf("discovery.layout = %v, want [sticky-top-bar]", sr.DiscoveryLayout)
+	}
+
+	// Check delivery.classes on first region
+	if len(sr.DeliveryClasses) == 0 {
+		t.Error("delivery.classes empty, want non-empty")
+	}
+
+	// Check component + props survived
+	if sr.Component != "Input" {
+		t.Errorf("component = %q, want Input", sr.Component)
+	}
+
+	// Check nested regions (reading_pane has sub-regions)
+	readingPane := inbox.Regions[3]
+	if readingPane.Name != "reading_pane" {
+		t.Errorf("region[3] = %q, want reading_pane", readingPane.Name)
+	}
+	if len(readingPane.Regions) != 3 {
+		t.Errorf("reading_pane sub-regions = %d, want 3", len(readingPane.Regions))
+	}
+
+	// Check transitions
+	if len(inbox.Transitions) < 2 {
+		t.Errorf("inbox transitions = %d, want >= 2", len(inbox.Transitions))
+	}
+
+	// Check flows
+	if len(spec.Flows) < 3 {
+		t.Errorf("flows = %d, want >= 3", len(spec.Flows))
+	}
+
+	// Check layouts stored
+	appID, _ := s.ResolveApp()
+	layouts, _ := s.GetLayouts(appID)
+	if len(layouts) != 12 {
+		t.Errorf("layouts = %d, want 12", len(layouts))
+	}
+}
+
+func TestGoldenRoundTrip(t *testing.T) {
+	s1 := mustStore(t)
+	if err := Load(s1, "../../examples/golden/gmail.sft.yaml"); err != nil {
+		t.Fatalf("Load golden: %v", err)
+	}
+	spec1 := loadSpec(t, s1)
+
+	// Export
+	var buf bytes.Buffer
+	if err := Export(spec1, &buf); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+
+	// Re-import
+	s2 := mustStore(t)
+	tmp := t.TempDir() + "/rt.sft.yaml"
+	os.WriteFile(tmp, buf.Bytes(), 0o644)
+	if err := Load(s2, tmp); err != nil {
+		t.Fatalf("re-import: %v", err)
+	}
+	spec2 := loadSpec(t, s2)
+
+	// Compare
+	if spec1.App.Name != spec2.App.Name {
+		t.Errorf("app name: %q vs %q", spec1.App.Name, spec2.App.Name)
+	}
+	if len(spec1.Screens) != len(spec2.Screens) {
+		t.Fatalf("screens: %d vs %d", len(spec1.Screens), len(spec2.Screens))
+	}
+	for i, sc := range spec1.Screens {
+		sc2 := spec2.Screens[i]
+		if sc.Name != sc2.Name {
+			t.Errorf("screen[%d] name: %q vs %q", i, sc.Name, sc2.Name)
+		}
+		if len(sc.Regions) != len(sc2.Regions) {
+			t.Errorf("screen %s regions: %d vs %d", sc.Name, len(sc.Regions), len(sc2.Regions))
+		}
+		if len(sc.Transitions) != len(sc2.Transitions) {
+			t.Errorf("screen %s transitions: %d vs %d", sc.Name, len(sc.Transitions), len(sc2.Transitions))
+		}
+		// Check layout fields round-tripped
+		for j, r := range sc.Regions {
+			if j >= len(sc2.Regions) {
+				break
+			}
+			r2 := sc2.Regions[j]
+			if len(r.DiscoveryLayout) != len(r2.DiscoveryLayout) {
+				t.Errorf("region %s discovery.layout: %v vs %v", r.Name, r.DiscoveryLayout, r2.DiscoveryLayout)
+			}
+			if len(r.DeliveryClasses) != len(r2.DeliveryClasses) {
+				t.Errorf("region %s delivery.classes: %v vs %v", r.Name, r.DeliveryClasses, r2.DeliveryClasses)
+			}
+		}
+	}
+	if len(spec1.Flows) != len(spec2.Flows) {
+		t.Fatalf("flows: %d vs %d", len(spec1.Flows), len(spec2.Flows))
+	}
+
+	// Layouts round-tripped
+	a1, _ := s1.ResolveApp()
+	a2, _ := s2.ResolveApp()
+	l1, _ := s1.GetLayouts(a1)
+	l2, _ := s2.GetLayouts(a2)
+	if len(l1) != len(l2) {
+		t.Errorf("layouts: %d vs %d", len(l1), len(l2))
+	}
+}
+
+func TestGoldenSpotifyImport(t *testing.T) {
+	s := mustStore(t)
+	if err := Load(s, "../../examples/golden/spotify.sft.yaml"); err != nil {
+		t.Fatalf("Load golden spotify: %v", err)
+	}
+	spec := loadSpec(t, s)
+	if spec.App.Name != "spotify" {
+		t.Errorf("app name = %q, want spotify", spec.App.Name)
+	}
+	if len(spec.Screens) != 2 {
+		t.Errorf("screens = %d, want 2", len(spec.Screens))
+	}
+}
+
+func TestGoldenPlaygroundImport(t *testing.T) {
+	s := mustStore(t)
+	if err := Load(s, "../../examples/golden/sft-playground.sft.yaml"); err != nil {
+		t.Fatalf("Load golden playground: %v", err)
+	}
+	spec := loadSpec(t, s)
+	if spec.App.Name != "sft-playground" {
+		t.Errorf("app name = %q, want sft-playground", spec.App.Name)
+	}
+	if len(spec.Screens) != 1 {
+		t.Errorf("screens = %d, want 1", len(spec.Screens))
+	}
+}
+
+const discoveryDeliveryYAML = `app:
+  name: TestDD
+  description: Discovery/Delivery test
+  layouts:
+    sidebar: [col-span-2, row-start-2]
+    top-bar: [col-span-full, row-start-1]
+  screens:
+    - name: Home
+      description: Home screen
+      regions:
+        - name: nav
+          description: Navigation
+          events: [click]
+          discovery:
+            layout: [sidebar]
+          delivery:
+            classes: [w-56, shrink-0]
+            component: CustomNav
+        - name: content
+          description: Main content
+          events: [scroll]
+          discovery:
+            layout: [top-bar, col-span-8]
+          delivery:
+            classes: [flex-1, bg-white]
+`
+
+func TestDiscoveryDeliveryOldFormat(t *testing.T) {
+	s := mustStore(t)
+	importYAML(t, s, discoveryDeliveryYAML)
+	spec := loadSpec(t, s)
+
+	if spec.App.Name != "TestDD" {
+		t.Errorf("app name = %q, want TestDD", spec.App.Name)
+	}
+
+	nav := spec.Screens[0].Regions[0]
+	if len(nav.DiscoveryLayout) != 1 || nav.DiscoveryLayout[0] != "sidebar" {
+		t.Errorf("nav discovery.layout = %v, want [sidebar]", nav.DiscoveryLayout)
+	}
+	if len(nav.DeliveryClasses) != 2 {
+		t.Errorf("nav delivery.classes = %v, want [w-56 shrink-0]", nav.DeliveryClasses)
+	}
+	if nav.DeliveryComponent != "CustomNav" {
+		t.Errorf("nav delivery.component = %q, want CustomNav", nav.DeliveryComponent)
+	}
+
+	content := spec.Screens[0].Regions[1]
+	if len(content.DiscoveryLayout) != 2 {
+		t.Errorf("content discovery.layout = %v, want [top-bar col-span-8]", content.DiscoveryLayout)
+	}
+
+	// Check layouts stored
+	appID, _ := s.ResolveApp()
+	layouts, _ := s.GetLayouts(appID)
+	if len(layouts) != 2 {
+		t.Errorf("layouts = %d, want 2", len(layouts))
+	}
+}

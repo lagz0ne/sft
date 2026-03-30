@@ -146,6 +146,35 @@ export function discoverCompositions(regions: { tags?: string[] }[]): string[] {
 	return [...compositions].sort()
 }
 
+/** Map discovery.layout preset names to wireframe positions */
+const PRESET_TO_POSITION: Record<string, Position> = {
+	'top-bar': 'header',
+	'sticky-top-bar': 'header',
+	'sidebar': 'sidebar',
+	'sidebar-far': 'aside',
+	'content-fill': 'main',
+	'bottom-bar': 'footer',
+	'bottom-nav-fixed': 'bottomnav',
+	'modal': 'modal',
+	'drawer-right': 'drawer',
+	'drawer-left': 'drawer',
+	'fab-bottom-right': 'overlay',
+	'fab-bottom-left': 'overlay',
+}
+
+/**
+ * Resolve position from discovery_layout presets.
+ * Returns the first recognized preset's position, or null if none match.
+ */
+export function parseDiscoveryLayout(presets: string[] | undefined): ParsedLayout {
+	if (!presets || presets.length === 0) return DEFAULT_LAYOUT
+	for (const preset of presets) {
+		const pos = PRESET_TO_POSITION[preset]
+		if (pos) return { position: pos, modifier: null, elevated: preset.startsWith('fab-') }
+	}
+	return DEFAULT_LAYOUT
+}
+
 /** Grid column size based on parsed modifier */
 export function modifierToCol(modifier: SizeModifier | null, fallback: string): string {
 	switch (modifier) {

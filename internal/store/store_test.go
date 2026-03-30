@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"testing"
 
 	"github.com/lagz0ne/sft/internal/model"
@@ -286,5 +287,97 @@ func TestSetAndGetComponent(t *testing.T) {
 	}
 	if c.Visible != "auth" {
 		t.Errorf("visible = %q, want auth", c.Visible)
+	}
+}
+
+func TestLayoutCRUD(t *testing.T) {
+	s := mustOpen(t)
+	a := seedApp(t, s)
+
+	// Insert layouts
+	l1 := &model.Layout{AppID: a.ID, Name: "sidebar", Classes: `["col-span-2","row-start-2"]`}
+	if err := s.InsertLayout(l1); err != nil {
+		t.Fatal(err)
+	}
+	if l1.ID == 0 {
+		t.Fatal("expected non-zero layout ID")
+	}
+
+	l2 := &model.Layout{AppID: a.ID, Name: "top-bar", Classes: `["col-span-full","row-start-1"]`}
+	if err := s.InsertLayout(l2); err != nil {
+		t.Fatal(err)
+	}
+
+	// GetLayouts
+	layouts, err := s.GetLayouts(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(layouts) != 2 {
+		t.Fatalf("got %d layouts, want 2", len(layouts))
+	}
+
+	// GetLayout by name
+	got, err := s.GetLayout(a.ID, "sidebar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Classes != `["col-span-2","row-start-2"]` {
+		t.Errorf("classes = %q, want [\"col-span-2\",\"row-start-2\"]", got.Classes)
+	}
+
+	// Duplicate name → error
+	dup := &model.Layout{AppID: a.ID, Name: "sidebar", Classes: `[]`}
+	if err := s.InsertLayout(dup); err == nil {
+		t.Fatal("expected error on duplicate layout name")
+	}
+}
+
+func TestRegionLayout(t *testing.T) {
+	s := mustOpen(t)
+	a := seedApp(t, s)
+
+	sc := &model.Screen{AppID: a.ID, Name: "Home", Description: "home"}
+	if err := s.InsertScreen(sc); err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert with layout fields
+	r := &model.Region{
+		AppID: a.ID, ParentType: "screen", ParentID: sc.ID, Name: "nav", Description: "nav",
+		DiscoveryLayout: `["sidebar"]`, DeliveryClasses: `["w-56","shrink-0"]`, DeliveryComponent: "CustomNav",
+	}
+	if err := s.InsertRegion(r); err != nil {
+		t.Fatal(err)
+	}
+
+	// Read back
+	var dl, dc, dcomp sql.NullString
+	err := s.DB.QueryRow("SELECT discovery_layout, delivery_classes, delivery_component FROM regions WHERE id = ?", r.ID).
+		Scan(&dl, &dc, &dcomp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dl.String != `["sidebar"]` {
+		t.Errorf("discovery_layout = %q, want [\"sidebar\"]", dl.String)
+	}
+	if dc.String != `["w-56","shrink-0"]` {
+		t.Errorf("delivery_classes = %q, want [\"w-56\",\"shrink-0\"]", dc.String)
+	}
+	if dcomp.String != "CustomNav" {
+		t.Errorf("delivery_component = %q, want CustomNav", dcomp.String)
+	}
+
+	// Empty layout fields → NULL
+	r2 := &model.Region{AppID: a.ID, ParentType: "screen", ParentID: sc.ID, Name: "empty", Description: "empty"}
+	if err := s.InsertRegion(r2); err != nil {
+		t.Fatal(err)
+	}
+	err = s.DB.QueryRow("SELECT discovery_layout FROM regions WHERE id = ?", r2.ID).Scan(&dl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dl.Valid {
+		t.Error("expected NULL discovery_layout for empty region")
 	}
 }

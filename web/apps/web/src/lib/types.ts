@@ -9,6 +9,9 @@ export interface Region {
   name: string
   description?: string
   tags?: string[]
+  discovery_layout?: string[]
+  delivery_classes?: string[]
+  delivery_component?: string
   events?: string[]
   transitions?: Transition[]
   attachments?: string[]
@@ -72,6 +75,7 @@ export interface Spec {
   screens: Screen[]
   flows?: Flow[]
   fixtures?: Fixture[]
+  layouts?: Record<string, string[]>
 }
 
 export interface RenderElement {

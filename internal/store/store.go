@@ -60,6 +60,10 @@ func Open(path string) (*Store, error) {
 	db.Exec("ALTER TABLE attachments ADD COLUMN content_hash BLOB")
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_attachments_content_id ON attachments(content_id)")
 	s.backfillAttachmentHashes()
+	// Schema migration: add discovery/delivery layout columns to regions.
+	db.Exec("ALTER TABLE regions ADD COLUMN discovery_layout TEXT")
+	db.Exec("ALTER TABLE regions ADD COLUMN delivery_classes TEXT")
+	db.Exec("ALTER TABLE regions ADD COLUMN delivery_component TEXT")
 	return s, nil
 }
 
@@ -284,8 +288,9 @@ func (s *Store) InsertRegion(r *model.Region) error {
 	if _, err := s.ResolveScreen(r.Name); err == nil {
 		return fmt.Errorf("name %q already used by a screen", r.Name)
 	}
-	res, err := s.DB.Exec("INSERT INTO regions (app_id, parent_type, parent_id, name, description) VALUES (?, ?, ?, ?, ?)",
-		r.AppID, r.ParentType, r.ParentID, r.Name, r.Description)
+	res, err := s.DB.Exec("INSERT INTO regions (app_id, parent_type, parent_id, name, description, discovery_layout, delivery_classes, delivery_component) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		r.AppID, r.ParentType, r.ParentID, r.Name, r.Description,
+		nilIfEmpty(r.DiscoveryLayout), nilIfEmpty(r.DeliveryClasses), nilIfEmpty(r.DeliveryComponent))
 	if err != nil {
 		// Translate the scoped unique constraint error into a friendlier message
 		if strings.Contains(err.Error(), "UNIQUE constraint") {
@@ -1591,3 +1596,44 @@ func (s *Store) DeleteTaste(appID int64, name string) error {
 	_, err := s.DB.Exec("DELETE FROM tastes WHERE app_id = ? AND name = ?", appID, name)
 	return err
 }
+
+// --- Discovery/Delivery layout ---
+
+func (s *Store) InsertLayout(l *model.Layout) error {
+	res, err := s.DB.Exec("INSERT INTO layouts (app_id, name, classes) VALUES (?, ?, ?)",
+		l.AppID, l.Name, l.Classes)
+	if err != nil {
+		return err
+	}
+	l.ID, _ = res.LastInsertId()
+	return nil
+}
+
+func (s *Store) GetLayouts(appID int64) ([]model.Layout, error) {
+	rows, err := s.DB.Query("SELECT id, app_id, name, classes FROM layouts WHERE app_id = ? ORDER BY name", appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []model.Layout
+	for rows.Next() {
+		var l model.Layout
+		if err := rows.Scan(&l.ID, &l.AppID, &l.Name, &l.Classes); err != nil {
+			return nil, err
+		}
+		result = append(result, l)
+	}
+	return result, nil
+}
+
+func (s *Store) GetLayout(appID int64, name string) (*model.Layout, error) {
+	var l model.Layout
+	err := s.DB.QueryRow("SELECT id, app_id, name, classes FROM layouts WHERE app_id = ? AND name = ?", appID, name).
+		Scan(&l.ID, &l.AppID, &l.Name, &l.Classes)
+	if err != nil {
+		return nil, err
+	}
+	return &l, nil
+}
+
+

@@ -13,11 +13,12 @@ import (
 // --- Spec tree types (nested, not flat tables) ---
 
 type Spec struct {
-	App      App       `json:"app"`
-	Screens  []Screen  `json:"screens"`
-	Flows    []Flow    `json:"flows,omitempty"`
-	Fixtures []Fixture `json:"fixtures,omitempty"`
-	Tastes   []Taste   `json:"tastes,omitempty"`
+	App      App                    `json:"app"`
+	Screens  []Screen               `json:"screens"`
+	Flows    []Flow                 `json:"flows,omitempty"`
+	Fixtures []Fixture              `json:"fixtures,omitempty"`
+	Tastes   []Taste                `json:"tastes,omitempty"`
+	Layouts  map[string][]string    `json:"layouts,omitempty"`
 }
 
 type Taste struct {
@@ -61,24 +62,27 @@ type Screen struct {
 }
 
 type Region struct {
-	ID             int64               `json:"id"`
-	Ref            string              `json:"ref"`
-	Name           string              `json:"name"`
-	Description    string              `json:"description"`
-	Tags           []string            `json:"tags,omitempty"`
-	Component      string              `json:"component,omitempty"`
-	ComponentProps string              `json:"component_props,omitempty"` // [F5]
-	ComponentOn    string              `json:"component_on,omitempty"`    // [F5]
-	ComponentVis   string              `json:"component_visible,omitempty"` // [F5]
-	Events         []string            `json:"events,omitempty"`
-	Ambient        map[string]string   `json:"ambient,omitempty"`
-	RegionData     map[string]string   `json:"region_data,omitempty"`
-	Regions        []Region            `json:"regions,omitempty"`
-	Transitions    []Transition        `json:"transitions,omitempty"`
-	States         []string            `json:"states,omitempty"`
-	StateFixtures  map[string]string   `json:"state_fixtures,omitempty"`
-	StateRegions   map[string][]string `json:"state_regions,omitempty"`
-	Attachments    []string            `json:"attachments,omitempty"`
+	ID                int64               `json:"id"`
+	Ref               string              `json:"ref"`
+	Name              string              `json:"name"`
+	Description       string              `json:"description"`
+	Tags              []string            `json:"tags,omitempty"`
+	Component         string              `json:"component,omitempty"`
+	ComponentProps    string              `json:"component_props,omitempty"` // [F5]
+	ComponentOn       string              `json:"component_on,omitempty"`    // [F5]
+	ComponentVis      string              `json:"component_visible,omitempty"` // [F5]
+	DiscoveryLayout   []string            `json:"discovery_layout,omitempty"`
+	DeliveryClasses   []string            `json:"delivery_classes,omitempty"`
+	DeliveryComponent string              `json:"delivery_component,omitempty"`
+	Events            []string            `json:"events,omitempty"`
+	Ambient           map[string]string   `json:"ambient,omitempty"`
+	RegionData        map[string]string   `json:"region_data,omitempty"`
+	Regions           []Region            `json:"regions,omitempty"`
+	Transitions       []Transition        `json:"transitions,omitempty"`
+	States            []string            `json:"states,omitempty"`
+	StateFixtures     map[string]string   `json:"state_fixtures,omitempty"`
+	StateRegions      map[string][]string `json:"state_regions,omitempty"`
+	Attachments       []string            `json:"attachments,omitempty"`
 }
 
 type Transition struct {
@@ -191,6 +195,9 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 	// Tastes
 	spec.Tastes = loadTastes(db, appID)
 
+	// Layouts
+	spec.Layouts = loadLayouts(db, appID)
+
 	return spec, nil
 }
 
@@ -210,7 +217,7 @@ func loadTags(db *sql.DB, entityType string, entityID int64) []string {
 }
 
 func loadRegions(db *sql.DB, parentType string, parentID int64, al Enricher) []Region {
-	rows, _ := db.Query("SELECT id, name, description FROM regions WHERE parent_type = ? AND parent_id = ? ORDER BY position, id",
+	rows, _ := db.Query("SELECT id, name, description, discovery_layout, delivery_classes, delivery_component FROM regions WHERE parent_type = ? AND parent_id = ? ORDER BY position, id",
 		parentType, parentID)
 	if rows == nil {
 		return nil
@@ -220,9 +227,17 @@ func loadRegions(db *sql.DB, parentType string, parentID int64, al Enricher) []R
 	for rows.Next() {
 		var id int64
 		var r Region
-		rows.Scan(&id, &r.Name, &r.Description)
+		var dlJSON, dcJSON, dcomp sql.NullString
+		rows.Scan(&id, &r.Name, &r.Description, &dlJSON, &dcJSON, &dcomp)
 		r.ID = id
 		r.Ref = fmt.Sprintf("@r%d", id)
+		if dlJSON.Valid {
+			json.Unmarshal([]byte(dlJSON.String), &r.DiscoveryLayout)
+		}
+		if dcJSON.Valid {
+			json.Unmarshal([]byte(dcJSON.String), &r.DeliveryClasses)
+		}
+		r.DeliveryComponent = dcomp.String
 		r.Tags = loadTags(db, "region", id)
 		r.Events = loadEvents(db, id)
 		r.Ambient = loadAmbientRefs(db, id)
@@ -443,6 +458,26 @@ func loadTastes(db *sql.DB, appID int64) []Taste {
 	return tastes
 }
 
+func loadLayouts(db *sql.DB, appID int64) map[string][]string {
+	rows, _ := db.Query("SELECT name, classes FROM layouts WHERE app_id = ? ORDER BY name", appID)
+	if rows == nil {
+		return nil
+	}
+	defer rows.Close()
+	result := map[string][]string{}
+	for rows.Next() {
+		var name, classesJSON string
+		rows.Scan(&name, &classesJSON)
+		var classes []string
+		json.Unmarshal([]byte(classesJSON), &classes)
+		result[name] = classes
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
 func loadStateRegions(db *sql.DB, ownerType string, ownerID int64) map[string][]string {
 	rows, _ := db.Query("SELECT state_name, region_name FROM state_regions WHERE owner_type = ? AND owner_id = ? ORDER BY state_name, id",
 		ownerType, ownerID)
@@ -505,6 +540,14 @@ func loadFlowSteps(db *sql.DB, flowID int64) ([]FlowStep, error) {
 func Render(w io.Writer, spec *Spec) {
 	fmt.Fprintf(w, "%s\n", spec.App.Name)
 	fmt.Fprintf(w, "%s\n", spec.App.Description)
+
+	if len(spec.Layouts) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "layouts:")
+		for name, classes := range spec.Layouts {
+			fmt.Fprintf(w, "  %s: [%s]\n", name, strings.Join(classes, ", "))
+		}
+	}
 
 	// App-level regions [C2 fix]
 	renderRegions(w, spec.App.Regions, "  ")
@@ -578,6 +621,16 @@ func renderRegions(w io.Writer, regions []Region, indent string) {
 			fmt.Fprintf(w, " [%s]", strings.Join(r.Tags, ", "))
 		}
 		fmt.Fprintln(w)
+		if len(r.DiscoveryLayout) > 0 {
+			fmt.Fprintf(w, "%s  discovery: [%s]\n", indent, strings.Join(r.DiscoveryLayout, ", "))
+		}
+		if len(r.DeliveryClasses) > 0 {
+			fmt.Fprintf(w, "%s  delivery: [%s]", indent, strings.Join(r.DeliveryClasses, ", "))
+			if r.DeliveryComponent != "" {
+				fmt.Fprintf(w, " (%s)", r.DeliveryComponent)
+			}
+			fmt.Fprintln(w)
+		}
 		fmt.Fprintf(w, "%s  %s\n", indent, r.Description)
 
 		if len(r.Events) > 0 {

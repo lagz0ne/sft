@@ -17,7 +17,10 @@ import (
 // YAML types matching the SFT spec format.
 
 type yamlFile struct {
-	App yaml.Node `yaml:"app"`
+	App     yaml.Node           `yaml:"app"`
+	Layouts map[string][]string `yaml:"layouts,omitempty"`
+	Screens yaml.Node           `yaml:"screens,omitempty"`
+	Flows   yaml.Node           `yaml:"flows,omitempty"`
 }
 
 type yamlApp struct {
@@ -27,6 +30,7 @@ type yamlApp struct {
 	Enums          map[string][]string          `yaml:"enums,omitempty"`
 	Context        map[string]string            `yaml:"context,omitempty"`
 	StateTemplates yaml.Node                    `yaml:"state_templates,omitempty"`
+	Layouts        map[string][]string          `yaml:"layouts,omitempty"`
 	Regions        []yamlRegion                 `yaml:"regions,omitempty"`
 	Screens        []yamlScreen                 `yaml:"screens,omitempty"`
 	Flows          []yamlFlow                   `yaml:"flows,omitempty"`
@@ -34,33 +38,45 @@ type yamlApp struct {
 }
 
 type yamlScreen struct {
-	Name         string           `yaml:"name"`
-	Description  string           `yaml:"description"`
-	Tags         []string         `yaml:"tags,omitempty"`
+	Name         string            `yaml:"name"`
+	Description  string            `yaml:"description"`
+	Tags         []string          `yaml:"tags,omitempty"`
 	Context      map[string]string `yaml:"context,omitempty"`
-	Component    string           `yaml:"component,omitempty"`
-	Props        string           `yaml:"props,omitempty"`
-	OnActions    string           `yaml:"on_actions,omitempty"`
-	Visible      string           `yaml:"visible,omitempty"`
-	Regions      []yamlRegion     `yaml:"regions,omitempty"`
-	States       []yamlTransition `yaml:"states,omitempty"`
-	StateMachine yaml.Node        `yaml:"state_machine,omitempty"`
+	Component    string            `yaml:"component,omitempty"`
+	Props        string            `yaml:"props,omitempty"`
+	OnActions    string            `yaml:"on_actions,omitempty"`
+	Visible      string            `yaml:"visible,omitempty"`
+	Regions      []yamlRegion      `yaml:"regions,omitempty"`
+	States       []yamlTransition  `yaml:"states,omitempty"`
+	StateMachine yaml.Node         `yaml:"state_machine,omitempty"`
+	flows        []yamlFlow        // unexported: screen-level flows (flat format only)
 }
 
 type yamlRegion struct {
-	Name         string           `yaml:"name"`
-	Description  string           `yaml:"description"`
-	Tags         []string         `yaml:"tags,omitempty"`
-	Component    string           `yaml:"component,omitempty"`
-	Props        string           `yaml:"props,omitempty"`
-	OnActions    string           `yaml:"on_actions,omitempty"`
-	Visible      string           `yaml:"visible,omitempty"`
-	Events       yaml.Node        `yaml:"events,omitempty"`
+	Name         string            `yaml:"name"`
+	Description  string            `yaml:"description"`
+	Tags         []string          `yaml:"tags,omitempty"`
+	Component    string            `yaml:"component,omitempty"`
+	Props        string            `yaml:"props,omitempty"`
+	OnActions    string            `yaml:"on_actions,omitempty"`
+	Visible      string            `yaml:"visible,omitempty"`
+	Events       yaml.Node         `yaml:"events,omitempty"`
 	Ambient      map[string]string `yaml:"ambient,omitempty"`
 	Data         map[string]string `yaml:"data,omitempty"`
-	Regions      []yamlRegion     `yaml:"regions,omitempty"`
-	States       []yamlTransition `yaml:"states,omitempty"`
-	StateMachine yaml.Node        `yaml:"state_machine,omitempty"`
+	Regions      []yamlRegion      `yaml:"regions,omitempty"`
+	States       []yamlTransition  `yaml:"states,omitempty"`
+	StateMachine yaml.Node         `yaml:"state_machine,omitempty"`
+	Discovery    *yamlDiscovery    `yaml:"discovery,omitempty"`
+	Delivery     *yamlDelivery     `yaml:"delivery,omitempty"`
+}
+
+type yamlDiscovery struct {
+	Layout []string `yaml:"layout"`
+}
+
+type yamlDelivery struct {
+	Classes   []string `yaml:"classes,omitempty"`
+	Component string   `yaml:"component,omitempty"`
 }
 
 type yamlTransition struct {
@@ -89,9 +105,19 @@ func Load(s *store.Store, path string) error {
 		return fmt.Errorf("parse %s: %w", path, err)
 	}
 
-	// Handle app as mapping (single app) or sequence (list of apps).
+	// Handle app as mapping (single app), sequence (list of apps), or scalar (flat format).
 	var app yamlApp
 	switch f.App.Kind {
+	case yaml.ScalarNode:
+		// Flat format: app is just a name, screens/layouts/flows are top-level
+		app.Name = f.App.Value
+		app.Layouts = f.Layouts
+		if err := decodeFlatScreens(&f.Screens, &app); err != nil {
+			return fmt.Errorf("decode screens in %s: %w", path, err)
+		}
+		if err := decodeFlatFlows(&f.Flows, &app); err != nil {
+			return fmt.Errorf("decode flows in %s: %w", path, err)
+		}
 	case yaml.MappingNode:
 		if err := f.App.Decode(&app); err != nil {
 			return fmt.Errorf("decode app in %s: %w", path, err)
@@ -109,7 +135,7 @@ func Load(s *store.Store, path string) error {
 			fmt.Fprintf(os.Stderr, "warning: %s contains %d apps, importing first (%s) only\n", path, len(apps), app.Name)
 		}
 	default:
-		return fmt.Errorf("app: expected mapping or sequence in %s", path)
+		return fmt.Errorf("app: expected mapping, sequence, or scalar in %s", path)
 	}
 
 	if app.Name == "" {
@@ -120,6 +146,17 @@ func Load(s *store.Store, path string) error {
 	a := &model.App{Name: app.Name, Description: app.Description}
 	if err := s.InsertApp(a); err != nil {
 		return fmt.Errorf("app: %w", err)
+	}
+
+	// Layouts
+	for name, classes := range app.Layouts {
+		classesJSON, err := json.Marshal(classes)
+		if err != nil {
+			return fmt.Errorf("layout %s: %w", name, err)
+		}
+		if err := s.InsertLayout(&model.Layout{AppID: a.ID, Name: name, Classes: string(classesJSON)}); err != nil {
+			return fmt.Errorf("layout %s: %w", name, err)
+		}
 	}
 
 	// Data types
@@ -203,6 +240,11 @@ func Load(s *store.Store, path string) error {
 		}
 	}
 
+	// Collect screen-level flows (flat format puts flows inside screens)
+	for _, sc := range app.Screens {
+		app.Flows = append(app.Flows, sc.flows...)
+	}
+
 	// Flows
 	for _, fl := range app.Flows {
 		if err := s.InsertFlow(&model.Flow{
@@ -264,6 +306,17 @@ func insertRegion(s *store.Store, appID int64, parentType string, parentID int64
 	region := &model.Region{
 		AppID: appID, ParentType: parentType, ParentID: parentID,
 		Name: r.Name, Description: r.Description,
+	}
+	if r.Discovery != nil && len(r.Discovery.Layout) > 0 {
+		b, _ := json.Marshal(r.Discovery.Layout)
+		region.DiscoveryLayout = string(b)
+	}
+	if r.Delivery != nil {
+		if len(r.Delivery.Classes) > 0 {
+			b, _ := json.Marshal(r.Delivery.Classes)
+			region.DeliveryClasses = string(b)
+		}
+		region.DeliveryComponent = r.Delivery.Component
 	}
 	if err := s.InsertRegion(region); err != nil {
 		return fmt.Errorf("region %s: %w", r.Name, err)
@@ -549,6 +602,247 @@ func mergeStateNodes(base, override *yaml.Node) *yaml.Node {
 	return result
 }
 
+// --- Flat YAML format parsing (mapping-style screens/regions) ---
+
+// decodeFlatScreens parses a mapping node where keys are screen names.
+func decodeFlatScreens(node *yaml.Node, app *yamlApp) error {
+	if node == nil || node.Kind == 0 {
+		return nil
+	}
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("screens: expected mapping, got kind %d", node.Kind)
+	}
+	for i := 0; i < len(node.Content)-1; i += 2 {
+		screenName := node.Content[i].Value
+		screenDef := node.Content[i+1]
+		sc, err := decodeFlatScreen(screenName, screenDef)
+		if err != nil {
+			return fmt.Errorf("screen %s: %w", screenName, err)
+		}
+		app.Screens = append(app.Screens, sc)
+	}
+	return nil
+}
+
+// decodeFlatScreen decodes a single screen definition from a mapping node.
+func decodeFlatScreen(name string, node *yaml.Node) (yamlScreen, error) {
+	sc := yamlScreen{Name: name}
+	if node.Kind != yaml.MappingNode {
+		return sc, fmt.Errorf("expected mapping")
+	}
+	for i := 0; i < len(node.Content)-1; i += 2 {
+		key := node.Content[i].Value
+		val := node.Content[i+1]
+		switch key {
+		case "description":
+			sc.Description = val.Value
+		case "regions":
+			regions, err := decodeFlatRegions(val)
+			if err != nil {
+				return sc, fmt.Errorf("regions: %w", err)
+			}
+			sc.Regions = regions
+		case "states":
+			// In flat format, states is a list of state names (ignored, derived from transitions)
+		case "transitions":
+			transitions, err := decodeFlatTransitions(val)
+			if err != nil {
+				return sc, fmt.Errorf("transitions: %w", err)
+			}
+			sc.States = transitions
+		case "flows":
+			flows, err := decodeFlatFlowsMapping(val)
+			if err != nil {
+				return sc, fmt.Errorf("flows: %w", err)
+			}
+			// Screen-level flows get merged into app-level flows
+			sc.flows = flows
+		case "state_machine":
+			sc.StateMachine = *val
+		case "tags":
+			var tags []string
+			val.Decode(&tags)
+			sc.Tags = tags
+		case "context":
+			var ctx map[string]string
+			val.Decode(&ctx)
+			sc.Context = ctx
+		case "component":
+			sc.Component = val.Value
+		case "props":
+			sc.Props = encodePropsNode(val)
+		case "on_actions":
+			sc.OnActions = val.Value
+		case "visible":
+			sc.Visible = val.Value
+		}
+	}
+	return sc, nil
+}
+
+// decodeFlatRegions parses a mapping node where keys are region names.
+func decodeFlatRegions(node *yaml.Node) ([]yamlRegion, error) {
+	if node == nil || node.Kind == 0 {
+		return nil, nil
+	}
+	if node.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("expected mapping, got kind %d", node.Kind)
+	}
+	var regions []yamlRegion
+	for i := 0; i < len(node.Content)-1; i += 2 {
+		regionName := node.Content[i].Value
+		regionDef := node.Content[i+1]
+		r, err := decodeFlatRegion(regionName, regionDef)
+		if err != nil {
+			return nil, fmt.Errorf("region %s: %w", regionName, err)
+		}
+		regions = append(regions, r)
+	}
+	return regions, nil
+}
+
+// decodeFlatRegion decodes a single region definition from a mapping node.
+func decodeFlatRegion(name string, node *yaml.Node) (yamlRegion, error) {
+	r := yamlRegion{Name: name}
+	if node.Kind != yaml.MappingNode {
+		return r, fmt.Errorf("expected mapping")
+	}
+	for i := 0; i < len(node.Content)-1; i += 2 {
+		key := node.Content[i].Value
+		val := node.Content[i+1]
+		switch key {
+		case "description":
+			r.Description = val.Value
+		case "component":
+			r.Component = val.Value
+		case "props":
+			r.Props = encodePropsNode(val)
+		case "on_actions":
+			r.OnActions = val.Value
+		case "visible":
+			r.Visible = val.Value
+		case "events":
+			r.Events = *val
+		case "tags":
+			var tags []string
+			val.Decode(&tags)
+			r.Tags = tags
+		case "ambient":
+			var ambient map[string]string
+			val.Decode(&ambient)
+			r.Ambient = ambient
+		case "data":
+			var data map[string]string
+			val.Decode(&data)
+			r.Data = data
+		case "regions":
+			children, err := decodeFlatRegions(val)
+			if err != nil {
+				return r, fmt.Errorf("regions: %w", err)
+			}
+			r.Regions = children
+		case "states":
+			// State names only in flat format — transitions are separate
+		case "transitions":
+			transitions, err := decodeFlatTransitions(val)
+			if err != nil {
+				return r, err
+			}
+			r.States = transitions
+		case "state_machine":
+			r.StateMachine = *val
+		case "discovery":
+			var d yamlDiscovery
+			val.Decode(&d)
+			r.Discovery = &d
+		case "delivery":
+			var d yamlDelivery
+			val.Decode(&d)
+			r.Delivery = &d
+		}
+	}
+	return r, nil
+}
+
+// decodeFlatTransitions parses a sequence of transition objects.
+func decodeFlatTransitions(node *yaml.Node) ([]yamlTransition, error) {
+	if node == nil || node.Kind == 0 {
+		return nil, nil
+	}
+	if node.Kind != yaml.SequenceNode {
+		return nil, fmt.Errorf("transitions: expected sequence")
+	}
+	var transitions []yamlTransition
+	for _, item := range node.Content {
+		var t yamlTransition
+		if err := item.Decode(&t); err != nil {
+			return nil, err
+		}
+		transitions = append(transitions, t)
+	}
+	return transitions, nil
+}
+
+// decodeFlatFlows parses top-level flows as a mapping node.
+func decodeFlatFlows(node *yaml.Node, app *yamlApp) error {
+	if node == nil || node.Kind == 0 {
+		return nil
+	}
+	if node.Kind == yaml.MappingNode {
+		flows, err := decodeFlatFlowsMapping(node)
+		if err != nil {
+			return err
+		}
+		app.Flows = append(app.Flows, flows...)
+	}
+	return nil
+}
+
+// decodeFlatFlowsMapping parses a flow mapping (name → {description, sequence}).
+func decodeFlatFlowsMapping(node *yaml.Node) ([]yamlFlow, error) {
+	if node.Kind != yaml.MappingNode {
+		return nil, nil
+	}
+	var flows []yamlFlow
+	for i := 0; i < len(node.Content)-1; i += 2 {
+		flowName := node.Content[i].Value
+		flowDef := node.Content[i+1]
+		f := yamlFlow{Name: flowName}
+		if flowDef.Kind == yaml.MappingNode {
+			for j := 0; j < len(flowDef.Content)-1; j += 2 {
+				k := flowDef.Content[j].Value
+				v := flowDef.Content[j+1]
+				switch k {
+				case "description":
+					f.Description = v.Value
+				case "sequence":
+					f.Sequence = v.Value
+				case "on":
+					f.On = v.Value
+				}
+			}
+		}
+		flows = append(flows, f)
+	}
+	return flows, nil
+}
+
+// encodePropsNode converts a YAML node (scalar or mapping) to a JSON string for storage.
+func encodePropsNode(node *yaml.Node) string {
+	if node.Kind == yaml.ScalarNode {
+		return node.Value
+	}
+	var val any
+	if err := node.Decode(&val); err != nil {
+		return "{}"
+	}
+	b, err := json.Marshal(val)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
 // ParseDataRef parses "data(source, query)" into source and query parts.
 func ParseDataRef(ref string) (source, query string, err error) {
 	inner, ok := strings.CutPrefix(ref, "data(")
@@ -618,6 +912,7 @@ func Export(spec *show.Spec, w io.Writer) error {
 		Data:        spec.App.DataTypes,
 		Enums:       spec.App.Enums,
 		Context:     spec.App.Context,
+		Layouts:     spec.Layouts,
 		Regions:     exportRegions(spec.App.Regions),
 		Screens:     exportScreens(spec.Screens),
 		Flows:       exportFlows(spec.Flows),
@@ -652,9 +947,7 @@ func exportScreens(screens []show.Screen) []yamlScreen {
 			Visible:     s.ComponentVis,
 			Regions:     exportRegions(s.Regions),
 		}
-		if sm := exportStateMachine(s.Transitions, s.StateFixtures, s.StateRegions); sm != nil {
-			ys.StateMachine = *sm
-		}
+		ys.States, ys.StateMachine = exportTransitions(s.Transitions, s.StateFixtures, s.StateRegions)
 		out = append(out, ys)
 	}
 	return out
@@ -679,9 +972,16 @@ func exportRegions(regions []show.Region) []yamlRegion {
 			Data:        r.RegionData,
 			Regions:     exportRegions(r.Regions),
 		}
-		if sm := exportStateMachine(r.Transitions, r.StateFixtures, r.StateRegions); sm != nil {
-			yr.StateMachine = *sm
+		if len(r.DiscoveryLayout) > 0 {
+			yr.Discovery = &yamlDiscovery{Layout: r.DiscoveryLayout}
 		}
+		if len(r.DeliveryClasses) > 0 || r.DeliveryComponent != "" {
+			yr.Delivery = &yamlDelivery{
+				Classes:   r.DeliveryClasses,
+				Component: r.DeliveryComponent,
+			}
+		}
+		yr.States, yr.StateMachine = exportTransitions(r.Transitions, r.StateFixtures, r.StateRegions)
 		out = append(out, yr)
 	}
 	return out
@@ -724,6 +1024,32 @@ func exportEvents(events []string) yaml.Node {
 // Groups transitions by FromState, producing ordered mappings. Terminal states (appear
 // only as targets) are included as empty mappings. State fixtures are included as fixture: keys.
 // State regions are included as regions: keys.
+// exportTransitions uses simple states: list when any transition lacks from_state
+// (state_machine can't represent those). Otherwise uses state_machine format.
+func exportTransitions(transitions []show.Transition, stateFixtures map[string]string, stateRegions map[string][]string) ([]yamlTransition, yaml.Node) {
+	if len(transitions) == 0 && len(stateFixtures) == 0 && len(stateRegions) == 0 {
+		return nil, yaml.Node{}
+	}
+	hasFromless := false
+	for _, t := range transitions {
+		if t.FromState == "" {
+			hasFromless = true
+			break
+		}
+	}
+	if hasFromless {
+		simple := make([]yamlTransition, len(transitions))
+		for i, t := range transitions {
+			simple[i] = yamlTransition{On: t.OnEvent, From: t.FromState, To: t.ToState, Action: t.Action}
+		}
+		return simple, yaml.Node{}
+	}
+	if sm := exportStateMachine(transitions, stateFixtures, stateRegions); sm != nil {
+		return nil, *sm
+	}
+	return nil, yaml.Node{}
+}
+
 func exportStateMachine(transitions []show.Transition, stateFixtures map[string]string, stateRegions map[string][]string) *yaml.Node {
 	if len(transitions) == 0 && len(stateFixtures) == 0 && len(stateRegions) == 0 {
 		return nil

@@ -13,13 +13,16 @@ CREATE TABLE IF NOT EXISTS screens (
 );
 
 CREATE TABLE IF NOT EXISTS regions (
-  id          INTEGER PRIMARY KEY,
-  app_id      INTEGER NOT NULL REFERENCES apps(id),
-  parent_type TEXT NOT NULL CHECK(parent_type IN ('app','screen','region')),
-  parent_id   INTEGER NOT NULL,
-  name        TEXT NOT NULL,
-  description TEXT NOT NULL,
-  position    INTEGER NOT NULL DEFAULT 0,
+  id                 INTEGER PRIMARY KEY,
+  app_id             INTEGER NOT NULL REFERENCES apps(id),
+  parent_type        TEXT NOT NULL CHECK(parent_type IN ('app','screen','region')),
+  parent_id          INTEGER NOT NULL,
+  name               TEXT NOT NULL,
+  description        TEXT NOT NULL,
+  position           INTEGER NOT NULL DEFAULT 0,
+  discovery_layout   TEXT,
+  delivery_classes   TEXT,
+  delivery_component TEXT,
   UNIQUE(parent_type, parent_id, name)
 );
 
@@ -178,6 +181,15 @@ CREATE TABLE IF NOT EXISTS tastes (
   app_id  INTEGER NOT NULL REFERENCES apps(id),
   name    TEXT NOT NULL,
   tokens  TEXT NOT NULL DEFAULT '{}',
+  UNIQUE(app_id, name)
+);
+
+-- Discovery/Delivery layout model
+CREATE TABLE IF NOT EXISTS layouts (
+  id      INTEGER PRIMARY KEY,
+  app_id  INTEGER NOT NULL REFERENCES apps(id),
+  name    TEXT NOT NULL,
+  classes TEXT NOT NULL DEFAULT '[]',
   UNIQUE(app_id, name)
 );
 

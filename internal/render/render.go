@@ -2,6 +2,7 @@ package render
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/lagz0ne/sft/internal/show"
 )
@@ -12,11 +13,12 @@ type Spec struct {
 }
 
 type Element struct {
-	Type     string         `json:"type"`
-	Props    map[string]any `json:"props"`
-	Children []string       `json:"children"`
-	Visible  any            `json:"visible,omitempty"`
-	On       map[string]any `json:"on,omitempty"`
+	Type      string         `json:"type"`
+	Props     map[string]any `json:"props"`
+	Children  []string       `json:"children"`
+	ClassName string         `json:"className,omitempty"`
+	Visible   any            `json:"visible,omitempty"`
+	On        map[string]any `json:"on,omitempty"`
 }
 
 // CompDef holds a component definition from the DB.
@@ -58,12 +60,12 @@ func FromSFT(spec *show.Spec) *Spec {
 	}
 
 	// App-level regions [C2]
-	addRegions(jr, spec.App.Regions)
+	addRegions(jr, spec.App.Regions, spec.Layouts)
 
 	for _, s := range spec.Screens {
 		el := screenToElement(s)
 		jr.Elements[s.Name] = el
-		addRegions(jr, s.Regions)
+		addRegions(jr, s.Regions, spec.Layouts)
 	}
 
 	return jr
@@ -84,7 +86,7 @@ func screenToElement(s show.Screen) *Element {
 	return el
 }
 
-func addRegions(jr *Spec, regions []show.Region) {
+func addRegions(jr *Spec, regions []show.Region, presets map[string][]string) {
 	for _, r := range regions {
 		el := &Element{
 			Type:     "Stack",
@@ -94,12 +96,32 @@ func addRegions(jr *Spec, regions []show.Region) {
 		if r.Component != "" {
 			el.Type = r.Component
 		}
+		if len(r.DeliveryClasses) > 0 {
+			el.ClassName = strings.Join(r.DeliveryClasses, " ")
+		} else if len(r.DiscoveryLayout) > 0 {
+			el.ClassName = strings.Join(expandPresets(r.DiscoveryLayout, presets), " ")
+		}
+		if r.DeliveryComponent != "" {
+			el.Type = r.DeliveryComponent
+		}
 		for _, child := range r.Regions {
 			el.Children = append(el.Children, child.Name)
 		}
 		jr.Elements[r.Name] = el
-		addRegions(jr, r.Regions)
+		addRegions(jr, r.Regions, presets)
 	}
+}
+
+func expandPresets(layout []string, presets map[string][]string) []string {
+	var classes []string
+	for _, item := range layout {
+		if preset, ok := presets[item]; ok {
+			classes = append(classes, preset...)
+		} else {
+			classes = append(classes, item)
+		}
+	}
+	return classes
 }
 
 // Hydrate enriches the generated spec with stored component props from the DB.
