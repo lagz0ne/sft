@@ -95,6 +95,10 @@ func main() {
 		runCat(s, rest)
 	case "view":
 		runView(s, rest)
+	case "experiment", "exp":
+		runExperiment(s, rest)
+	case "clone":
+		runClone(s, rest)
 	case "diagram", "diag":
 		runDiagram(s, rest)
 	default:
@@ -166,6 +170,19 @@ Attachments:
   list [entity]                   shows content-id and hash when present
   cat <@ref|entity> <name>
 
+Entry Screen:
+  set screen <name> --entry       mark a screen as the entry point
+
+Experiments:
+  experiment create <name> --scope <target> [--description "..."]
+  experiment list                  show all experiments
+  experiment discard <name>        mark experiment as discarded
+  experiment commit <name>         mark experiment as committed
+
+Clone:
+  clone screen <name> <new-name>                  deep-copy a screen
+  clone region <name> <new-name> [--in <parent>]  deep-copy a region
+
 Diff:
   diff <file.yaml>                compare current spec vs a YAML file
 
@@ -181,7 +198,7 @@ Version:
   # If outdated, export your spec with 'sft show --json > backup.json'
   # then update sft and use an LLM to migrate if needed
 
-Aliases: q=query, check=validate, ls=list, comp=component, diag=diagram`
+Aliases: q=query, check=validate, ls=list, comp=component, diag=diagram, exp=experiment`
 
 // --- show ---
 
@@ -451,6 +468,12 @@ func runSet(s *store.Store, args []string) {
 
 	switch entity {
 	case "screen":
+		if flagHas(args, "--entry") {
+			appID := mustResolveApp(s)
+			must(s.SetEntryScreen(appID, name))
+			ok("set entry screen → %s", name)
+			return
+		}
 		desc := flagVal(args, "--description")
 		if desc == "" {
 			die("usage: sft set screen <name> --description <new>")
@@ -1050,6 +1073,112 @@ func runDiagram(s *store.Store, args []string) {
 	fmt.Print(out)
 }
 
+// --- experiment ---
+
+func runExperiment(s *store.Store, args []string) {
+	if len(args) == 0 {
+		die("usage: sft experiment <create|list|discard|commit> ...")
+	}
+	sub := args[0]
+	args = args[1:]
+
+	switch sub {
+	case "create":
+		if len(args) < 1 {
+			die("usage: sft experiment create <name> --scope <target> [--description \"...\"]")
+		}
+		name := args[0]
+		scope := flagVal(args, "--scope")
+		if scope == "" {
+			die("usage: sft experiment create <name> --scope <target> [--description \"...\"]")
+		}
+		desc := flagVal(args, "--description")
+		appID := mustResolveApp(s)
+		e := &model.Experiment{
+			AppID:       appID,
+			Name:        name,
+			Description: desc,
+			Scope:       scope,
+			Status:      "active",
+		}
+		must(s.InsertExperiment(e))
+		ok("experiment %s (scope: %s)", name, scope)
+
+	case "list":
+		appID := mustResolveApp(s)
+		exps, err := s.ListExperiments(appID)
+		if err != nil {
+			die("%v", err)
+		}
+		if format.JSONMode {
+			format.JSON(exps)
+			return
+		}
+		if len(exps) == 0 {
+			fmt.Println(format.C(format.Dim, "(no experiments)"))
+			return
+		}
+		for _, e := range exps {
+			status := e.Status
+			switch status {
+			case "active":
+				status = format.C(format.Green, status)
+			case "discarded":
+				status = format.C(format.Dim, status)
+			case "committed":
+				status = format.C(format.Cyan, status)
+			}
+			line := fmt.Sprintf("  %s  %s  scope:%s", format.C(format.Bold, e.Name), status, e.Scope)
+			if e.Description != "" {
+				line += "  " + format.C(format.Dim, e.Description)
+			}
+			fmt.Println(line)
+		}
+
+	case "discard":
+		if len(args) < 1 {
+			die("usage: sft experiment discard <name>")
+		}
+		appID := mustResolveApp(s)
+		must(s.SetExperimentStatus(appID, args[0], "discarded"))
+		ok("experiment %s discarded", args[0])
+
+	case "commit":
+		if len(args) < 1 {
+			die("usage: sft experiment commit <name>")
+		}
+		appID := mustResolveApp(s)
+		must(s.SetExperimentStatus(appID, args[0], "committed"))
+		ok("experiment %s committed", args[0])
+
+	default:
+		die("unknown experiment subcommand %q (available: create, list, discard, commit)", sub)
+	}
+}
+
+// --- clone ---
+
+func runClone(s *store.Store, args []string) {
+	if len(args) < 3 {
+		die("usage: sft clone <screen|region> <name> <new-name> [--in <parent>]")
+	}
+	entity, name, newName := args[0], args[1], args[2]
+
+	switch entity {
+	case "screen":
+		must(s.CloneScreen(name, newName))
+		ok("cloned screen %s → %s", name, newName)
+
+	case "region":
+		parent := flagVal(args, "--in")
+		must(s.CloneRegion(name, newName, parent))
+		ok("cloned region %s → %s", name, newName)
+
+	default:
+		die("clone supports: screen, region")
+	}
+}
+
 // --- helpers ---
 
 func ok(msg string, args ...any) {
@@ -1096,6 +1225,10 @@ func flagVal(args []string, flag string) string {
 		return ""
 	}
 	return args[i+1]
+}
+
+func flagHas(args []string, flag string) bool {
+	return flagIndex(args, flag) != -1
 }
 
 func resolveContextOwner(s *store.Store, on string) (string, int64) {

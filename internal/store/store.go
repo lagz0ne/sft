@@ -1749,4 +1749,12 @@ func (s *Store) ListComponentSchemas(appID int64) ([]model.ComponentSchema, erro
 	return result, nil
 }
 
+// --- v2: Clone (stub — implemented in Task 8) ---
 
+func (s *Store) CloneScreen(name, newName string) error {
+	return fmt.Errorf("not implemented")
+}
+
+func (s *Store) CloneRegion(name, newName, parentName string) error {
+	return fmt.Errorf("not implemented")
+}
