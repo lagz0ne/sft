@@ -33,11 +33,13 @@ type yamlApp struct {
 	Regions        []yamlRegion                 `yaml:"regions,omitempty"`
 	Screens        []yamlScreen                 `yaml:"screens,omitempty"`
 	Fixtures       yaml.Node                    `yaml:"fixtures,omitempty"`
+	Entities       yaml.Node                    `yaml:"entities,omitempty"`
 }
 
 type yamlScreen struct {
 	Name         string            `yaml:"name"`
 	Description  string            `yaml:"description"`
+	Entry        bool              `yaml:"entry,omitempty"`
 	Tags         []string          `yaml:"tags,omitempty"`
 	Context      map[string]string `yaml:"context,omitempty"`
 	Component    string            `yaml:"component,omitempty"`
@@ -248,11 +250,25 @@ func Load(s *store.Store, path string) error {
 		if err := insertTransitions(s, a.ID, "screen", screen.ID, sc.Name, sc.States, &sc.StateMachine); err != nil {
 			return err
 		}
+		if sc.Entry {
+			if err := s.SetEntryScreen(a.ID, sc.Name); err != nil {
+				return fmt.Errorf("entry screen %s: %w", sc.Name, err)
+			}
+		}
+	}
+
+	// Entities
+	var entityPool map[string]any
+	if app.Entities.Kind == yaml.MappingNode {
+		entityPool = make(map[string]any)
+		if err := loadEntities(s, a.ID, &app.Entities, entityPool); err != nil {
+			return err
+		}
 	}
 
 	// Fixtures
 	if app.Fixtures.Kind == yaml.MappingNode {
-		if err := loadFixtures(s, a.ID, &app.Fixtures); err != nil {
+		if err := loadFixtures(s, a.ID, &app.Fixtures, entityPool); err != nil {
 			return err
 		}
 	}
@@ -263,7 +279,7 @@ func Load(s *store.Store, path string) error {
 	return nil
 }
 
-func loadFixtures(s *store.Store, appID int64, node *yaml.Node) error {
+func loadFixtures(s *store.Store, appID int64, node *yaml.Node, entityPool map[string]any) error {
 	for i := 0; i < len(node.Content)-1; i += 2 {
 		name := node.Content[i].Value
 		def := node.Content[i+1]
@@ -286,6 +302,16 @@ func loadFixtures(s *store.Store, appID int64, node *yaml.Node) error {
 		if err := dataNode.Decode(&dataMap); err != nil {
 			return fmt.Errorf("fixture %s: decode data: %w", name, err)
 		}
+
+		// Resolve $name entity references before storing
+		if entityPool != nil {
+			resolved, err := resolveValue(dataMap, entityPool, nil)
+			if err != nil {
+				return fmt.Errorf("fixture %s: resolve entities: %w", name, err)
+			}
+			dataMap = resolved
+		}
+
 		dataJSON, err := json.Marshal(dataMap)
 		if err != nil {
 			return fmt.Errorf("fixture %s: marshal data: %w", name, err)
@@ -296,6 +322,40 @@ func loadFixtures(s *store.Store, appID int64, node *yaml.Node) error {
 		}); err != nil {
 			return fmt.Errorf("fixture %s: %w", name, err)
 		}
+	}
+	return nil
+}
+
+func loadEntities(s *store.Store, appID int64, node *yaml.Node, pool map[string]any) error {
+	for i := 0; i < len(node.Content)-1; i += 2 {
+		name := node.Content[i].Value
+		def := node.Content[i+1]
+
+		var raw map[string]any
+		if err := def.Decode(&raw); err != nil {
+			return fmt.Errorf("entity %s: decode: %w", name, err)
+		}
+
+		// Extract _type, default to entity name
+		entityType, _ := raw["_type"].(string)
+		if entityType == "" {
+			entityType = name
+		}
+		delete(raw, "_type")
+
+		dataJSON, err := json.Marshal(raw)
+		if err != nil {
+			return fmt.Errorf("entity %s: marshal: %w", name, err)
+		}
+
+		if err := s.InsertEntity(&model.Entity{
+			AppID: appID, Name: name, Type: entityType, Data: string(dataJSON),
+		}); err != nil {
+			return fmt.Errorf("entity %s: %w", name, err)
+		}
+
+		// Add to pool for fixture resolution
+		pool[name] = raw
 	}
 	return nil
 }
