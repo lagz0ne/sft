@@ -11,6 +11,7 @@ type Screen struct {
 	AppID       int64  `json:"app_id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Entry       bool   `json:"entry"`
 }
 
 type Region struct {
@@ -134,4 +135,31 @@ type RegionData struct {
 	RegionID  int64  `json:"region_id"`
 	FieldName string `json:"field_name"`
 	FieldType string `json:"field_type"`
+}
+
+// v2: Entities, Experiments, Component Schemas
+
+type Entity struct {
+	ID    int64  `json:"id"`
+	AppID int64  `json:"app_id"`
+	Name  string `json:"name"`
+	Type  string `json:"type"`
+	Data  string `json:"data"`
+}
+
+type Experiment struct {
+	ID          int64  `json:"id"`
+	AppID       int64  `json:"app_id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Scope       string `json:"scope"`
+	Overlay     string `json:"overlay"`
+	Status      string `json:"status"`
+}
+
+type ComponentSchema struct {
+	ID    int64  `json:"id"`
+	AppID int64  `json:"app_id"`
+	Name  string `json:"name"`
+	Props string `json:"props"`
 }

@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS screens (
   id          INTEGER PRIMARY KEY,
   app_id      INTEGER NOT NULL REFERENCES apps(id),
   name        TEXT NOT NULL UNIQUE,
-  description TEXT NOT NULL
+  description TEXT NOT NULL,
+  entry       INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS regions (
@@ -161,6 +162,38 @@ CREATE TABLE IF NOT EXISTS layouts (
   app_id  INTEGER NOT NULL REFERENCES apps(id),
   name    TEXT NOT NULL,
   classes TEXT NOT NULL DEFAULT '[]',
+  UNIQUE(app_id, name)
+);
+
+-- Entities (v2)
+CREATE TABLE IF NOT EXISTS entities (
+  id      INTEGER PRIMARY KEY,
+  app_id  INTEGER NOT NULL REFERENCES apps(id),
+  name    TEXT NOT NULL,
+  type    TEXT NOT NULL,
+  data    TEXT NOT NULL DEFAULT '{}',
+  UNIQUE(app_id, name)
+);
+
+-- Experiments (v2)
+CREATE TABLE IF NOT EXISTS experiments (
+  id          INTEGER PRIMARY KEY,
+  app_id      INTEGER NOT NULL REFERENCES apps(id),
+  name        TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  scope       TEXT NOT NULL,
+  overlay     TEXT NOT NULL DEFAULT '{}',
+  status      TEXT NOT NULL DEFAULT 'active'
+              CHECK(status IN ('active','committed','discarded')),
+  UNIQUE(app_id, name)
+);
+
+-- Component schemas (v2)
+CREATE TABLE IF NOT EXISTS component_schemas (
+  id      INTEGER PRIMARY KEY,
+  app_id  INTEGER NOT NULL REFERENCES apps(id),
+  name    TEXT NOT NULL,
+  props   TEXT NOT NULL DEFAULT '{}',
   UNIQUE(app_id, name)
 );
 
