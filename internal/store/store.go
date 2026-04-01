@@ -1749,12 +1749,12 @@ func (s *Store) ListComponentSchemas(appID int64) ([]model.ComponentSchema, erro
 	return result, nil
 }
 
-// --- v2: Clone (stub — implemented in Task 8) ---
+// --- v2: Clone (deep copy) ---
 
 func (s *Store) CloneScreen(name, newName string) error {
-	return fmt.Errorf("not implemented")
+	return s.cloneScreen(name, newName)
 }
 
 func (s *Store) CloneRegion(name, newName, parentName string) error {
-	return fmt.Errorf("not implemented")
+	return s.cloneRegion(name, newName, parentName)
 }
