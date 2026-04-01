@@ -353,3 +353,222 @@ func TestRegionLayout(t *testing.T) {
 		t.Error("expected NULL discovery_layout for empty region")
 	}
 }
+
+// --- v2: Entity CRUD ---
+
+func TestEntityCRUD(t *testing.T) {
+	s := mustOpen(t)
+	a := seedApp(t, s)
+
+	// Insert
+	e := &model.Entity{AppID: a.ID, Name: "user", Type: "object", Data: `{"name":"string"}`}
+	if err := s.InsertEntity(e); err != nil {
+		t.Fatal(err)
+	}
+	if e.ID == 0 {
+		t.Error("expected non-zero ID")
+	}
+
+	// Get
+	got, err := s.GetEntity(a.ID, "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "user" || got.Type != "object" || got.Data != `{"name":"string"}` {
+		t.Errorf("got %+v", got)
+	}
+
+	// List
+	e2 := &model.Entity{AppID: a.ID, Name: "email", Type: "object", Data: `{}`}
+	if err := s.InsertEntity(e2); err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.ListEntities(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("got %d entities, want 2", len(list))
+	}
+
+	// Duplicate name → error
+	dup := &model.Entity{AppID: a.ID, Name: "user", Type: "other", Data: `{}`}
+	if err := s.InsertEntity(dup); err == nil {
+		t.Error("expected unique constraint error")
+	}
+
+	// Delete
+	if err := s.DeleteEntity(a.ID, "user"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetEntity(a.ID, "user"); err == nil {
+		t.Error("expected error after delete")
+	}
+	list, _ = s.ListEntities(a.ID)
+	if len(list) != 1 {
+		t.Errorf("got %d entities after delete, want 1", len(list))
+	}
+}
+
+// --- v2: Experiment CRUD ---
+
+func TestExperimentCRUD(t *testing.T) {
+	s := mustOpen(t)
+	a := seedApp(t, s)
+
+	// Insert
+	ex := &model.Experiment{
+		AppID: a.ID, Name: "dark-mode", Description: "test dark mode",
+		Scope: "screens.Settings", Overlay: `{"theme":"dark"}`, Status: "active",
+	}
+	if err := s.InsertExperiment(ex); err != nil {
+		t.Fatal(err)
+	}
+	if ex.ID == 0 {
+		t.Error("expected non-zero ID")
+	}
+
+	// Get
+	got, err := s.GetExperiment(a.ID, "dark-mode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "dark-mode" || got.Status != "active" {
+		t.Errorf("got %+v", got)
+	}
+
+	// List
+	ex2 := &model.Experiment{
+		AppID: a.ID, Name: "new-nav", Description: "nav experiment",
+		Scope: "screens.Home", Overlay: `{}`, Status: "active",
+	}
+	if err := s.InsertExperiment(ex2); err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.ListExperiments(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("got %d experiments, want 2", len(list))
+	}
+
+	// SetExperimentStatus
+	if err := s.SetExperimentStatus(a.ID, "dark-mode", "committed"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.GetExperiment(a.ID, "dark-mode")
+	if got.Status != "committed" {
+		t.Errorf("status = %q, want committed", got.Status)
+	}
+
+	// Invalid status → error
+	if err := s.SetExperimentStatus(a.ID, "dark-mode", "bogus"); err == nil {
+		t.Error("expected error for invalid status")
+	}
+
+	// Duplicate name → error
+	dup := &model.Experiment{AppID: a.ID, Name: "dark-mode", Scope: "x", Status: "active"}
+	if err := s.InsertExperiment(dup); err == nil {
+		t.Error("expected unique constraint error")
+	}
+
+	// Delete
+	if err := s.DeleteExperiment(a.ID, "dark-mode"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetExperiment(a.ID, "dark-mode"); err == nil {
+		t.Error("expected error after delete")
+	}
+}
+
+// --- v2: Entry Screen ---
+
+func TestEntryScreen(t *testing.T) {
+	s := mustOpen(t)
+	a := seedApp(t, s)
+
+	sc1 := &model.Screen{AppID: a.ID, Name: "Login", Description: "login"}
+	sc2 := &model.Screen{AppID: a.ID, Name: "Home", Description: "home"}
+	if err := s.InsertScreen(sc1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertScreen(sc2); err != nil {
+		t.Fatal(err)
+	}
+
+	// No entry screen yet
+	if _, err := s.GetEntryScreen(a.ID); err == nil {
+		t.Error("expected error when no entry screen set")
+	}
+
+	// Set entry
+	if err := s.SetEntryScreen(a.ID, "Home"); err != nil {
+		t.Fatal(err)
+	}
+	name, err := s.GetEntryScreen(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "Home" {
+		t.Errorf("entry = %q, want Home", name)
+	}
+
+	// Switch entry
+	if err := s.SetEntryScreen(a.ID, "Login"); err != nil {
+		t.Fatal(err)
+	}
+	name, _ = s.GetEntryScreen(a.ID)
+	if name != "Login" {
+		t.Errorf("entry = %q, want Login", name)
+	}
+
+	// Non-existent screen → error
+	if err := s.SetEntryScreen(a.ID, "NoSuch"); err == nil {
+		t.Error("expected error for non-existent screen")
+	}
+}
+
+// --- v2: Component Schema CRUD ---
+
+func TestComponentSchemaCRUD(t *testing.T) {
+	s := mustOpen(t)
+	a := seedApp(t, s)
+
+	// Insert
+	cs := &model.ComponentSchema{AppID: a.ID, Name: "DataTable", Props: `{"cols":"number","rows":"number"}`}
+	if err := s.InsertComponentSchema(cs); err != nil {
+		t.Fatal(err)
+	}
+	if cs.ID == 0 {
+		t.Error("expected non-zero ID")
+	}
+
+	// Get
+	got, err := s.GetComponentSchema(a.ID, "DataTable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "DataTable" || got.Props != `{"cols":"number","rows":"number"}` {
+		t.Errorf("got %+v", got)
+	}
+
+	// List
+	cs2 := &model.ComponentSchema{AppID: a.ID, Name: "Avatar", Props: `{"src":"string"}`}
+	if err := s.InsertComponentSchema(cs2); err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.ListComponentSchemas(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("got %d schemas, want 2", len(list))
+	}
+
+	// Duplicate name → error
+	dup := &model.ComponentSchema{AppID: a.ID, Name: "DataTable", Props: `{}`}
+	if err := s.InsertComponentSchema(dup); err == nil {
+		t.Error("expected unique constraint error")
+	}
+}

@@ -1562,4 +1562,191 @@ func (s *Store) GetLayout(appID int64, name string) (*model.Layout, error) {
 	return &l, nil
 }
 
+// --- v2: Entity CRUD ---
+
+func (s *Store) InsertEntity(e *model.Entity) error {
+	res, err := s.db().Exec("INSERT INTO entities (app_id, name, type, data) VALUES (?, ?, ?, ?)",
+		e.AppID, e.Name, e.Type, e.Data)
+	if err != nil {
+		return err
+	}
+	e.ID, _ = res.LastInsertId()
+	return nil
+}
+
+func (s *Store) GetEntity(appID int64, name string) (*model.Entity, error) {
+	var e model.Entity
+	err := s.db().QueryRow("SELECT id, app_id, name, type, data FROM entities WHERE app_id = ? AND name = ?", appID, name).
+		Scan(&e.ID, &e.AppID, &e.Name, &e.Type, &e.Data)
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+func (s *Store) ListEntities(appID int64) ([]model.Entity, error) {
+	rows, err := s.db().Query("SELECT id, app_id, name, type, data FROM entities WHERE app_id = ? ORDER BY name", appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []model.Entity
+	for rows.Next() {
+		var e model.Entity
+		if err := rows.Scan(&e.ID, &e.AppID, &e.Name, &e.Type, &e.Data); err != nil {
+			return nil, err
+		}
+		result = append(result, e)
+	}
+	return result, nil
+}
+
+func (s *Store) DeleteEntity(appID int64, name string) error {
+	res, err := s.db().Exec("DELETE FROM entities WHERE app_id = ? AND name = ?", appID, name)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("entity %q not found", name)
+	}
+	return nil
+}
+
+// --- v2: Experiment CRUD ---
+
+func (s *Store) InsertExperiment(e *model.Experiment) error {
+	res, err := s.db().Exec(
+		"INSERT INTO experiments (app_id, name, description, scope, overlay, status) VALUES (?, ?, ?, ?, ?, ?)",
+		e.AppID, e.Name, e.Description, e.Scope, e.Overlay, e.Status)
+	if err != nil {
+		return err
+	}
+	e.ID, _ = res.LastInsertId()
+	return nil
+}
+
+func (s *Store) GetExperiment(appID int64, name string) (*model.Experiment, error) {
+	var e model.Experiment
+	err := s.db().QueryRow(
+		"SELECT id, app_id, name, description, scope, overlay, status FROM experiments WHERE app_id = ? AND name = ?",
+		appID, name).
+		Scan(&e.ID, &e.AppID, &e.Name, &e.Description, &e.Scope, &e.Overlay, &e.Status)
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+func (s *Store) ListExperiments(appID int64) ([]model.Experiment, error) {
+	rows, err := s.db().Query(
+		"SELECT id, app_id, name, description, scope, overlay, status FROM experiments WHERE app_id = ? ORDER BY name",
+		appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []model.Experiment
+	for rows.Next() {
+		var e model.Experiment
+		if err := rows.Scan(&e.ID, &e.AppID, &e.Name, &e.Description, &e.Scope, &e.Overlay, &e.Status); err != nil {
+			return nil, err
+		}
+		result = append(result, e)
+	}
+	return result, nil
+}
+
+func (s *Store) SetExperimentStatus(appID int64, name string, status string) error {
+	res, err := s.db().Exec(
+		"UPDATE experiments SET status = ? WHERE app_id = ? AND name = ?",
+		status, appID, name)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("experiment %q not found", name)
+	}
+	return nil
+}
+
+func (s *Store) DeleteExperiment(appID int64, name string) error {
+	res, err := s.db().Exec("DELETE FROM experiments WHERE app_id = ? AND name = ?", appID, name)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("experiment %q not found", name)
+	}
+	return nil
+}
+
+// --- v2: Entry Screen ---
+
+func (s *Store) SetEntryScreen(appID int64, name string) error {
+	// Verify screen exists
+	var id int64
+	err := s.db().QueryRow("SELECT id FROM screens WHERE app_id = ? AND name = ?", appID, name).Scan(&id)
+	if err != nil {
+		return fmt.Errorf("screen %q not found", name)
+	}
+	// Clear all entry flags for this app
+	if _, err := s.db().Exec("UPDATE screens SET entry = 0 WHERE app_id = ?", appID); err != nil {
+		return err
+	}
+	// Set the named screen as entry
+	_, err = s.db().Exec("UPDATE screens SET entry = 1 WHERE app_id = ? AND name = ?", appID, name)
+	return err
+}
+
+func (s *Store) GetEntryScreen(appID int64) (string, error) {
+	var name string
+	err := s.db().QueryRow("SELECT name FROM screens WHERE app_id = ? AND entry = 1", appID).Scan(&name)
+	if err != nil {
+		return "", fmt.Errorf("no entry screen set")
+	}
+	return name, nil
+}
+
+// --- v2: Component Schema CRUD ---
+
+func (s *Store) InsertComponentSchema(cs *model.ComponentSchema) error {
+	res, err := s.db().Exec("INSERT INTO component_schemas (app_id, name, props) VALUES (?, ?, ?)",
+		cs.AppID, cs.Name, cs.Props)
+	if err != nil {
+		return err
+	}
+	cs.ID, _ = res.LastInsertId()
+	return nil
+}
+
+func (s *Store) GetComponentSchema(appID int64, name string) (*model.ComponentSchema, error) {
+	var cs model.ComponentSchema
+	err := s.db().QueryRow("SELECT id, app_id, name, props FROM component_schemas WHERE app_id = ? AND name = ?", appID, name).
+		Scan(&cs.ID, &cs.AppID, &cs.Name, &cs.Props)
+	if err != nil {
+		return nil, err
+	}
+	return &cs, nil
+}
+
+func (s *Store) ListComponentSchemas(appID int64) ([]model.ComponentSchema, error) {
+	rows, err := s.db().Query("SELECT id, app_id, name, props FROM component_schemas WHERE app_id = ? ORDER BY name", appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []model.ComponentSchema
+	for rows.Next() {
+		var cs model.ComponentSchema
+		if err := rows.Scan(&cs.ID, &cs.AppID, &cs.Name, &cs.Props); err != nil {
+			return nil, err
+		}
+		result = append(result, cs)
+	}
+	return result, nil
+}
+
 
