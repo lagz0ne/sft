@@ -1078,12 +1078,12 @@ var rules = []rule{
 			return findings, nil
 		},
 	},
-	// Experiment scope invalid — scope does not resolve to an existing screen/region
+	// Experiment scope invalid — scope must be catalog, catalog.component, or screen.region
 	{
 		id:       "experiment-scope-invalid",
 		severity: Warning,
 		fn: func(db *sql.DB) ([]Finding, error) {
-			rows, err := db.Query("SELECT name, scope FROM experiments WHERE status = 'active'")
+			rows, err := db.Query("SELECT app_id, name, scope FROM experiments WHERE status = 'active'")
 			if err != nil {
 				return nil, err
 			}
@@ -1091,12 +1091,46 @@ var rules = []rule{
 
 			var findings []Finding
 			for rows.Next() {
+				var appID int64
 				var name, scope string
-				if err := rows.Scan(&name, &scope); err != nil {
+				if err := rows.Scan(&appID, &name, &scope); err != nil {
 					return nil, err
 				}
-				parts := strings.SplitN(scope, ".", 2)
-				screenName := parts[0]
+
+				if scope == "catalog" {
+					continue
+				}
+
+				if strings.HasPrefix(scope, "catalog.") {
+					componentName := strings.TrimPrefix(scope, "catalog.")
+					if componentName == "" {
+						findings = append(findings, Finding{
+							Message: fmt.Sprintf("experiment %q scope %q must reference a catalog component name", name, scope),
+						})
+						continue
+					}
+
+					var componentID int64
+					err := db.QueryRow(
+						"SELECT id FROM component_schemas WHERE app_id = ? AND name = ?",
+						appID, componentName,
+					).Scan(&componentID)
+					if err != nil {
+						findings = append(findings, Finding{
+							Message: fmt.Sprintf("experiment %q scope %q references unknown catalog component %q", name, scope, componentName),
+						})
+					}
+					continue
+				}
+
+				screenName, regionName, ok := strings.Cut(scope, ".")
+				if !ok || screenName == "" || regionName == "" {
+					findings = append(findings, Finding{
+						Message: fmt.Sprintf("experiment %q scope %q must be screen.region", name, scope),
+					})
+					continue
+				}
+
 				// Check screen exists
 				var screenID int64
 				err := db.QueryRow("SELECT id FROM screens WHERE name = ?", screenName).Scan(&screenID)
@@ -1106,16 +1140,12 @@ var rules = []rule{
 					})
 					continue
 				}
-				// If region specified, check it exists under that screen
-				if len(parts) == 2 {
-					regionName := parts[1]
-					var regionID int64
-					err := db.QueryRow("SELECT id FROM regions WHERE name = ? AND parent_type = 'screen' AND parent_id = ?", regionName, screenID).Scan(&regionID)
-					if err != nil {
-						findings = append(findings, Finding{
-							Message: fmt.Sprintf("experiment %q scope %q references unknown region %q in screen %q", name, scope, regionName, screenName),
-						})
-					}
+				var regionID int64
+				err = db.QueryRow("SELECT id FROM regions WHERE name = ? AND parent_type = 'screen' AND parent_id = ?", regionName, screenID).Scan(&regionID)
+				if err != nil {
+					findings = append(findings, Finding{
+						Message: fmt.Sprintf("experiment %q scope %q references unknown region %q in screen %q", name, scope, regionName, screenName),
+					})
 				}
 			}
 			return findings, nil

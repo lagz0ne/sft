@@ -73,3 +73,68 @@ func TestResolveEntityRefs(t *testing.T) {
 		t.Errorf("unknown ref = %q, want '$unknown'", result5)
 	}
 }
+
+func TestResolveEntityRefPaths(t *testing.T) {
+	pool := map[string]any{
+		"entity": map[string]any{
+			"title": "Pumpkin Soup",
+			"author": map[string]any{
+				"name": "Ada Lovelace",
+			},
+			"ingredients": []any{
+				map[string]any{"name": "Pumpkin"},
+				map[string]any{"name": "Salt"},
+			},
+		},
+	}
+
+	t.Run("one level", func(t *testing.T) {
+		result, err := resolveValue("$entity.title", pool, nil)
+		if err != nil {
+			t.Fatalf("resolve $entity.title: %v", err)
+		}
+		if result != "Pumpkin Soup" {
+			t.Fatalf("$entity.title = %v, want %q", result, "Pumpkin Soup")
+		}
+	})
+
+	t.Run("two levels", func(t *testing.T) {
+		result, err := resolveValue("$entity.author.name", pool, nil)
+		if err != nil {
+			t.Fatalf("resolve $entity.author.name: %v", err)
+		}
+		if result != "Ada Lovelace" {
+			t.Fatalf("$entity.author.name = %v, want %q", result, "Ada Lovelace")
+		}
+	})
+
+	t.Run("array access", func(t *testing.T) {
+		result, err := resolveValue("$entity.ingredients[0].name", pool, nil)
+		if err != nil {
+			t.Fatalf("resolve $entity.ingredients[0].name: %v", err)
+		}
+		if result != "Pumpkin" {
+			t.Fatalf("$entity.ingredients[0].name = %v, want %q", result, "Pumpkin")
+		}
+	})
+
+	t.Run("missing field", func(t *testing.T) {
+		_, err := resolveValue("$entity.missing", pool, nil)
+		if err == nil {
+			t.Fatal("expected missing field error, got nil")
+		}
+		if err.Error() != "entity ref $entity.missing: field 'missing' not found" {
+			t.Fatalf("error = %q", err.Error())
+		}
+	})
+
+	t.Run("unknown root passes through", func(t *testing.T) {
+		result, err := resolveValue("$unknown.field", pool, nil)
+		if err != nil {
+			t.Fatalf("resolve $unknown.field: %v", err)
+		}
+		if result != "$unknown.field" {
+			t.Fatalf("$unknown.field = %v, want %q", result, "$unknown.field")
+		}
+	})
+}

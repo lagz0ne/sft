@@ -1130,14 +1130,19 @@ func TestExperimentScopeInvalid_BadRegion(t *testing.T) {
 	}
 }
 
-func TestExperimentScopeInvalid_ValidScreen(t *testing.T) {
+func TestExperimentScopeInvalid_CatalogComponent(t *testing.T) {
 	s := setup(t)
 	appID := int64(1)
 
-	// Scope just a screen name — screen exists
+	if err := s.InsertComponentSchema(&model.ComponentSchema{
+		AppID: appID, Name: "recipe-card", Props: `{"title":"string"}`,
+	}); err != nil {
+		t.Fatalf("InsertComponentSchema: %v", err)
+	}
+
 	s.InsertExperiment(&model.Experiment{
 		AppID: appID, Name: "valid_exp",
-		Scope: "Main", Overlay: `{}`, Status: "active",
+		Scope: "catalog.recipe-card", Overlay: `{}`, Status: "active",
 	})
 
 	findings, err := Validate(s.DB)
@@ -1147,21 +1152,67 @@ func TestExperimentScopeInvalid_ValidScreen(t *testing.T) {
 
 	matched := findRule(findings, "experiment-scope-invalid")
 	if len(matched) != 0 {
-		t.Errorf("unexpected experiment-scope-invalid for valid screen scope: %v", matched)
+		t.Errorf("unexpected experiment-scope-invalid for valid catalog component scope: %v", matched)
+	}
+}
+
+func TestExperimentScopeInvalid_CatalogComponentMissing(t *testing.T) {
+	s := setup(t)
+	appID := int64(1)
+
+	s.InsertExperiment(&model.Experiment{
+		AppID: appID, Name: "missing_catalog_exp",
+		Scope: "catalog.nonexistent", Overlay: `{}`, Status: "active",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "experiment-scope-invalid")
+	if len(matched) == 0 {
+		t.Error("expected experiment-scope-invalid finding for unknown catalog component")
+	}
+}
+
+func TestExperimentScopeInvalid_CatalogAll(t *testing.T) {
+	s := setup(t)
+	appID := int64(1)
+
+	s.InsertExperiment(&model.Experiment{
+		AppID: appID, Name: "catalog_swap",
+		Scope: "catalog", Overlay: `{}`, Status: "active",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "experiment-scope-invalid")
+	if len(matched) != 0 {
+		t.Errorf("unexpected experiment-scope-invalid for bare catalog scope: %v", matched)
 	}
 }
 
 func TestExperimentScopeInvalid_ValidScreenAndRegion(t *testing.T) {
 	s := setup(t)
-	screenID, _ := s.ResolveScreen("Main")
 	appID := int64(1)
 
-	// Create a region under Main
-	s.InsertRegion(&model.Region{AppID: appID, ParentType: "screen", ParentID: screenID, Name: "sidebar", Description: "side"})
+	screen := &model.Screen{AppID: appID, Name: "dashboard", Description: "dashboard screen"}
+	if err := s.InsertScreen(screen); err != nil {
+		t.Fatalf("InsertScreen: %v", err)
+	}
+	if err := s.InsertRegion(&model.Region{
+		AppID: appID, ParentType: "screen", ParentID: screen.ID, Name: "kpi_strip", Description: "kpi strip",
+	}); err != nil {
+		t.Fatalf("InsertRegion: %v", err)
+	}
 
 	s.InsertExperiment(&model.Experiment{
 		AppID: appID, Name: "valid_exp",
-		Scope: "Main.sidebar", Overlay: `{}`, Status: "active",
+		Scope: "dashboard.kpi_strip", Overlay: `{}`, Status: "active",
 	})
 
 	findings, err := Validate(s.DB)
