@@ -482,6 +482,63 @@ func TestExperimentCRUD(t *testing.T) {
 	}
 }
 
+func TestCommitExperiment(t *testing.T) {
+	s := mustOpen(t)
+	a := seedApp(t, s)
+
+	// Create a screen with a region
+	sc := &model.Screen{AppID: a.ID, Name: "dash", Description: "dashboard"}
+	if err := s.InsertScreen(sc); err != nil {
+		t.Fatal(err)
+	}
+	r := &model.Region{AppID: a.ID, ParentType: "screen", ParentID: sc.ID, Name: "kpi", Description: "old desc"}
+	if err := s.InsertRegion(r); err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert experiment with overlay
+	ex := &model.Experiment{
+		AppID: a.ID, Name: "compact", Scope: "dash.kpi", Status: "active",
+		Overlay: `{"delivery":{"classes":["flex","gap-6"],"component":"card"},"description":"new desc"}`,
+	}
+	if err := s.InsertExperiment(ex); err != nil {
+		t.Fatal(err)
+	}
+
+	// Commit
+	if err := s.CommitExperiment(a.ID, "compact"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify status
+	got, _ := s.GetExperiment(a.ID, "compact")
+	if got.Status != "committed" {
+		t.Errorf("status = %q, want committed", got.Status)
+	}
+
+	// Verify region was updated
+	var desc, dcJSON, dcomp string
+	s.DB.QueryRow("SELECT description, delivery_classes, delivery_component FROM regions WHERE id = ?", r.ID).
+		Scan(&desc, &dcJSON, &dcomp)
+	if desc != "new desc" {
+		t.Errorf("description = %q, want 'new desc'", desc)
+	}
+	if dcomp != "card" {
+		t.Errorf("delivery_component = %q, want 'card'", dcomp)
+	}
+	if dcJSON != `["flex","gap-6"]` {
+		t.Errorf("delivery_classes = %q, want [\"flex\",\"gap-6\"]", dcJSON)
+	}
+}
+
+func TestCommitExperiment_NotFound(t *testing.T) {
+	s := mustOpen(t)
+	a := seedApp(t, s)
+	if err := s.CommitExperiment(a.ID, "nonexistent"); err == nil {
+		t.Error("expected error for missing experiment")
+	}
+}
+
 // --- v2: Entry Screen ---
 
 func TestEntryScreen(t *testing.T) {

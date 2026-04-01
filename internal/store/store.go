@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1681,6 +1682,121 @@ func (s *Store) DeleteExperiment(appID int64, name string) error {
 		return fmt.Errorf("experiment %q not found", name)
 	}
 	return nil
+}
+
+// CommitExperiment applies an experiment's overlay to its target region in the DB,
+// then marks the experiment as "committed".
+func (s *Store) CommitExperiment(appID int64, name string) error {
+	exp, err := s.GetExperiment(appID, name)
+	if err != nil {
+		return fmt.Errorf("experiment %q not found: %w", name, err)
+	}
+
+	// Parse scope: "screen.region" or "screen.parent.child"
+	parts := strings.SplitN(exp.Scope, ".", 2)
+	if len(parts) < 2 {
+		return fmt.Errorf("experiment %q: scope %q must be screen.region", name, exp.Scope)
+	}
+	regionName := parts[len(parts)-1]
+	parentName := parts[0]
+	// For "screen.parent.child", walk to the last segment
+	scopeParts := strings.Split(exp.Scope, ".")
+	if len(scopeParts) > 2 {
+		regionName = scopeParts[len(scopeParts)-1]
+		parentName = scopeParts[len(scopeParts)-2]
+	}
+
+	regionID, err := s.ResolveRegionIn(regionName, parentName)
+	if err != nil {
+		return fmt.Errorf("experiment %q: cannot resolve region: %w", name, err)
+	}
+
+	// Parse overlay JSON
+	var overlay map[string]any
+	if err := json.Unmarshal([]byte(exp.Overlay), &overlay); err != nil {
+		return fmt.Errorf("experiment %q: invalid overlay JSON: %w", name, err)
+	}
+
+	// Apply each overlay key to the DB
+	if delivery, ok := overlay["delivery"]; ok {
+		if dm, ok := delivery.(map[string]any); ok {
+			if classes, ok := dm["classes"]; ok {
+				classesJSON, _ := json.Marshal(classes)
+				if _, err := s.db().Exec("UPDATE regions SET delivery_classes = ? WHERE id = ?", string(classesJSON), regionID); err != nil {
+					return err
+				}
+			}
+			if comp, ok := dm["component"]; ok {
+				if cs, ok := comp.(string); ok {
+					if _, err := s.db().Exec("UPDATE regions SET delivery_component = ? WHERE id = ?", cs, regionID); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+	if discovery, ok := overlay["discovery"]; ok {
+		if dm, ok := discovery.(map[string]any); ok {
+			if layout, ok := dm["layout"]; ok {
+				layoutJSON, _ := json.Marshal(layout)
+				if _, err := s.db().Exec("UPDATE regions SET discovery_layout = ? WHERE id = ?", string(layoutJSON), regionID); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if comp, ok := overlay["component"]; ok {
+		if cs, ok := comp.(string); ok {
+			if _, err := s.db().Exec(
+				`INSERT INTO components (entity_type, entity_id, component, props, on_actions, visible)
+				 VALUES ('region', ?, ?, '', '', '')
+				 ON CONFLICT(entity_type, entity_id) DO UPDATE SET component = excluded.component`,
+				regionID, cs); err != nil {
+				return err
+			}
+		}
+	}
+	if props, ok := overlay["props"]; ok {
+		var propsStr string
+		switch p := props.(type) {
+		case string:
+			propsStr = p
+		default:
+			b, _ := json.Marshal(p)
+			propsStr = string(b)
+		}
+		if _, err := s.db().Exec(
+			`INSERT INTO components (entity_type, entity_id, component, props, on_actions, visible)
+			 VALUES ('region', ?, '', ?, '', '')
+			 ON CONFLICT(entity_type, entity_id) DO UPDATE SET props = excluded.props`,
+			regionID, propsStr); err != nil {
+			return err
+		}
+	}
+	if desc, ok := overlay["description"]; ok {
+		if ds, ok := desc.(string); ok {
+			if _, err := s.db().Exec("UPDATE regions SET description = ? WHERE id = ?", ds, regionID); err != nil {
+				return err
+			}
+		}
+	}
+	if tags, ok := overlay["tags"]; ok {
+		if tagList, ok := tags.([]any); ok {
+			// Replace all tags: delete existing, insert new
+			if _, err := s.db().Exec("DELETE FROM tags WHERE entity_type = 'region' AND entity_id = ?", regionID); err != nil {
+				return err
+			}
+			for _, tag := range tagList {
+				if ts, ok := tag.(string); ok {
+					if _, err := s.db().Exec("INSERT INTO tags (entity_type, entity_id, tag) VALUES ('region', ?, ?)", regionID, ts); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+
+	return s.SetExperimentStatus(appID, name, "committed")
 }
 
 // --- v2: Entry Screen ---
