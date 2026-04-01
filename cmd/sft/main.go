@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
 	"strings"
 
@@ -16,8 +15,6 @@ import (
 	"github.com/lagz0ne/sft/internal/show"
 	"github.com/lagz0ne/sft/internal/store"
 	"github.com/lagz0ne/sft/internal/validator"
-	"github.com/lagz0ne/sft/internal/view"
-	"github.com/lagz0ne/sft/web"
 )
 
 var version = "dev"
@@ -1017,37 +1014,8 @@ func runCat(s *store.Store, args []string) {
 // --- view ---
 
 func runView(s *store.Store, args []string) {
-	// Check for empty spec before starting server
-	if _, err := s.ResolveApp(); err != nil {
-		die("no spec found in %s — import one first:\n  sft import spec.yaml\n  sft add app MyApp \"description\"", store.DefaultPath())
-	}
-
-	var port int
-	var webDir string
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--port":
-			if i+1 < len(args) {
-				fmt.Sscanf(args[i+1], "%d", &port)
-				i++
-			}
-		case "--web-dir":
-			if i+1 < len(args) {
-				webDir = args[i+1]
-				i++
-			}
-		}
-	}
-
-	var clientFS fs.FS = web.ClientFS
-	if webDir != "" {
-		clientFS = os.DirFS(webDir)
-	}
-
-	srv := view.NewServer(s, view.Options{Port: port, ClientFS: clientFS})
-	if err := srv.Start(); err != nil {
-		die("view: %v", err)
-	}
+	fmt.Fprintln(os.Stderr, "viewer not available — rebuild in progress")
+	os.Exit(1)
 }
 
 // --- diagram ---

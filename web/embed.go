@@ -1,12 +1,7 @@
 package web
 
-import (
-	"embed"
-	"io/fs"
-)
+import "io/fs"
 
-//go:embed all:apps/web/dist/client
-var dist embed.FS
-
-// ClientFS is the SPA root (contains _shell.html + assets/).
-var ClientFS, _ = fs.Sub(dist, "apps/web/dist/client")
+// ClientFS is nil — the viewer frontend is not bundled in this build.
+// It will be rebuilt separately for v2.
+var ClientFS fs.FS
