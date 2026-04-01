@@ -1,0 +1,973 @@
+app:
+  name: tinhte
+  description: "Tinhte.vn — Vietnamese tech community. Social Q&A, reviews, tech news."
+
+  enums:
+    article_category: [cong_nghe, di_dong, may_tinh, am_thanh, xe, nha_dat, lap_trinh, khoa_hoc, game, doi_song]
+    fact_status: [active, expired]
+    ad_format: [banner_300x250, banner_728x90, native_inline, sticky_sidebar]
+
+  data:
+    author:
+      name: string
+      avatar_url: string
+      follower_count: number?
+      post_count: number?
+    article:
+      title: string
+      excerpt: string?
+      thumbnail_url: string
+      category: article_category
+      author: author
+      published_at: datetime
+      comment_count: number
+      is_sponsored: boolean
+    fact:
+      author: author
+      image_url: string
+      caption: string?
+      status: fact_status
+      created_at: datetime
+    category:
+      name: string
+      slug: string
+      icon: string?
+      subscriber_count: number?
+    tag:
+      name: string
+      slug: string
+      icon: string?
+    comment:
+      author: author
+      body: string
+      created_at: datetime
+      like_count: number
+      replies: comment[]?
+    ad:
+      title: string
+      image_url: string
+      format: ad_format
+      sponsor: string
+      click_url: string
+
+  context:
+    current_user: author?
+
+  fixtures:
+    homepage_full:
+      homepage:
+        facts:
+          - { author: { name: "Cuong NB", avatar_url: "/avatars/cuongnb.jpg" }, image_url: "/facts/1.jpg", caption: "Trai nghiem Galaxy Ring 2", status: "active", created_at: "2026-03-30T08:00:00Z" }
+          - { author: { name: "luong binh", avatar_url: "/avatars/luongbinh.jpg" }, image_url: "/facts/2.jpg", caption: "Setup ban lam viec 2026", status: "active", created_at: "2026-03-30T07:30:00Z" }
+          - { author: { name: "thinervk", avatar_url: "/avatars/thinervk.jpg" }, image_url: "/facts/3.jpg", caption: "Review Xiaomi 16 Ultra", status: "active", created_at: "2026-03-30T06:00:00Z" }
+          - { author: { name: "cuhiep", avatar_url: "/avatars/cuhiep.jpg" }, image_url: "/facts/4.jpg", caption: "Mac Studio M5 unbox", status: "active", created_at: "2026-03-29T22:00:00Z" }
+          - { author: { name: "Thietbicongnghe", avatar_url: "/avatars/tbcn.jpg" }, image_url: "/facts/5.jpg", caption: "Camera Fujifilm X-T6", status: "active", created_at: "2026-03-29T20:00:00Z" }
+          - { author: { name: "Dong muc", avatar_url: "/avatars/dongmuc.jpg" }, image_url: "/facts/6.jpg", caption: "Thu muc in 3D kim loai", status: "active", created_at: "2026-03-29T18:00:00Z" }
+          - { author: { name: "Cao - Foxtek", avatar_url: "/avatars/foxtek.jpg" }, image_url: "/facts/7.jpg", caption: "So sanh tai nghe TWS 2026", status: "active", created_at: "2026-03-29T15:00:00Z" }
+        hero_article:
+          title: "Anh em co biet: cap ngam co the nghe ngong cac moi de doa de ngan chan hanh vi pha hoai"
+          excerpt: "Cac tuyen cap ngam duoi dai duong khong chi truyen du lieu ma con co the phat hien song dia chan, hoat dong nui lua va nhieu moi de doa khac"
+          thumbnail_url: "/articles/hero-cap-ngam.jpg"
+          category: "khoa_hoc"
+          author: { name: "nhatminhngo", avatar_url: "/avatars/nhatminhngo.jpg" }
+          published_at: "2026-03-30T10:00:00Z"
+          comment_count: 45
+          is_sponsored: false
+        featured_articles:
+          - title: "Trai nghiem nhanh Galaxy S26 Ultra tai My"
+            thumbnail_url: "/articles/s26-ultra.jpg"
+            category: "di_dong"
+            author: { name: "Anh Thi", avatar_url: "/avatars/anhthi.jpg" }
+            published_at: "2026-03-30T08:00:00Z"
+            comment_count: 89
+            is_sponsored: false
+          - title: "Hai boi tham doan o My vua ket luan rang Instagram va YouTube gay hai cho tre vi thanh nien"
+            thumbnail_url: "/articles/instagram-youtube.jpg"
+            category: "cong_nghe"
+            author: { name: "nhatminhngo", avatar_url: "/avatars/nhatminhngo.jpg" }
+            published_at: "2026-03-30T05:00:00Z"
+            comment_count: 234
+            is_sponsored: false
+          - title: "Khi BMW lap ky luc ve thoi gian drift dai nhat, xung dang duoc ghi nhan"
+            thumbnail_url: "/articles/bmw-drift.jpg"
+            category: "xe"
+            author: { name: "cuhiep", avatar_url: "/avatars/cuhiep.jpg" }
+            published_at: "2026-03-30T03:00:00Z"
+            comment_count: 67
+            is_sponsored: false
+        top_articles:
+          - title: "Tinhte Rewards: Choi minigame nhan qua"
+            comment_count: 158
+            author: { name: "Gaohong", avatar_url: "/avatars/gaohong.jpg" }
+            published_at: "2026-03-29T10:00:00Z"
+            is_sponsored: false
+          - title: "Chuyen di lich su: mot xe tai cho thanh cong phan vat chat tu Trai Dat len ISS"
+            comment_count: 92
+            author: { name: "Frozen Cat", avatar_url: "/avatars/frozencat.jpg" }
+            published_at: "2026-03-29T08:00:00Z"
+            is_sponsored: false
+          - title: "Hanh trinh tu Wi-Fi Direct den chia se file da thiet bi tren Android cua Google"
+            comment_count: 67
+            author: { name: "Le Q Khanh", avatar_url: "/avatars/leqkhanh.jpg" }
+            published_at: "2026-03-28T14:00:00Z"
+            is_sponsored: false
+          - title: "Hinh anh Lac Xoong Tinhte 2026"
+            comment_count: 45
+            author: { name: "Gaohong", avatar_url: "/avatars/gaohong.jpg" }
+            published_at: "2026-03-28T10:00:00Z"
+            is_sponsored: false
+        feed_articles:
+          - title: "OPPO co kha nang gioi thieu tablet nho gon OPPO Pad Mini?"
+            excerpt: "OPPO co kha nang gioi thieu tablet nho gon OPPO Pad Mini vao ngay 28/3/2026, san pham duoc cho la se canh tranh voi iPad Mini"
+            thumbnail_url: "/articles/oppo-pad.jpg"
+            category: "di_dong"
+            author: { name: "Cao - Foxtek", avatar_url: "/avatars/foxtek.jpg" }
+            published_at: "2026-03-30T09:00:00Z"
+            comment_count: 23
+            is_sponsored: false
+          - title: "Cac nha toan hoc khong the thong nhat lieu 0.999... co bang 1 hay khong"
+            excerpt: "Cuoc tranh luan keo dai hang the ky ve viec 0.999... co thuc su bang 1 van chua co hoi ket"
+            thumbnail_url: "/articles/math-099.jpg"
+            category: "khoa_hoc"
+            author: { name: "Le Q Khanh", avatar_url: "/avatars/leqkhanh.jpg" }
+            published_at: "2026-03-30T07:00:00Z"
+            comment_count: 87
+            is_sponsored: false
+          - title: "Apple phat trien Swift cho Android, lieu co kha thi?"
+            excerpt: "Apple dang tham do kha nang mang ngon ngu lap trinh Swift sang nen tang Android de mo rong he sinh thai"
+            thumbnail_url: "/articles/swift-android.jpg"
+            category: "lap_trinh"
+            author: { name: "nhatminhngo", avatar_url: "/avatars/nhatminhngo.jpg" }
+            published_at: "2026-03-30T04:00:00Z"
+            comment_count: 134
+            is_sponsored: false
+          - title: "[OC] Mang Kinh doanh Doanh nghiep cua Trend Micro chinh thuc doi ten thanh TrendAI"
+            excerpt: "Trend Micro cong bo viec doi ten mang kinh doanh doanh nghiep thanh TrendAI, phan anh chien luoc AI-first"
+            thumbnail_url: "/articles/trendai.jpg"
+            category: "cong_nghe"
+            author: { name: "TrendAI", avatar_url: "/avatars/trendai.jpg" }
+            published_at: "2026-03-30T06:00:00Z"
+            comment_count: 12
+            is_sponsored: true
+        trending_tags:
+          - { name: "iOS", slug: "ios", icon: "apple" }
+          - { name: "Samsung", slug: "samsung", icon: "smartphone" }
+          - { name: "Windows", slug: "windows", icon: "monitor" }
+          - { name: "Android", slug: "android", icon: "smartphone" }
+          - { name: "AI", slug: "ai", icon: "brain" }
+          - { name: "Xiaomi", slug: "xiaomi", icon: "smartphone" }
+          - { name: "Apple", slug: "apple", icon: "apple" }
+        sidebar_articles:
+          - { title: "Tu tao kho luu tru mat khau rieng thong qua Bitwarden", author: { name: "Frozen Cat" }, published_at: "2026-03-29" }
+          - { title: "Cach quan ly thong bao tren macOS Tahoe 26", author: { name: "Le Q Khanh" }, published_at: "2026-03-28" }
+          - { title: "Ba manh don gian de anh em dung PC giua troi nang", author: { name: "Gaohong" }, published_at: "2026-03-27" }
+          - { title: "#Tet26: Mot so thu thuat boi tri giup cho ban lam viec", author: { name: "cuhiep" }, published_at: "2026-03-26" }
+          - { title: "Neu dang dung Android thi ban dung bo qua 5 ung dung nay", author: { name: "nhatminhngo" }, published_at: "2026-03-25" }
+        ads:
+          - { title: "Diamond Noi That Mat Tien QL13", image_url: "/ads/diamond.jpg", format: "banner_300x250", sponsor: "Diamond Group", click_url: "#" }
+          - { title: "FPT Shop - Galaxy S26 Ultra", image_url: "/ads/fptshop.jpg", format: "banner_728x90", sponsor: "FPT Shop", click_url: "#" }
+        categories:
+          - { name: "Xe", slug: "xe", subscriber_count: 45000 }
+          - { name: "Dap Xe", slug: "dap-xe", subscriber_count: 12000 }
+          - { name: "Do gia dung", slug: "do-gia-dung", subscriber_count: 23000 }
+          - { name: "Thi truong", slug: "thi-truong", subscriber_count: 67000 }
+          - { name: "Nha dat", slug: "nha-dat", subscriber_count: 34000 }
+          - { name: "Thu cung", slug: "thu-cung", subscriber_count: 18000 }
+          - { name: "Do HIFI", slug: "do-hifi", subscriber_count: 8000 }
+          - { name: "Phan mem", slug: "phan-mem", subscriber_count: 56000 }
+
+  regions:
+    - name: header
+      tags: [header]
+      description: "Sticky top bar — logo, search, user actions"
+      delivery:
+        classes: [sticky, top-0, z-50, bg-white, border-b, border-gray-200, shadow-sm]
+      regions:
+        - name: logo
+          component: text
+          props: '{"content": "tinh te", "level": 1}'
+          delivery:
+            classes: [text-2xl, font-bold, text-blue-600, tracking-tight, cursor-pointer]
+        - name: search_bar
+          component: input
+          props: '{"placeholder": "Tim san pham cong nghe, cong dong", "type": "search"}'
+          delivery:
+            classes: [flex-1, max-w-xl, h-10, rounded-full, bg-gray-100, border, border-gray-200, px-5, text-sm]
+        - name: btn_notifications
+          component: button
+          props: '{"label": "Thong bao", "variant": "ghost"}'
+          delivery:
+            classes: [w-9, h-9, rounded-full, text-gray-500, hover:bg-gray-100]
+        - name: btn_create
+          component: button
+          props: '{"label": "Tao bai viet", "variant": "primary"}'
+          delivery:
+            classes: [bg-blue-500, text-white, rounded-full, px-4, py-1.5, text-sm, font-medium, hover:bg-blue-600]
+        - name: user_avatar
+          component: image
+          props: '{"aspect": "1:1", "alt": "User avatar"}'
+          delivery:
+            classes: [w-8, h-8, rounded-full, object-cover, cursor-pointer]
+
+  screens:
+    # ─── HOMEPAGE ────────────────────────────────────────────────────
+    - name: homepage
+      description: "Main feed — stories, hero zone, article stream, sidebar ads"
+      context:
+        facts: fact[]
+        hero_article: article
+        featured_articles: article[]
+        top_articles: article[]
+        feed_articles: article[]
+        trending_tags: tag[]
+        sidebar_articles: article[]
+        ads: ad[]
+        categories: category[]
+      state_machine:
+        browsing:
+          fixture: homepage_full
+          on:
+            select_article: navigate(article_detail)
+            select_fact: navigate(fact_viewer)
+            select_category: navigate(category_page)
+            search: navigate(search_results)
+
+      regions:
+        # --- Story carousel (banner) ---
+        - name: tinhte_fact
+          tags: [banner]
+          description: "Story carousel — circular avatars with horizontal scroll"
+          ambient:
+            facts: "data(homepage, .facts)"
+          delivery:
+            classes: [bg-gradient-to-r, from-blue-500, via-blue-600, to-indigo-600, rounded-xl, px-4, py-4, my-4, max-w-6xl, mx-auto]
+          regions:
+            - name: create_fact_btn
+              description: "Create new fact entry"
+              regions:
+                - name: create_fact_circle
+                  component: button
+                  props: '{"label": "+", "variant": "ghost"}'
+                  delivery:
+                    classes: [w-16, h-16, rounded-full, border-2, border-dashed, border-white/60, text-white, text-2xl]
+                - name: create_fact_label
+                  component: text
+                  props: '{"content": "Tao fact", "level": 6}'
+                  delivery:
+                    classes: [text-white/80, "text-[10px]", font-medium, text-center]
+            - name: fact_user_1
+              description: "Story avatar — Cuong NB"
+              regions:
+                - name: fact_avatar_1
+                  component: image
+                  props: '{"aspect": "1:1", "alt": "Cuong NB"}'
+                  delivery:
+                    classes: [w-16, h-16, rounded-full, object-cover, ring-3, ring-white/40]
+                - name: fact_name_1
+                  component: text
+                  props: '{"content": "Cuong NB", "level": 6}'
+                  delivery:
+                    classes: [text-white/90, "text-[10px]", font-medium, text-center, w-16, truncate]
+            - name: fact_user_2
+              description: "Story avatar — luong binh"
+              regions:
+                - name: fact_avatar_2
+                  component: image
+                  props: '{"aspect": "1:1", "alt": "luong binh"}'
+                  delivery:
+                    classes: [w-16, h-16, rounded-full, object-cover, ring-3, ring-white/40]
+                - name: fact_name_2
+                  component: text
+                  props: '{"content": "luong binh", "level": 6}'
+                  delivery:
+                    classes: [text-white/90, "text-[10px]", font-medium, text-center, w-16, truncate]
+            - name: fact_user_3
+              description: "Story avatar — thinervk"
+              regions:
+                - name: fact_avatar_3
+                  component: image
+                  props: '{"aspect": "1:1", "alt": "thinervk"}'
+                  delivery:
+                    classes: [w-16, h-16, rounded-full, object-cover, ring-3, ring-white/40]
+                - name: fact_name_3
+                  component: text
+                  props: '{"content": "thinervk", "level": 6}'
+                  delivery:
+                    classes: [text-white/90, "text-[10px]", font-medium, text-center, w-16, truncate]
+
+        # --- Hero zone (3-column: spec | hero | quick view) ---
+        - name: hero_zone
+          tags: [main]
+          description: "3-column hero layout: spec sheet | hero article | quick view"
+          delivery:
+            classes: [grid, grid-cols-12, gap-4, my-4, max-w-6xl, mx-auto]
+          regions:
+            - name: product_spec_sheet
+              description: "iPhone 17 spec sheet — left column"
+              delivery:
+                classes: [col-span-3, bg-white, rounded-xl, border, border-gray-100, shadow-sm]
+              regions:
+                - name: spec_product_image
+                  component: image
+                  props: '{"aspect": "4:3", "alt": "iPhone 17 render"}'
+                  delivery:
+                    classes: [w-full, rounded-lg, object-cover]
+                - name: spec_product_name
+                  component: text
+                  props: '{"content": "iPhone 17 Pro Max", "level": 4}'
+                  delivery:
+                    classes: [text-sm, font-bold, text-gray-800]
+                - name: spec_list
+                  component: card
+                  props: '{"items": ["Thiet ke uniform moi", "Dynamic Island nho hon", "Face ID an duoi man hinh", "CPU Apple A20 (2nm)", "Modem Apple C2", "Camera do khau do vat ly"]}'
+                  delivery:
+                    classes: [px-3, py-2.5, space-y-2, text-xs, text-gray-600]
+                - name: spec_cta
+                  component: button
+                  props: '{"label": "Xem chi tiet", "variant": "ghost"}'
+                  delivery:
+                    classes: [w-full, text-center, text-xs, text-blue-600, font-medium, py-2, border-t, border-gray-100]
+
+            - name: hero_article
+              description: "Large featured article — center column"
+              delivery:
+                classes: [col-span-6, relative, rounded-xl, overflow-hidden, bg-black, cursor-pointer]
+              regions:
+                - name: hero_image
+                  component: image
+                  props: '{"aspect": "16:9", "alt": "Cap ngam nghe ngong de doa"}'
+                  delivery:
+                    classes: [w-full, h-full, object-cover, opacity-80]
+                - name: hero_title
+                  component: text
+                  props: '{"content": "Anh em co biet: cap ngam co the nghe ngong cac moi de doa de ngan chan hanh vi pha hoai", "level": 2}'
+                  delivery:
+                    classes: [text-white, text-xl, font-bold, leading-tight, drop-shadow-lg]
+                - name: hero_author
+                  component: text
+                  props: '{"content": "nhatminhngo · 3 gio truoc · 42 binh luan", "level": 6}'
+                  delivery:
+                    classes: [text-white/70, text-xs]
+
+            - name: quick_view
+              description: "'Xem nhanh' sidebar — right column"
+              delivery:
+                classes: [col-span-3, bg-white, rounded-xl, border, border-gray-100, shadow-sm]
+              regions:
+                - name: quick_view_heading
+                  component: text
+                  props: '{"content": "Xem nhanh", "level": 3}'
+                  delivery:
+                    classes: [text-sm, font-bold, text-gray-800, px-3, py-2.5, border-b, border-gray-100, bg-gray-50]
+                - name: quick_view_list
+                  component: card
+                  props: '{"items": ["Samsung Galaxy S22/S23/S24 duoc cap nhat One UI 8", "Robot cua Trung Quoc da thay doi the gioi", "Xiaomi gioi thieu san pham moi thang 4/2026", "Sony Xperia 1 VIII thiet ke moi", "Google Maps hien thi gioi han toc do tai VN"]}'
+                  delivery:
+                    classes: [divide-y, divide-gray-50, text-xs, text-gray-700]
+
+        # --- Featured grid (3 article cards) ---
+        - name: featured_grid
+          tags: [main]
+          description: "3 featured article cards in grid"
+          ambient:
+            articles: "data(homepage, .featured_articles)"
+          delivery:
+            classes: [grid, grid-cols-3, gap-4, my-4, max-w-6xl, mx-auto]
+          regions:
+            - name: featured_1
+              description: "Galaxy S26 Ultra review card"
+              delivery:
+                classes: [bg-white, rounded-xl, overflow-hidden, border, border-gray-100, shadow-sm, cursor-pointer]
+              regions:
+                - name: featured_1_image
+                  component: image
+                  props: '{"aspect": "16:10", "alt": "Galaxy S26 Ultra hands-on"}'
+                  delivery:
+                    classes: [w-full, aspect-video, object-cover]
+                - name: featured_1_title
+                  component: text
+                  props: '{"content": "Trai nghiem nhanh Galaxy S26 Ultra tai My: thiet ke sieu mong, camera AI", "level": 4}'
+                  delivery:
+                    classes: [text-sm, font-semibold, text-gray-800, line-clamp-2, p-3]
+                - name: featured_1_meta
+                  component: text
+                  props: '{"content": "Gaohong · 5 gio truoc", "level": 6}'
+                  delivery:
+                    classes: [text-xs, text-gray-500, px-3, pb-3]
+            - name: featured_2
+              description: "Instagram YouTube article card"
+              delivery:
+                classes: [bg-white, rounded-xl, overflow-hidden, border, border-gray-100, shadow-sm, cursor-pointer]
+              regions:
+                - name: featured_2_image
+                  component: image
+                  props: '{"aspect": "16:10", "alt": "Instagram YouTube trial"}'
+                  delivery:
+                    classes: [w-full, aspect-video, object-cover]
+                - name: featured_2_title
+                  component: text
+                  props: '{"content": "Hai boi tham doan o My ket luan Instagram va YouTube gay hai cho tre em", "level": 4}'
+                  delivery:
+                    classes: [text-sm, font-semibold, text-gray-800, line-clamp-2, p-3]
+                - name: featured_2_meta
+                  component: text
+                  props: '{"content": "Le Q Khanh · 8 gio truoc", "level": 6}'
+                  delivery:
+                    classes: [text-xs, text-gray-500, px-3, pb-3]
+            - name: featured_3
+              description: "BMW drift record card"
+              delivery:
+                classes: [bg-white, rounded-xl, overflow-hidden, border, border-gray-100, shadow-sm, cursor-pointer]
+              regions:
+                - name: featured_3_image
+                  component: image
+                  props: '{"aspect": "16:10", "alt": "BMW drift record"}'
+                  delivery:
+                    classes: [w-full, aspect-video, object-cover]
+                - name: featured_3_title
+                  component: text
+                  props: '{"content": "Khi BMW lap ky luc ve thoi gian drift dai nhat, xung dang duoc ghi nhan", "level": 4}'
+                  delivery:
+                    classes: [text-sm, font-semibold, text-gray-800, line-clamp-2, p-3]
+                - name: featured_3_meta
+                  component: text
+                  props: '{"content": "Frozen Cat · 12 gio truoc", "level": 6}'
+                  delivery:
+                    classes: [text-xs, text-gray-500, px-3, pb-3]
+
+        # --- Top posts (numbered #1-4) ---
+        - name: top_posts
+          tags: [main]
+          description: "'Bai noi bat' — numbered top posts"
+          ambient:
+            articles: "data(homepage, .top_articles)"
+          delivery:
+            classes: [bg-white, rounded-xl, border, border-gray-100, shadow-sm, p-4, max-w-6xl, mx-auto, my-4]
+          regions:
+            - name: top_post_heading
+              component: text
+              props: '{"content": "Bai noi bat", "level": 3}'
+              delivery:
+                classes: [text-base, font-bold, text-gray-800, mb-3]
+            - name: top_post_list
+              component: card
+              props: '{"items": ["1. Tinhte Rewards: Choi minigame nhan qua · 128 binh luan", "2. Chuyen di lich su: xe tai cho vat chat len ISS · 86 binh luan", "3. Hanh trinh tu Wi-Fi Direct den chia se file da thiet bi · 64 binh luan", "4. Hinh anh Lac Xoong Tinhte 2026 · 52 binh luan"]}'
+              delivery:
+                classes: [grid, grid-cols-2, gap-3]
+
+        # --- Article feed (main content) ---
+        - name: article_feed
+          tags: [main]
+          description: "Main article feed — horizontal card layout"
+          ambient:
+            articles: "data(homepage, .feed_articles)"
+          delivery:
+            classes: [space-y-3, max-w-6xl, mx-auto]
+          regions:
+            - name: feed_article_1
+              description: "OPPO Pad Mini article"
+              delivery:
+                classes: [bg-white, rounded-xl, border, border-gray-100, shadow-sm, p-4, flex, gap-4, cursor-pointer]
+              regions:
+                - name: feed_1_image
+                  component: image
+                  props: '{"aspect": "4:3", "alt": "OPPO Pad Mini tablet"}'
+                  delivery:
+                    classes: [w-36, h-24, rounded-lg, object-cover, shrink-0]
+                - name: feed_1_title
+                  component: text
+                  props: '{"content": "OPPO co kha nang gioi thieu tablet nho gon OPPO Pad Mini voi man hinh 8.8 inch", "level": 4}'
+                  delivery:
+                    classes: [text-sm, font-semibold, text-gray-800, line-clamp-2]
+                - name: feed_1_excerpt
+                  component: text
+                  props: '{"content": "OPPO dang chuan bi gioi thieu chiec tablet nho gon OPPO Pad Mini...", "level": 6}'
+                  delivery:
+                    classes: [text-xs, text-gray-500, line-clamp-2, mt-1]
+                - name: feed_1_meta
+                  component: text
+                  props: '{"content": "Cao - Foxtek · 2 gio truoc · 24 binh luan", "level": 6}'
+                  delivery:
+                    classes: [text-xs, text-gray-400, mt-auto]
+            - name: feed_article_2
+              description: "Math 0.999 = 1 debate"
+              delivery:
+                classes: [bg-white, rounded-xl, border, border-gray-100, shadow-sm, p-4, flex, gap-4, cursor-pointer]
+              regions:
+                - name: feed_2_image
+                  component: image
+                  props: '{"aspect": "4:3", "alt": "Math equation 0.999"}'
+                  delivery:
+                    classes: [w-36, h-24, rounded-lg, object-cover, shrink-0]
+                - name: feed_2_title
+                  component: text
+                  props: '{"content": "Cac nha toan hoc khong the thong nhat lieu 0.999... co bang 1 hay khong", "level": 4}'
+                  delivery:
+                    classes: [text-sm, font-semibold, text-gray-800, line-clamp-2]
+                - name: feed_2_meta
+                  component: text
+                  props: '{"content": "Le Q Khanh · 6 gio truoc · 89 binh luan", "level": 6}'
+                  delivery:
+                    classes: [text-xs, text-gray-400, mt-auto]
+            - name: feed_sponsored
+              description: "[OC] TrendAI sponsored post"
+              delivery:
+                classes: [bg-amber-50/50, rounded-xl, border, border-amber-200/60, p-4, flex, gap-4, relative]
+              regions:
+                - name: sponsored_badge
+                  component: text
+                  props: '{"content": "Tai tro", "level": 6}'
+                  delivery:
+                    classes: [absolute, top-2, right-3, "text-[9px]", font-medium, text-amber-600, bg-amber-100, px-1.5, py-0.5, rounded]
+                - name: sponsored_logo
+                  component: image
+                  props: '{"aspect": "1:1", "alt": "TrendAI logo"}'
+                  delivery:
+                    classes: [w-20, h-20, rounded-lg, object-contain, shrink-0, bg-white, border, border-amber-100]
+                - name: sponsored_title
+                  component: text
+                  props: '{"content": "[OC] Mang Kinh doanh Doanh nghiep cua Trend Micro doi ten thanh TrendAI", "level": 4}'
+                  delivery:
+                    classes: [text-sm, font-semibold, text-amber-900, line-clamp-2]
+            - name: feed_article_3
+              description: "Swift for Android article"
+              delivery:
+                classes: [bg-white, rounded-xl, border, border-gray-100, shadow-sm, p-4, flex, gap-4, cursor-pointer]
+              regions:
+                - name: feed_3_image
+                  component: image
+                  props: '{"aspect": "4:3", "alt": "Swift Android"}'
+                  delivery:
+                    classes: [w-36, h-24, rounded-lg, object-cover, shrink-0]
+                - name: feed_3_title
+                  component: text
+                  props: '{"content": "Apple phat trien Swift cho Android, lieu co kha thi?", "level": 4}'
+                  delivery:
+                    classes: [text-sm, font-semibold, text-gray-800, line-clamp-2]
+                - name: feed_3_meta
+                  component: text
+                  props: '{"content": "nhatminhngo · 10 gio truoc · 134 binh luan", "level": 6}'
+                  delivery:
+                    classes: [text-xs, text-gray-400, mt-auto]
+
+        # --- Sidebar: ad primary ---
+        - name: ad_sidebar_primary
+          tags: [aside]
+          component: image
+          props: '{"aspect": "1:1", "alt": "Ad: Diamond Noi That Mat Tien QL13"}'
+          description: "Display ad — real estate"
+          delivery:
+            classes: [rounded-xl, overflow-hidden, shadow-sm, border, border-gray-100]
+
+        # --- Sidebar: trending tags ---
+        - name: trending_tags
+          tags: [aside]
+          description: "'#TAG DANG HOT#' — trending topic pills"
+          ambient:
+            tags: "data(homepage, .trending_tags)"
+          delivery:
+            classes: [bg-white, rounded-xl, border, border-gray-100, shadow-sm, p-4]
+          regions:
+            - name: tag_heading
+              component: text
+              props: '{"content": "#TAG DANG HOT#", "level": 4}'
+              delivery:
+                classes: [text-xs, font-bold, text-gray-400, mb-3, uppercase, tracking-widest]
+            - name: tag_pills
+              component: card
+              props: '{"items": ["iOS", "Samsung", "Windows", "Android", "AI", "Xiaomi", "Apple"]}'
+              delivery:
+                classes: [flex, flex-wrap, gap-2]
+
+        # --- Sidebar: popular article list ---
+        - name: sidebar_article_list
+          tags: [aside]
+          description: "'Doc nhieu' — compact article list"
+          ambient:
+            articles: "data(homepage, .sidebar_articles)"
+          delivery:
+            classes: [bg-white, rounded-xl, border, border-gray-100, shadow-sm, overflow-hidden]
+          regions:
+            - name: sidebar_list_heading
+              component: text
+              props: '{"content": "Doc nhieu", "level": 4}'
+              delivery:
+                classes: [text-sm, font-bold, text-gray-800, px-4, py-3, border-b, border-gray-100, bg-gray-50]
+            - name: sidebar_articles
+              component: card
+              props: '{"items": ["Tu tao kho luu tru mat khau rieng thong qua Vaultwarden", "Cach quan ly thong bao tren macOS Tahoe 26", "Ba manh don gian de dung PC giua troi nang", "#Tet26: Thu thuat boi tri goc lam viec", "5 ung dung Android ban khong nen bo qua"]}'
+              delivery:
+                classes: [divide-y, divide-gray-50, text-xs, text-gray-700]
+
+        # --- Sidebar: ad secondary ---
+        - name: ad_sidebar_secondary
+          tags: [aside]
+          component: image
+          props: '{"aspect": "3:1", "alt": "Ad: FPT Shop Galaxy S26 Ultra"}'
+          description: "Secondary sidebar ad banner"
+          delivery:
+            classes: [rounded-xl, overflow-hidden, shadow-sm, border, border-gray-100]
+
+        # --- Ao Tinhte section (dark photo section) ---
+        - name: section_ao_tinhte
+          tags: [main]
+          description: "'Ao Tinhte' — photography section (dark theme)"
+          delivery:
+            classes: [bg-gray-900, rounded-xl, overflow-hidden, max-w-6xl, mx-auto, my-4]
+          regions:
+            - name: ao_heading
+              component: text
+              props: '{"content": "Ao Tinhte", "level": 3}'
+              delivery:
+                classes: [text-white, font-bold, text-lg, px-4, pt-4, pb-2]
+            - name: ao_card_1
+              description: "Photo article 1"
+              delivery:
+                classes: [relative, rounded-lg, overflow-hidden, aspect-square, cursor-pointer]
+              regions:
+                - name: ao_1_image
+                  component: image
+                  props: '{"aspect": "1:1", "alt": "Street photography"}'
+                  delivery:
+                    classes: [w-full, h-full, object-cover]
+                - name: ao_1_title
+                  component: text
+                  props: '{"content": "Lam viec voi cam xuc cua chinh minh · Frozen Cat", "level": 5}'
+                  delivery:
+                    classes: [text-white, text-xs, font-medium]
+            - name: ao_card_2
+              description: "Photo article 2"
+              delivery:
+                classes: [relative, rounded-lg, overflow-hidden, aspect-square, cursor-pointer]
+              regions:
+                - name: ao_2_image
+                  component: image
+                  props: '{"aspect": "1:1", "alt": "Landscape photography"}'
+                  delivery:
+                    classes: [w-full, h-full, object-cover]
+                - name: ao_2_title
+                  component: text
+                  props: '{"content": "Nghe nhin va cam nhan qua ong kinh · nhatminhngo", "level": 5}'
+                  delivery:
+                    classes: [text-white, text-xs, font-medium]
+            - name: ao_card_3
+              description: "Photo article 3"
+              delivery:
+                classes: [relative, rounded-lg, overflow-hidden, aspect-square, cursor-pointer]
+              regions:
+                - name: ao_3_image
+                  component: image
+                  props: '{"aspect": "1:1", "alt": "Alley photography"}'
+                  delivery:
+                    classes: [w-full, h-full, object-cover]
+                - name: ao_3_title
+                  component: text
+                  props: '{"content": "Khoang lang giua nhung ngo hem Sai Gon · Le Q Khanh", "level": 5}'
+                  delivery:
+                    classes: [text-white, text-xs, font-medium]
+
+        # --- News section (green accent) ---
+        - name: section_news
+          tags: [main]
+          description: "News / FiiO product news block with green accent"
+          delivery:
+            classes: [bg-white, rounded-xl, border, border-gray-100, shadow-sm, overflow-hidden, max-w-6xl, mx-auto, my-4]
+          regions:
+            - name: news_heading
+              component: text
+              props: '{"content": "News / FiiO JN3", "level": 3}'
+              delivery:
+                classes: [text-base, font-bold, text-gray-800, px-4, py-3, border-b, border-gray-100]
+            - name: news_list
+              component: card
+              props: '{"items": ["FiiO gioi thieu tai nghe JN3 voi Bluetooth 6.0 · Hom nay", "FiiO Audio cap mang Streaming hi-res · Hom qua", "Sonos Arc Ultra — soundbar tot nhat? · 2 ngay truoc"]}'
+              delivery:
+                classes: [divide-y, divide-gray-50, text-sm, text-gray-700]
+
+        # --- Category discovery pills ---
+        - name: category_nav
+          tags: [toolbar]
+          description: "'Kham pha them' — category discovery pills"
+          delivery:
+            classes: [bg-white, rounded-xl, border, border-gray-100, shadow-sm, p-3, max-w-6xl, mx-auto, my-4]
+          regions:
+            - name: category_label
+              component: text
+              props: '{"content": "Kham pha them", "level": 4}'
+              delivery:
+                classes: [text-sm, font-bold, text-gray-700, mb-2]
+            - name: category_pills
+              component: card
+              props: '{"items": ["Xe", "Dap Xe", "Do gia dung", "Thi truong", "Nha dat", "Thu cung", "Do HIFI", "Phan mem"]}'
+              delivery:
+                classes: [flex, flex-wrap, gap-2]
+
+        # --- ForU personalized feed CTA ---
+        - name: foru_feed
+          tags: [main]
+          description: "'ForU' — personalized feed promo"
+          delivery:
+            classes: [bg-gradient-to-b, from-blue-50, to-white, rounded-xl, border, border-blue-100, p-6, text-center, max-w-6xl, mx-auto, my-4]
+          regions:
+            - name: foru_heading
+              component: text
+              props: '{"content": "ForU", "level": 2}'
+              delivery:
+                classes: [text-2xl, font-black, text-blue-600, mb-1]
+            - name: foru_subtitle
+              component: text
+              props: '{"content": "Bai viet ca nhan hoa cho rieng ban", "level": 4}'
+              delivery:
+                classes: [text-sm, text-gray-500, mb-4]
+            - name: foru_login_prompt
+              component: button
+              props: '{"label": "Dang nhap de xem ForU", "variant": "primary"}'
+              delivery:
+                classes: [bg-blue-500, text-white, rounded-full, px-8, py-2.5, text-sm, font-medium, hover:bg-blue-600]
+
+    # ─── ARTICLE DETAIL ─────────────────────────────────────────────
+    - name: article_detail
+      description: "Single article view — reading experience"
+      events:
+        - select_article(article)
+      regions:
+        - name: article_breadcrumb
+          tags: [header]
+          component: text
+          props: '{"content": "Trang chu > Cong nghe > Bai viet", "level": 6}'
+          delivery:
+            classes: [text-xs, text-gray-400, mb-4]
+        - name: article_title
+          tags: [main]
+          component: text
+          props: '{"content": "Article Title Here", "level": 1}'
+          delivery:
+            classes: [text-2xl, font-bold, text-gray-900, mb-3, leading-tight]
+        - name: article_author_bar
+          tags: [main]
+          description: "Author + date + share"
+          regions:
+            - name: author_avatar
+              component: image
+              props: '{"aspect": "1:1", "alt": "Author avatar"}'
+              delivery:
+                classes: [w-10, h-10, rounded-full, object-cover, ring-2, ring-gray-100]
+            - name: author_name
+              component: text
+              props: '{"content": "nhatminhngo", "level": 5}'
+              delivery:
+                classes: [text-sm, font-medium, text-gray-800]
+            - name: author_time
+              component: text
+              props: '{"content": "2 gio truoc · 5 phut doc", "level": 6}'
+              delivery:
+                classes: [text-xs, text-gray-400]
+            - name: article_share
+              component: button
+              props: '{"label": "Chia se", "variant": "ghost"}'
+              delivery:
+                classes: [ml-auto, text-xs, text-gray-500, border, border-gray-200, rounded-full, px-3, py-1]
+        - name: article_body
+          tags: [main]
+          component: text
+          props: '{"content": "Article body content...", "level": 5}'
+          delivery:
+            classes: [prose, prose-sm, max-w-none, text-gray-700, leading-relaxed]
+        - name: comment_section
+          tags: [main]
+          description: "Comments section"
+          regions:
+            - name: comment_heading
+              component: text
+              props: '{"content": "Binh luan", "level": 3}'
+              delivery:
+                classes: [text-base, font-bold, text-gray-800, mb-4]
+            - name: comment_input
+              component: input
+              props: '{"placeholder": "Viet binh luan...", "type": "textarea"}'
+              delivery:
+                classes: [w-full, rounded-xl, border, border-gray-200, p-4, text-sm, mb-4]
+            - name: comment_list
+              component: card
+              props: '{"items": ["Bai viet hay qua!", "Cam on tac gia", "Minh cung nghi vay", "Cho hoi them..."]}'
+              delivery:
+                classes: [space-y-4]
+        - name: related_articles
+          tags: [aside]
+          component: card
+          props: '{"items": ["Bai viet lien quan 1", "Bai viet lien quan 2", "Bai viet lien quan 3"]}'
+          description: "Related articles sidebar"
+          delivery:
+            classes: [bg-white, rounded-xl, border, border-gray-100, p-4]
+        - name: ad_article_sidebar
+          tags: [aside]
+          component: image
+          props: '{"aspect": "1:2", "alt": "Article sidebar ad"}'
+          description: "Sticky sidebar ad"
+          delivery:
+            classes: [sticky, top-20, rounded-xl, overflow-hidden, border, border-gray-100]
+
+    # ─── SEARCH RESULTS ──────────────────────────────────────────────
+    - name: search_results
+      description: "Search results page"
+      regions:
+        - name: search_input
+          tags: [header]
+          component: input
+          props: '{"placeholder": "Tim kiem...", "type": "search"}'
+          delivery:
+            classes: [w-full, h-12, rounded-full, bg-gray-100, border, border-gray-200, px-6, text-sm, mb-4]
+        - name: search_filters
+          tags: [toolbar]
+          component: card
+          props: '{"items": ["Tat ca", "Bai viet", "Hoi dap", "San pham"]}'
+          delivery:
+            classes: [flex, gap-2, py-3, mb-4]
+        - name: results_list
+          tags: [main]
+          component: card
+          props: '{"items": ["Ket qua tim kiem 1", "Ket qua tim kiem 2", "Ket qua tim kiem 3", "Ket qua tim kiem 4", "Ket qua tim kiem 5"]}'
+          delivery:
+            classes: [space-y-3]
+
+    # ─── USER PROFILE ────────────────────────────────────────────────
+    - name: user_profile
+      description: "User profile page"
+      regions:
+        - name: profile_cover
+          tags: [banner]
+          component: image
+          props: '{"aspect": "4:1", "alt": "Cover photo"}'
+          delivery:
+            classes: [w-full, h-48, object-cover]
+        - name: profile_info
+          tags: [main]
+          description: "User info card"
+          regions:
+            - name: profile_avatar
+              component: image
+              props: '{"aspect": "1:1", "alt": "Avatar"}'
+              delivery:
+                classes: [w-24, h-24, rounded-full, border-4, border-white, -mt-18, shadow-lg]
+            - name: profile_name
+              component: text
+              props: '{"content": "Username", "level": 2}'
+              delivery:
+                classes: [text-xl, font-bold, text-gray-900, mt-3]
+            - name: profile_stats
+              component: card
+              props: '{"items": ["128 bai viet", "2.4K nguoi theo doi", "156 dang theo doi"]}'
+              delivery:
+                classes: [flex, gap-6, mt-3, text-sm, text-gray-500]
+            - name: follow_button
+              component: button
+              props: '{"label": "Theo doi", "variant": "primary"}'
+              delivery:
+                classes: [bg-blue-500, text-white, rounded-full, px-8, py-2, text-sm, font-medium, mt-4]
+        - name: profile_tabs
+          tags: [toolbar]
+          component: card
+          props: '{"items": ["Bai viet", "Hoi dap", "Facts", "Theo doi"]}'
+          delivery:
+            classes: [flex, gap-1, border-b, border-gray-200, mt-4]
+        - name: user_posts
+          tags: [main]
+          component: card
+          props: '{"items": ["Bai viet cua toi 1", "Bai viet cua toi 2", "Bai viet cua toi 3"]}'
+          delivery:
+            classes: [space-y-3, py-6]
+
+    # ─── CATEGORY PAGE ───────────────────────────────────────────────
+    - name: category_page
+      description: "Category listing page"
+      regions:
+        - name: category_header
+          tags: [banner]
+          description: "Category info banner"
+          delivery:
+            classes: [bg-gradient-to-r, from-gray-800, to-gray-900, text-white, px-6, py-10]
+          regions:
+            - name: category_name
+              component: text
+              props: '{"content": "Xe", "level": 1}'
+              delivery:
+                classes: [text-3xl, font-bold]
+            - name: category_desc
+              component: text
+              props: '{"content": "Tin tuc, danh gia va trao doi ve o to, xe may", "level": 5}'
+              delivery:
+                classes: [text-sm, text-white/60, mt-2]
+            - name: category_subscribe
+              component: button
+              props: '{"label": "Theo doi", "variant": "primary"}'
+              delivery:
+                classes: [bg-white, text-gray-800, rounded-full, px-6, py-2, text-sm, font-medium, mt-4]
+        - name: category_feed
+          tags: [main]
+          component: card
+          props: '{"items": ["Bai viet danh muc 1", "Bai viet danh muc 2", "Bai viet danh muc 3", "Bai viet danh muc 4", "Bai viet danh muc 5"]}'
+          delivery:
+            classes: [space-y-3]
+        - name: ad_category_banner
+          tags: [aside]
+          component: image
+          props: '{"aspect": "1:1", "alt": "Contextual ad"}'
+          delivery:
+            classes: [rounded-xl, overflow-hidden, sticky, top-20, border, border-gray-100]
+
+    # ─── FACT VIEWER (story overlay) ─────────────────────────────────
+    - name: fact_viewer
+      description: "Full-screen story viewer overlay"
+      regions:
+        - name: fact_progress
+          tags: [banner]
+          description: "Story progress indicator bars"
+          component: card
+          props: '{"items": ["completed", "active", "upcoming"]}'
+          delivery:
+            classes: [absolute, top-0, left-0, right-0, flex, gap-1, px-3, pt-3, z-20]
+        - name: fact_author
+          tags: [header]
+          description: "Author bar overlay"
+          regions:
+            - name: fact_avatar
+              component: image
+              props: '{"aspect": "1:1", "alt": "Story author"}'
+              delivery:
+                classes: [w-8, h-8, rounded-full, ring-2, ring-blue-400]
+            - name: fact_name
+              component: text
+              props: '{"content": "Cuong NB", "level": 5}'
+              delivery:
+                classes: [text-white, text-sm, font-medium]
+            - name: fact_time
+              component: text
+              props: '{"content": "2h", "level": 6}'
+              delivery:
+                classes: [text-white/50, text-xs]
+            - name: fact_close
+              component: button
+              props: '{"label": "X", "variant": "ghost"}'
+              delivery:
+                classes: [ml-auto, w-8, h-8, rounded-full, text-white/70, hover:text-white]
+        - name: fact_content
+          tags: [main]
+          component: image
+          props: '{"aspect": "9:16", "alt": "Story content"}'
+          description: "Full-screen story image"
+          delivery:
+            classes: [w-full, h-full, object-cover, bg-black]
+
+  flows:
+    - name: browse_and_read
+      description: "User browses homepage, clicks article, reads it"
+      steps: "homepage -> hero_article -> select_article -> article_detail -> comment_section"
+    - name: story_viewing
+      description: "User taps a story circle, views full-screen fact"
+      steps: "homepage -> tinhte_fact -> select_fact -> fact_viewer -> fact_close -> [Back] -> homepage"
+    - name: category_browse
+      description: "User navigates to category from discovery pills"
+      steps: "homepage -> category_nav -> select_category -> category_page -> category_feed"
+    - name: search_flow
+      description: "User searches from header"
+      steps: "homepage -> search_bar -> search -> search_results -> results_list"

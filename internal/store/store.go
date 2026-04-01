@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -108,6 +109,8 @@ func Open(path string) (*Store, error) {
 	db.Exec("ALTER TABLE regions ADD COLUMN discovery_layout TEXT")
 	db.Exec("ALTER TABLE regions ADD COLUMN delivery_classes TEXT")
 	db.Exec("ALTER TABLE regions ADD COLUMN delivery_component TEXT")
+	// Schema migration: add template column to component_schemas.
+	db.Exec("ALTER TABLE component_schemas ADD COLUMN template TEXT NOT NULL DEFAULT ''")
 	return s, nil
 }
 
@@ -862,8 +865,8 @@ func (s *Store) DeleteScreen(name string) error {
 	tx.Exec("DELETE FROM transitions WHERE owner_type = 'screen' AND owner_id = ?", id)
 	tx.Exec("DELETE FROM state_regions WHERE owner_type = 'screen' AND owner_id = ?", id)
 	tx.Exec("DELETE FROM state_fixtures WHERE owner_type = 'screen' AND owner_id = ?", id)
-	tx.Exec("DELETE FROM components WHERE entity_type = 'screen' AND entity_id = ?", id) // [H3]
-	tx.Exec("DELETE FROM attachments WHERE entity = ?", name)                             // [H2]
+	tx.Exec("DELETE FROM components WHERE entity_type = 'screen' AND entity_id = ?", id)                              // [H3]
+	tx.Exec("DELETE FROM attachments WHERE entity = ?", name)                                                         // [H2]
 	tx.Exec("DELETE FROM transitions WHERE action = ? OR action LIKE ?", "navigate("+name+")", "navigate("+name+",%") // [F2] cascade dangling navigate()
 	tx.Exec("DELETE FROM screens WHERE id = ?", id)
 
@@ -889,8 +892,8 @@ func (s *Store) DeleteRegion(name string, inParent ...string) error {
 	tx.Exec("DELETE FROM events WHERE region_id = ?", id)
 	tx.Exec("DELETE FROM tags WHERE entity_type = 'region' AND entity_id = ?", id)
 	tx.Exec("DELETE FROM transitions WHERE owner_type = 'region' AND owner_id = ?", id)
-	tx.Exec("DELETE FROM components WHERE entity_type = 'region' AND entity_id = ?", id) // [H3]
-	tx.Exec("DELETE FROM attachments WHERE entity = ?", name)                             // [H2]
+	tx.Exec("DELETE FROM components WHERE entity_type = 'region' AND entity_id = ?", id)                              // [H3]
+	tx.Exec("DELETE FROM attachments WHERE entity = ?", name)                                                         // [H2]
 	tx.Exec("DELETE FROM transitions WHERE action = ? OR action LIKE ?", "navigate("+name+")", "navigate("+name+",%") // [F2] cascade dangling navigate()
 	tx.Exec("DELETE FROM flow_steps WHERE type = 'region' AND name = ?", name)
 	tx.Exec("DELETE FROM regions WHERE id = ?", id)
@@ -1562,4 +1565,314 @@ func (s *Store) GetLayout(appID int64, name string) (*model.Layout, error) {
 	return &l, nil
 }
 
+// --- v2: Entity CRUD ---
 
+func (s *Store) InsertEntity(e *model.Entity) error {
+	res, err := s.db().Exec("INSERT INTO entities (app_id, name, type, data) VALUES (?, ?, ?, ?)",
+		e.AppID, e.Name, e.Type, e.Data)
+	if err != nil {
+		return err
+	}
+	e.ID, _ = res.LastInsertId()
+	return nil
+}
+
+func (s *Store) GetEntity(appID int64, name string) (*model.Entity, error) {
+	var e model.Entity
+	err := s.db().QueryRow("SELECT id, app_id, name, type, data FROM entities WHERE app_id = ? AND name = ?", appID, name).
+		Scan(&e.ID, &e.AppID, &e.Name, &e.Type, &e.Data)
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+func (s *Store) ListEntities(appID int64) ([]model.Entity, error) {
+	rows, err := s.db().Query("SELECT id, app_id, name, type, data FROM entities WHERE app_id = ? ORDER BY name", appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []model.Entity
+	for rows.Next() {
+		var e model.Entity
+		if err := rows.Scan(&e.ID, &e.AppID, &e.Name, &e.Type, &e.Data); err != nil {
+			return nil, err
+		}
+		result = append(result, e)
+	}
+	return result, nil
+}
+
+func (s *Store) DeleteEntity(appID int64, name string) error {
+	res, err := s.db().Exec("DELETE FROM entities WHERE app_id = ? AND name = ?", appID, name)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("entity %q not found", name)
+	}
+	return nil
+}
+
+// --- v2: Experiment CRUD ---
+
+func (s *Store) InsertExperiment(e *model.Experiment) error {
+	res, err := s.db().Exec(
+		"INSERT INTO experiments (app_id, name, description, scope, overlay, status) VALUES (?, ?, ?, ?, ?, ?)",
+		e.AppID, e.Name, e.Description, e.Scope, e.Overlay, e.Status)
+	if err != nil {
+		return err
+	}
+	e.ID, _ = res.LastInsertId()
+	return nil
+}
+
+func (s *Store) GetExperiment(appID int64, name string) (*model.Experiment, error) {
+	var e model.Experiment
+	err := s.db().QueryRow(
+		"SELECT id, app_id, name, description, scope, overlay, status FROM experiments WHERE app_id = ? AND name = ?",
+		appID, name).
+		Scan(&e.ID, &e.AppID, &e.Name, &e.Description, &e.Scope, &e.Overlay, &e.Status)
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+func (s *Store) ListExperiments(appID int64) ([]model.Experiment, error) {
+	rows, err := s.db().Query(
+		"SELECT id, app_id, name, description, scope, overlay, status FROM experiments WHERE app_id = ? ORDER BY name",
+		appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []model.Experiment
+	for rows.Next() {
+		var e model.Experiment
+		if err := rows.Scan(&e.ID, &e.AppID, &e.Name, &e.Description, &e.Scope, &e.Overlay, &e.Status); err != nil {
+			return nil, err
+		}
+		result = append(result, e)
+	}
+	return result, nil
+}
+
+func (s *Store) SetExperimentStatus(appID int64, name string, status string) error {
+	res, err := s.db().Exec(
+		"UPDATE experiments SET status = ? WHERE app_id = ? AND name = ?",
+		status, appID, name)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("experiment %q not found", name)
+	}
+	return nil
+}
+
+func (s *Store) DeleteExperiment(appID int64, name string) error {
+	res, err := s.db().Exec("DELETE FROM experiments WHERE app_id = ? AND name = ?", appID, name)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("experiment %q not found", name)
+	}
+	return nil
+}
+
+// CommitExperiment applies an experiment's overlay to its target region in the DB,
+// then marks the experiment as "committed".
+func (s *Store) CommitExperiment(appID int64, name string) error {
+	exp, err := s.GetExperiment(appID, name)
+	if err != nil {
+		return fmt.Errorf("experiment %q not found: %w", name, err)
+	}
+
+	// Parse scope: "screen.region" or "screen.parent.child"
+	parts := strings.SplitN(exp.Scope, ".", 2)
+	if len(parts) < 2 {
+		return fmt.Errorf("experiment %q: scope %q must be screen.region", name, exp.Scope)
+	}
+	regionName := parts[len(parts)-1]
+	parentName := parts[0]
+	// For "screen.parent.child", walk to the last segment
+	scopeParts := strings.Split(exp.Scope, ".")
+	if len(scopeParts) > 2 {
+		regionName = scopeParts[len(scopeParts)-1]
+		parentName = scopeParts[len(scopeParts)-2]
+	}
+
+	regionID, err := s.ResolveRegionIn(regionName, parentName)
+	if err != nil {
+		return fmt.Errorf("experiment %q: cannot resolve region: %w", name, err)
+	}
+
+	// Parse overlay JSON
+	var overlay map[string]any
+	if err := json.Unmarshal([]byte(exp.Overlay), &overlay); err != nil {
+		return fmt.Errorf("experiment %q: invalid overlay JSON: %w", name, err)
+	}
+
+	// Apply each overlay key to the DB
+	if delivery, ok := overlay["delivery"]; ok {
+		if dm, ok := delivery.(map[string]any); ok {
+			if classes, ok := dm["classes"]; ok {
+				classesJSON, _ := json.Marshal(classes)
+				if _, err := s.db().Exec("UPDATE regions SET delivery_classes = ? WHERE id = ?", string(classesJSON), regionID); err != nil {
+					return err
+				}
+			}
+			if comp, ok := dm["component"]; ok {
+				if cs, ok := comp.(string); ok {
+					if _, err := s.db().Exec("UPDATE regions SET delivery_component = ? WHERE id = ?", cs, regionID); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+	if discovery, ok := overlay["discovery"]; ok {
+		if dm, ok := discovery.(map[string]any); ok {
+			if layout, ok := dm["layout"]; ok {
+				layoutJSON, _ := json.Marshal(layout)
+				if _, err := s.db().Exec("UPDATE regions SET discovery_layout = ? WHERE id = ?", string(layoutJSON), regionID); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if comp, ok := overlay["component"]; ok {
+		if cs, ok := comp.(string); ok {
+			if _, err := s.db().Exec(
+				`INSERT INTO components (entity_type, entity_id, component, props, on_actions, visible)
+				 VALUES ('region', ?, ?, '', '', '')
+				 ON CONFLICT(entity_type, entity_id) DO UPDATE SET component = excluded.component`,
+				regionID, cs); err != nil {
+				return err
+			}
+		}
+	}
+	if props, ok := overlay["props"]; ok {
+		var propsStr string
+		switch p := props.(type) {
+		case string:
+			propsStr = p
+		default:
+			b, _ := json.Marshal(p)
+			propsStr = string(b)
+		}
+		if _, err := s.db().Exec(
+			`INSERT INTO components (entity_type, entity_id, component, props, on_actions, visible)
+			 VALUES ('region', ?, '', ?, '', '')
+			 ON CONFLICT(entity_type, entity_id) DO UPDATE SET props = excluded.props`,
+			regionID, propsStr); err != nil {
+			return err
+		}
+	}
+	if desc, ok := overlay["description"]; ok {
+		if ds, ok := desc.(string); ok {
+			if _, err := s.db().Exec("UPDATE regions SET description = ? WHERE id = ?", ds, regionID); err != nil {
+				return err
+			}
+		}
+	}
+	if tags, ok := overlay["tags"]; ok {
+		if tagList, ok := tags.([]any); ok {
+			// Replace all tags: delete existing, insert new
+			if _, err := s.db().Exec("DELETE FROM tags WHERE entity_type = 'region' AND entity_id = ?", regionID); err != nil {
+				return err
+			}
+			for _, tag := range tagList {
+				if ts, ok := tag.(string); ok {
+					if _, err := s.db().Exec("INSERT INTO tags (entity_type, entity_id, tag) VALUES ('region', ?, ?)", regionID, ts); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+
+	return s.SetExperimentStatus(appID, name, "committed")
+}
+
+// --- v2: Entry Screen ---
+
+func (s *Store) SetEntryScreen(appID int64, name string) error {
+	// Verify screen exists
+	var id int64
+	err := s.db().QueryRow("SELECT id FROM screens WHERE app_id = ? AND name = ?", appID, name).Scan(&id)
+	if err != nil {
+		return fmt.Errorf("screen %q not found", name)
+	}
+	// Clear all entry flags for this app
+	if _, err := s.db().Exec("UPDATE screens SET entry = 0 WHERE app_id = ?", appID); err != nil {
+		return err
+	}
+	// Set the named screen as entry
+	_, err = s.db().Exec("UPDATE screens SET entry = 1 WHERE app_id = ? AND name = ?", appID, name)
+	return err
+}
+
+func (s *Store) GetEntryScreen(appID int64) (string, error) {
+	var name string
+	err := s.db().QueryRow("SELECT name FROM screens WHERE app_id = ? AND entry = 1", appID).Scan(&name)
+	if err != nil {
+		return "", fmt.Errorf("no entry screen set")
+	}
+	return name, nil
+}
+
+// --- v2: Component Schema CRUD ---
+
+func (s *Store) InsertComponentSchema(cs *model.ComponentSchema) error {
+	res, err := s.db().Exec("INSERT INTO component_schemas (app_id, name, props, template) VALUES (?, ?, ?, ?)",
+		cs.AppID, cs.Name, cs.Props, cs.Template)
+	if err != nil {
+		return err
+	}
+	cs.ID, _ = res.LastInsertId()
+	return nil
+}
+
+func (s *Store) GetComponentSchema(appID int64, name string) (*model.ComponentSchema, error) {
+	var cs model.ComponentSchema
+	err := s.db().QueryRow("SELECT id, app_id, name, props, template FROM component_schemas WHERE app_id = ? AND name = ?", appID, name).
+		Scan(&cs.ID, &cs.AppID, &cs.Name, &cs.Props, &cs.Template)
+	if err != nil {
+		return nil, err
+	}
+	return &cs, nil
+}
+
+func (s *Store) ListComponentSchemas(appID int64) ([]model.ComponentSchema, error) {
+	rows, err := s.db().Query("SELECT id, app_id, name, props, template FROM component_schemas WHERE app_id = ? ORDER BY name", appID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []model.ComponentSchema
+	for rows.Next() {
+		var cs model.ComponentSchema
+		if err := rows.Scan(&cs.ID, &cs.AppID, &cs.Name, &cs.Props, &cs.Template); err != nil {
+			return nil, err
+		}
+		result = append(result, cs)
+	}
+	return result, nil
+}
+
+// --- v2: Clone (deep copy) ---
+
+func (s *Store) CloneScreen(name, newName string) error {
+	return s.cloneScreen(name, newName)
+}
+
+func (s *Store) CloneRegion(name, newName, parentName string) error {
+	return s.cloneRegion(name, newName, parentName)
+}

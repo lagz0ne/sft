@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -64,6 +65,18 @@ func loadSpec(t *testing.T, s *store.Store) *show.Spec {
 		t.Fatalf("show.Load: %v", err)
 	}
 	return spec
+}
+
+func assertJSONEqual(t *testing.T, got string, want any) {
+	t.Helper()
+
+	var gotValue any
+	if err := json.Unmarshal([]byte(got), &gotValue); err != nil {
+		t.Fatalf("json.Unmarshal(%q): %v", got, err)
+	}
+	if !reflect.DeepEqual(gotValue, want) {
+		t.Errorf("JSON mismatch\ngot:  %#v\nwant: %#v", gotValue, want)
+	}
 }
 
 func TestRoundTrip(t *testing.T) {
@@ -207,6 +220,77 @@ func TestComponentInYAMLImport(t *testing.T) {
 	if cr.Component != "NavPanel" {
 		t.Errorf("region component = %q, want NavPanel", cr.Component)
 	}
+}
+
+func TestLoadYAMLNativeProps(t *testing.T) {
+	yamlWithNativeProps := `app:
+  name: NativePropsApp
+  description: Test YAML-native props
+  catalog:
+    recipe-card:
+      props:
+        title: string
+        highlighted: boolean
+      template: |
+        <div>{props.title}</div>
+  entities:
+    recipe:
+      _type: recipe
+      title: Pho Bo
+      author:
+        name: Mai Nguyen
+      steps:
+        - instruction: Toast spices
+  screens:
+    - name: Home
+      component: HeroBanner
+      props:
+        label: $recipe.title
+        metadata:
+          author: $recipe.author.name
+      regions:
+        - name: CTA
+          component: Button
+          props:
+            text: $recipe.steps[0].instruction
+            variant: primary
+`
+
+	s := mustStore(t)
+	importYAML(t, s, yamlWithNativeProps)
+
+	screenComponent := s.GetComponentByName("Home")
+	if screenComponent == nil {
+		t.Fatal("Home component not imported")
+	}
+	assertJSONEqual(t, screenComponent.Props, map[string]any{
+		"label": "Pho Bo",
+		"metadata": map[string]any{
+			"author": "Mai Nguyen",
+		},
+	})
+
+	regionComponent := s.GetComponentByName("CTA")
+	if regionComponent == nil {
+		t.Fatal("CTA component not imported")
+	}
+	assertJSONEqual(t, regionComponent.Props, map[string]any{
+		"text":    "Toast spices",
+		"variant": "primary",
+	})
+
+	appID, err := s.ResolveApp()
+	if err != nil {
+		t.Fatalf("ResolveApp: %v", err)
+	}
+	schema, err := s.GetComponentSchema(appID, "recipe-card")
+	if err != nil {
+		t.Fatalf("GetComponentSchema: %v", err)
+	}
+	assertJSONEqual(t, schema.Props, map[string]any{
+		"highlighted": "boolean",
+		"title":       "string",
+	})
 }
 
 const testStateMachineYAML = `app:
@@ -785,6 +869,93 @@ const testFixtureYAML = `app:
           - { subject: "Welcome" }
 `
 
+const testCatalogYAML = `app:
+  name: catalog_app
+  description: catalog test
+  data:
+    recipe:
+      title: string
+  catalog:
+    recipe-card:
+      props:
+        title: string
+        image: string
+      template: |
+        <Card>
+          <img src={image} />
+          <h2>{title}</h2>
+        </Card>
+    author-badge:
+      props:
+        name: string
+      template: |
+        <Badge>{name}</Badge>
+  screens:
+    - name: home
+      description: landing
+`
+
+func TestCatalogImportRoundTrip(t *testing.T) {
+	s1 := mustStore(t)
+	importYAML(t, s1, testCatalogYAML)
+
+	var count int
+	if err := s1.DB.QueryRow("SELECT COUNT(*) FROM component_schemas").Scan(&count); err != nil {
+		t.Fatalf("count component_schemas: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("component_schemas: got %d, want 2", count)
+	}
+
+	var propsJSON, template string
+	if err := s1.DB.QueryRow("SELECT props, template FROM component_schemas WHERE name = 'recipe-card'").Scan(&propsJSON, &template); err != nil {
+		t.Fatalf("select recipe-card: %v", err)
+	}
+	if template != "<Card>\n  <img src={image} />\n  <h2>{title}</h2>\n</Card>\n" {
+		t.Fatalf("template = %q", template)
+	}
+	var props map[string]string
+	if err := json.Unmarshal([]byte(propsJSON), &props); err != nil {
+		t.Fatalf("unmarshal props: %v", err)
+	}
+	if props["title"] != "string" || props["image"] != "string" {
+		t.Fatalf("props = %#v", props)
+	}
+
+	spec1 := loadSpec(t, s1)
+	if len(spec1.Catalog) != 2 {
+		t.Fatalf("spec catalog: got %d, want 2", len(spec1.Catalog))
+	}
+	if spec1.Catalog[1].Name != "recipe-card" {
+		t.Fatalf("unexpected catalog order: %#v", spec1.Catalog)
+	}
+	if spec1.Catalog[1].Template != "<Card>\n  <img src={image} />\n  <h2>{title}</h2>\n</Card>\n" {
+		t.Fatalf("spec template = %q", spec1.Catalog[1].Template)
+	}
+
+	var buf bytes.Buffer
+	if err := Export(spec1, &buf); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	exported := buf.String()
+	if !strings.Contains(exported, "catalog:") {
+		t.Fatalf("export missing catalog block:\n%s", exported)
+	}
+	if !strings.Contains(exported, "recipe-card:") || !strings.Contains(exported, "template: |") {
+		t.Fatalf("export missing recipe-card template:\n%s", exported)
+	}
+
+	s2 := mustStore(t)
+	importYAML(t, s2, exported)
+
+	if err := s2.DB.QueryRow("SELECT COUNT(*) FROM component_schemas").Scan(&count); err != nil {
+		t.Fatalf("round-trip count component_schemas: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("round-trip component_schemas: got %d, want 2", count)
+	}
+}
+
 func TestFixtureImport(t *testing.T) {
 	s := mustStore(t)
 	importYAML(t, s, testFixtureYAML)
@@ -1017,7 +1188,7 @@ func TestStateTemplateExtends(t *testing.T) {
 		{"start", "load", "loading"},
 		{"loading", "load_success", "loaded"},
 		{"loading", "load_error", "error"},
-		{"loaded", "edit", "editing"},             // from template
+		{"loaded", "edit", "editing"},                // from template
 		{"loaded", "delete", "navigate(order_list)"}, // from override
 		{"editing", "save", "saving"},
 		{"editing", "cancel", "loaded"},
@@ -1092,8 +1263,8 @@ func TestValidateTypeSuffix(t *testing.T) {
 		{"string[]?", false},
 		{"email?", false},
 		{"email[]?", false},
-		{"string?[]", true},  // invalid ordering
-		{"email?[]", true},   // invalid ordering
+		{"string?[]", true}, // invalid ordering
+		{"email?[]", true},  // invalid ordering
 	}
 	for _, tt := range tests {
 		err := validateTypeSuffix(tt.input)

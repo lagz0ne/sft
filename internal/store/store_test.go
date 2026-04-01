@@ -353,3 +353,347 @@ func TestRegionLayout(t *testing.T) {
 		t.Error("expected NULL discovery_layout for empty region")
 	}
 }
+
+// --- v2: Entity CRUD ---
+
+func TestEntityCRUD(t *testing.T) {
+	s := mustOpen(t)
+	a := seedApp(t, s)
+
+	// Insert
+	e := &model.Entity{AppID: a.ID, Name: "user", Type: "object", Data: `{"name":"string"}`}
+	if err := s.InsertEntity(e); err != nil {
+		t.Fatal(err)
+	}
+	if e.ID == 0 {
+		t.Error("expected non-zero ID")
+	}
+
+	// Get
+	got, err := s.GetEntity(a.ID, "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "user" || got.Type != "object" || got.Data != `{"name":"string"}` {
+		t.Errorf("got %+v", got)
+	}
+
+	// List
+	e2 := &model.Entity{AppID: a.ID, Name: "email", Type: "object", Data: `{}`}
+	if err := s.InsertEntity(e2); err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.ListEntities(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("got %d entities, want 2", len(list))
+	}
+
+	// Duplicate name → error
+	dup := &model.Entity{AppID: a.ID, Name: "user", Type: "other", Data: `{}`}
+	if err := s.InsertEntity(dup); err == nil {
+		t.Error("expected unique constraint error")
+	}
+
+	// Delete
+	if err := s.DeleteEntity(a.ID, "user"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetEntity(a.ID, "user"); err == nil {
+		t.Error("expected error after delete")
+	}
+	list, _ = s.ListEntities(a.ID)
+	if len(list) != 1 {
+		t.Errorf("got %d entities after delete, want 1", len(list))
+	}
+}
+
+// --- v2: Experiment CRUD ---
+
+func TestExperimentCRUD(t *testing.T) {
+	s := mustOpen(t)
+	a := seedApp(t, s)
+
+	// Insert
+	ex := &model.Experiment{
+		AppID: a.ID, Name: "dark-mode", Description: "test dark mode",
+		Scope: "screens.Settings", Overlay: `{"theme":"dark"}`, Status: "active",
+	}
+	if err := s.InsertExperiment(ex); err != nil {
+		t.Fatal(err)
+	}
+	if ex.ID == 0 {
+		t.Error("expected non-zero ID")
+	}
+
+	// Get
+	got, err := s.GetExperiment(a.ID, "dark-mode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "dark-mode" || got.Status != "active" {
+		t.Errorf("got %+v", got)
+	}
+
+	// List
+	ex2 := &model.Experiment{
+		AppID: a.ID, Name: "new-nav", Description: "nav experiment",
+		Scope: "screens.Home", Overlay: `{}`, Status: "active",
+	}
+	if err := s.InsertExperiment(ex2); err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.ListExperiments(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("got %d experiments, want 2", len(list))
+	}
+
+	// SetExperimentStatus
+	if err := s.SetExperimentStatus(a.ID, "dark-mode", "committed"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.GetExperiment(a.ID, "dark-mode")
+	if got.Status != "committed" {
+		t.Errorf("status = %q, want committed", got.Status)
+	}
+
+	// Invalid status → error
+	if err := s.SetExperimentStatus(a.ID, "dark-mode", "bogus"); err == nil {
+		t.Error("expected error for invalid status")
+	}
+
+	// Duplicate name → error
+	dup := &model.Experiment{AppID: a.ID, Name: "dark-mode", Scope: "x", Status: "active"}
+	if err := s.InsertExperiment(dup); err == nil {
+		t.Error("expected unique constraint error")
+	}
+
+	// Delete
+	if err := s.DeleteExperiment(a.ID, "dark-mode"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetExperiment(a.ID, "dark-mode"); err == nil {
+		t.Error("expected error after delete")
+	}
+}
+
+func TestCommitExperiment(t *testing.T) {
+	s := mustOpen(t)
+	a := seedApp(t, s)
+
+	// Create a screen with a region
+	sc := &model.Screen{AppID: a.ID, Name: "dash", Description: "dashboard"}
+	if err := s.InsertScreen(sc); err != nil {
+		t.Fatal(err)
+	}
+	r := &model.Region{AppID: a.ID, ParentType: "screen", ParentID: sc.ID, Name: "kpi", Description: "old desc"}
+	if err := s.InsertRegion(r); err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert experiment with overlay
+	ex := &model.Experiment{
+		AppID: a.ID, Name: "compact", Scope: "dash.kpi", Status: "active",
+		Overlay: `{"delivery":{"classes":["flex","gap-6"],"component":"card"},"description":"new desc"}`,
+	}
+	if err := s.InsertExperiment(ex); err != nil {
+		t.Fatal(err)
+	}
+
+	// Commit
+	if err := s.CommitExperiment(a.ID, "compact"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify status
+	got, _ := s.GetExperiment(a.ID, "compact")
+	if got.Status != "committed" {
+		t.Errorf("status = %q, want committed", got.Status)
+	}
+
+	// Verify region was updated
+	var desc, dcJSON, dcomp string
+	s.DB.QueryRow("SELECT description, delivery_classes, delivery_component FROM regions WHERE id = ?", r.ID).
+		Scan(&desc, &dcJSON, &dcomp)
+	if desc != "new desc" {
+		t.Errorf("description = %q, want 'new desc'", desc)
+	}
+	if dcomp != "card" {
+		t.Errorf("delivery_component = %q, want 'card'", dcomp)
+	}
+	if dcJSON != `["flex","gap-6"]` {
+		t.Errorf("delivery_classes = %q, want [\"flex\",\"gap-6\"]", dcJSON)
+	}
+}
+
+func TestCommitExperiment_NotFound(t *testing.T) {
+	s := mustOpen(t)
+	a := seedApp(t, s)
+	if err := s.CommitExperiment(a.ID, "nonexistent"); err == nil {
+		t.Error("expected error for missing experiment")
+	}
+}
+
+// --- v2: Entry Screen ---
+
+func TestEntryScreen(t *testing.T) {
+	s := mustOpen(t)
+	a := seedApp(t, s)
+
+	sc1 := &model.Screen{AppID: a.ID, Name: "Login", Description: "login"}
+	sc2 := &model.Screen{AppID: a.ID, Name: "Home", Description: "home"}
+	if err := s.InsertScreen(sc1); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertScreen(sc2); err != nil {
+		t.Fatal(err)
+	}
+
+	// No entry screen yet
+	if _, err := s.GetEntryScreen(a.ID); err == nil {
+		t.Error("expected error when no entry screen set")
+	}
+
+	// Set entry
+	if err := s.SetEntryScreen(a.ID, "Home"); err != nil {
+		t.Fatal(err)
+	}
+	name, err := s.GetEntryScreen(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "Home" {
+		t.Errorf("entry = %q, want Home", name)
+	}
+
+	// Switch entry
+	if err := s.SetEntryScreen(a.ID, "Login"); err != nil {
+		t.Fatal(err)
+	}
+	name, _ = s.GetEntryScreen(a.ID)
+	if name != "Login" {
+		t.Errorf("entry = %q, want Login", name)
+	}
+
+	// Non-existent screen → error
+	if err := s.SetEntryScreen(a.ID, "NoSuch"); err == nil {
+		t.Error("expected error for non-existent screen")
+	}
+}
+
+// --- v2: Component Schema CRUD ---
+
+func TestComponentSchemaCRUD(t *testing.T) {
+	s := mustOpen(t)
+	a := seedApp(t, s)
+
+	// Insert
+	cs := &model.ComponentSchema{
+		AppID:    a.ID,
+		Name:     "DataTable",
+		Props:    `{"cols":"number","rows":"number"}`,
+		Template: "<Table rows={rows} cols={cols} />",
+	}
+	if err := s.InsertComponentSchema(cs); err != nil {
+		t.Fatal(err)
+	}
+	if cs.ID == 0 {
+		t.Error("expected non-zero ID")
+	}
+
+	// Get
+	got, err := s.GetComponentSchema(a.ID, "DataTable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "DataTable" || got.Props != `{"cols":"number","rows":"number"}` || got.Template != "<Table rows={rows} cols={cols} />" {
+		t.Errorf("got %+v", got)
+	}
+
+	// List
+	cs2 := &model.ComponentSchema{
+		AppID:    a.ID,
+		Name:     "Avatar",
+		Props:    `{"src":"string"}`,
+		Template: "<Avatar src={src} />",
+	}
+	if err := s.InsertComponentSchema(cs2); err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.ListComponentSchemas(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("got %d schemas, want 2", len(list))
+	}
+	if list[0].Name != "Avatar" || list[0].Template != "<Avatar src={src} />" {
+		t.Fatalf("unexpected first schema: %+v", list[0])
+	}
+	if list[1].Name != "DataTable" || list[1].Template != "<Table rows={rows} cols={cols} />" {
+		t.Fatalf("unexpected second schema: %+v", list[1])
+	}
+
+	// Duplicate name → error
+	dup := &model.ComponentSchema{AppID: a.ID, Name: "DataTable", Props: `{}`, Template: ""}
+	if err := s.InsertComponentSchema(dup); err == nil {
+		t.Error("expected unique constraint error")
+	}
+}
+
+func TestOpenMigratesComponentSchemaTemplateColumn(t *testing.T) {
+	path := t.TempDir() + "/catalog.db"
+
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open legacy db: %v", err)
+	}
+	if _, err := db.Exec(`
+		CREATE TABLE apps (
+			id INTEGER PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			description TEXT NOT NULL
+		);
+		CREATE TABLE component_schemas (
+			id INTEGER PRIMARY KEY,
+			app_id INTEGER NOT NULL REFERENCES apps(id),
+			name TEXT NOT NULL,
+			props TEXT NOT NULL DEFAULT '{}',
+			UNIQUE(app_id, name)
+		);
+		INSERT INTO apps(id, name, description) VALUES (1, 'TestApp', 'test');
+		INSERT INTO component_schemas(app_id, name, props) VALUES (1, 'DataTable', '{"cols":"number"}');
+	`); err != nil {
+		t.Fatalf("seed legacy db: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close legacy db: %v", err)
+	}
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	var columnCount int
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('component_schemas') WHERE name = 'template'`).Scan(&columnCount); err != nil {
+		t.Fatalf("column lookup: %v", err)
+	}
+	if columnCount != 1 {
+		t.Fatalf("template column count = %d, want 1", columnCount)
+	}
+
+	got, err := s.GetComponentSchema(1, "DataTable")
+	if err != nil {
+		t.Fatalf("GetComponentSchema: %v", err)
+	}
+	if got.Template != "" {
+		t.Fatalf("Template = %q, want empty string after migration", got.Template)
+	}
+}

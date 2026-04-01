@@ -1,7 +1,0 @@
-{
-	"plugins": ["react", "typescript", "unicorn", "import"],
-	"rules": {
-		"react/react-in-jsx-scope": "off"
-	},
-	"ignorePatterns": ["node_modules/", "dist/", "**/routeTree.gen.ts", ".output/"]
-}

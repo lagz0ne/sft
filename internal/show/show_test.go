@@ -300,3 +300,213 @@ func TestDeriveStatesDedup(t *testing.T) {
 		}
 	}
 }
+
+func TestLoad_Entities(t *testing.T) {
+	s := mustStore(t)
+	app := seedApp(t, s)
+
+	if err := s.InsertEntity(&model.Entity{
+		AppID: app.ID, Name: "User", Type: "model",
+		Data: `{"id": "number", "name": "string"}`,
+	}); err != nil {
+		t.Fatalf("insert entity: %v", err)
+	}
+	if err := s.InsertEntity(&model.Entity{
+		AppID: app.ID, Name: "Product", Type: "enum",
+		Data: `["basic", "premium"]`,
+	}); err != nil {
+		t.Fatalf("insert entity: %v", err)
+	}
+
+	spec, err := Load(s.DB, nil)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if len(spec.Entities) != 2 {
+		t.Fatalf("expected 2 entities, got %d", len(spec.Entities))
+	}
+
+	// Sorted by name: Product, User
+	if spec.Entities[0].Name != "Product" {
+		t.Errorf("entities[0].Name = %q, want Product", spec.Entities[0].Name)
+	}
+	if spec.Entities[0].Type != "enum" {
+		t.Errorf("entities[0].Type = %q, want enum", spec.Entities[0].Type)
+	}
+	if _, ok := spec.Entities[0].Data.([]any); !ok {
+		t.Errorf("entities[0].Data type = %T, want []any", spec.Entities[0].Data)
+	}
+
+	if spec.Entities[1].Name != "User" {
+		t.Errorf("entities[1].Name = %q, want User", spec.Entities[1].Name)
+	}
+	if spec.Entities[1].Type != "model" {
+		t.Errorf("entities[1].Type = %q, want model", spec.Entities[1].Type)
+	}
+	if m, ok := spec.Entities[1].Data.(map[string]any); !ok {
+		t.Errorf("entities[1].Data type = %T, want map[string]any", spec.Entities[1].Data)
+	} else if m["id"] != "number" {
+		t.Errorf("entities[1].Data[id] = %v, want number", m["id"])
+	}
+}
+
+func TestLoad_Experiments(t *testing.T) {
+	s := mustStore(t)
+	app := seedApp(t, s)
+
+	if err := s.InsertExperiment(&model.Experiment{
+		AppID:       app.ID,
+		Name:        "dark-mode",
+		Description: "Test dark theme",
+		Scope:       "Settings",
+		Overlay:     `{"theme": "dark"}`,
+		Status:      "active",
+	}); err != nil {
+		t.Fatalf("insert experiment: %v", err)
+	}
+
+	spec, err := Load(s.DB, nil)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if len(spec.Experiments) != 1 {
+		t.Fatalf("expected 1 experiment, got %d", len(spec.Experiments))
+	}
+
+	exp := spec.Experiments[0]
+	if exp.Name != "dark-mode" {
+		t.Errorf("Name = %q, want dark-mode", exp.Name)
+	}
+	if exp.Description != "Test dark theme" {
+		t.Errorf("Description = %q, want 'Test dark theme'", exp.Description)
+	}
+	if exp.Scope != "Settings" {
+		t.Errorf("Scope = %q, want Settings", exp.Scope)
+	}
+	if exp.Status != "active" {
+		t.Errorf("Status = %q, want active", exp.Status)
+	}
+	if m, ok := exp.Overlay.(map[string]any); !ok {
+		t.Errorf("Overlay type = %T, want map[string]any", exp.Overlay)
+	} else if m["theme"] != "dark" {
+		t.Errorf("Overlay[theme] = %v, want dark", m["theme"])
+	}
+}
+
+func TestLoad_Catalog(t *testing.T) {
+	s := mustStore(t)
+	app := seedApp(t, s)
+
+	if err := s.InsertComponentSchema(&model.ComponentSchema{
+		AppID:    app.ID,
+		Name:     "author-badge",
+		Props:    `{"name":"string"}`,
+		Template: "<Badge>{name}</Badge>",
+	}); err != nil {
+		t.Fatalf("insert author-badge: %v", err)
+	}
+	if err := s.InsertComponentSchema(&model.ComponentSchema{
+		AppID:    app.ID,
+		Name:     "recipe-card",
+		Props:    `{"title":"string","image":"string"}`,
+		Template: "<Card>{title}</Card>",
+	}); err != nil {
+		t.Fatalf("insert recipe-card: %v", err)
+	}
+
+	spec, err := Load(s.DB, nil)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if len(spec.Catalog) != 2 {
+		t.Fatalf("expected 2 catalog entries, got %d", len(spec.Catalog))
+	}
+	if spec.Catalog[0].Name != "author-badge" {
+		t.Fatalf("catalog[0].Name = %q, want author-badge", spec.Catalog[0].Name)
+	}
+	if spec.Catalog[0].Template != "<Badge>{name}</Badge>" {
+		t.Fatalf("catalog[0].Template = %q, want badge template", spec.Catalog[0].Template)
+	}
+	if spec.Catalog[1].Name != "recipe-card" {
+		t.Fatalf("catalog[1].Name = %q, want recipe-card", spec.Catalog[1].Name)
+	}
+	if spec.Catalog[1].Props["title"] != "string" || spec.Catalog[1].Props["image"] != "string" {
+		t.Fatalf("catalog[1].Props = %#v", spec.Catalog[1].Props)
+	}
+}
+
+func TestLoad_ScreenEntry(t *testing.T) {
+	s := mustStore(t)
+	app := seedApp(t, s)
+
+	addScreen(t, s, app.ID, "Home", "Landing page")
+	addScreen(t, s, app.ID, "Settings", "User settings")
+
+	if err := s.SetEntryScreen(app.ID, "Home"); err != nil {
+		t.Fatalf("set entry: %v", err)
+	}
+
+	spec, err := Load(s.DB, nil)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if len(spec.Screens) != 2 {
+		t.Fatalf("expected 2 screens, got %d", len(spec.Screens))
+	}
+
+	if !spec.Screens[0].Entry {
+		t.Error("Home should be entry screen")
+	}
+	if spec.Screens[1].Entry {
+		t.Error("Settings should not be entry screen")
+	}
+}
+
+func TestLoad_EmptyEntitiesAndExperiments(t *testing.T) {
+	s := mustStore(t)
+	seedApp(t, s)
+
+	spec, err := Load(s.DB, nil)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if spec.Entities != nil {
+		t.Errorf("expected nil entities, got %v", spec.Entities)
+	}
+	if spec.Experiments != nil {
+		t.Errorf("expected nil experiments, got %v", spec.Experiments)
+	}
+}
+
+func TestLoad_MalformedEntityDataReturnsError(t *testing.T) {
+	s := mustStore(t)
+	app := seedApp(t, s)
+
+	s.DB.Exec(`INSERT INTO entities(app_id, name, type, data) VALUES(?, 'Bad', 'model', '{broken')`, app.ID)
+	_, err := Load(s.DB, nil)
+	if err == nil {
+		t.Fatal("expected error for malformed entity data JSON, got nil")
+	}
+	if !strings.Contains(err.Error(), "unmarshal") {
+		t.Errorf("error should mention unmarshal, got: %v", err)
+	}
+}
+
+func TestLoad_MalformedExperimentOverlayReturnsError(t *testing.T) {
+	s := mustStore(t)
+	app := seedApp(t, s)
+
+	s.DB.Exec(`INSERT INTO experiments(app_id, name, description, scope, overlay, status) VALUES(?, 'Bad', '', '', '{broken', 'active')`, app.ID)
+	_, err := Load(s.DB, nil)
+	if err == nil {
+		t.Fatal("expected error for malformed experiment overlay JSON, got nil")
+	}
+	if !strings.Contains(err.Error(), "unmarshal") {
+		t.Errorf("error should mention unmarshal, got: %v", err)
+	}
+}

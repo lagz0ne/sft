@@ -11,11 +11,14 @@ app:
       sender: contact
       date: datetime
       read: boolean
+      starred: boolean?
       body: string?
+      snippet: string?
       attachments: string[]?
     contact:
       name: string
       email: string
+      avatar: string?
     label:
       name: string
       color: string
@@ -30,14 +33,55 @@ app:
   regions:
     - name: main_nav
       description: Sidebar with labels, folders, and navigation shortcuts
+      tags: [sidebar]
+      regions:
+        - name: inbox_nav
+          description: Inbox folder with unread count
+          component: button
+          props: '{"label": "Inbox", "icon": "inbox", "variant": "ghost"}'
+        - name: starred_nav
+          description: Starred messages shortcut
+          component: button
+          props: '{"label": "Starred", "icon": "star", "variant": "ghost"}'
+        - name: sent_nav
+          description: Sent mail folder
+          component: button
+          props: '{"label": "Sent", "icon": "send", "variant": "ghost"}'
+        - name: drafts_nav
+          description: Drafts folder
+          component: button
+          props: '{"label": "Drafts", "icon": "file", "variant": "ghost"}'
+        - name: spam_nav
+          description: Spam folder
+          component: button
+          props: '{"label": "Spam", "icon": "alert-octagon", "variant": "ghost"}'
+        - name: trash_nav
+          description: Trash folder
+          component: button
+          props: '{"label": "Trash", "icon": "trash", "variant": "ghost"}'
+      delivery:
+        classes: [w-64, shrink-0, bg-white, border-r, border-gray-200, flex, flex-col, gap-1, p-2]
+
     - name: search_bar
       description: Global email search with filters and advanced operators
+      tags: [header]
+      component: input
+      props: '{"placeholder": "Search mail", "type": "search", "icon": "search"}'
+      delivery:
+        classes: [flex-1, max-w-2xl, h-12, rounded-full, bg-gray-100, px-4]
+
     - name: compose_button
       description: Persistent action button triggering the compose overlay from any screen
+      tags: [overlay]
       events: [start_compose]
+      component: button
+      props: '{"label": "Compose", "variant": "primary", "icon": "edit"}'
+      delivery:
+        classes: [bg-blue-600, text-white, rounded-2xl, px-6, py-3, shadow-md, font-medium]
+
     - name: chat_sidebar
       description: Google Chat integration panel alongside email
-      tags: [chat_enabled]
+      tags: [aside, chat_enabled]
     - name: compose_window
       description: Email composition form — survives screen transitions as a floating panel
       tags: [composing, overlay]
@@ -46,6 +90,27 @@ app:
         discard_draft:
       data:
         draft: draft
+      regions:
+        - name: to_field
+          description: Recipient input with autocomplete
+          component: input
+          props: '{"placeholder": "Recipients", "type": "email"}'
+        - name: subject_field
+          description: Email subject line
+          component: input
+          props: '{"placeholder": "Subject"}'
+        - name: body_editor
+          description: Rich text editor for email body
+          component: input
+          props: '{"type": "textarea", "placeholder": "Write your message...", "rows": 12}'
+        - name: send_button
+          description: Send the composed email
+          component: button
+          props: '{"label": "Send", "variant": "primary"}'
+        - name: discard_button
+          description: Discard the draft
+          component: button
+          props: '{"label": "Discard", "variant": "ghost"}'
       state_machine:
         hidden:
           on:
@@ -65,25 +130,88 @@ app:
       regions:
         - name: category_tabs
           description: Primary / Social / Promotions / Updates tab filter
+          tags: [toolbar]
           events:
             switch_category(category):
           ambient:
             active: "data(inbox, .active_category)"
+          regions:
+            - name: primary_tab
+              description: Primary inbox tab
+              component: button
+              props: '{"label": "Primary", "variant": "ghost"}'
+            - name: social_tab
+              description: Social emails tab
+              component: button
+              props: '{"label": "Social", "variant": "ghost"}'
+            - name: promotions_tab
+              description: Promotions emails tab
+              component: button
+              props: '{"label": "Promotions", "variant": "ghost"}'
+            - name: updates_tab
+              description: Updates emails tab
+              component: button
+              props: '{"label": "Updates", "variant": "ghost"}'
         - name: email_list
           description: Scrollable thread list supporting individual and bulk interactions
+          tags: [main]
           events:
             select_email(email):
             check_email(email):
             escape:
           ambient:
             emails: "data(inbox, .emails)"
+          regions:
+            - name: email_row_1
+              description: First email thread row
+              delivery:
+                classes: [flex, items-center, gap-3, px-4, py-2, "hover:bg-blue-50", cursor-pointer, border-b, border-gray-100]
+              regions:
+                - name: checkbox_1
+                  description: Selection checkbox
+                  component: input
+                  props: '{"type": "checkbox"}'
+                - name: sender_avatar_1
+                  description: Sender profile image
+                  component: image
+                  props: '{"alt": "HR", "aspect": "square"}'
+                - name: subject_1
+                  description: Email subject line
+                  component: text
+                  props: '{"text": "Welcome aboard"}'
+                - name: snippet_1
+                  description: Email body preview
+                  component: text
+                  props: '{"text": "We are excited to have you join...", "variant": "muted"}'
+                - name: date_1
+                  description: Received date
+                  component: text
+                  props: '{"text": "Mar 19", "variant": "muted"}'
+            - name: email_row_2
+              description: Second email thread row — same structure as email_row_1
+              delivery:
+                classes: [flex, items-center, gap-3, px-4, py-2, "hover:bg-blue-50", cursor-pointer, border-b, border-gray-100]
         - name: reading_pane
           description: Inline email preview — only exists when preview pane setting is enabled
-          tags: [preview_pane_enabled]
+          tags: [aside, preview_pane_enabled]
           ambient:
             email: "data(inbox, .emails[0])"
+          regions:
+            - name: pane_subject
+              description: Email subject heading
+              component: text
+              props: '{"text": "Welcome aboard", "variant": "heading"}'
+            - name: pane_sender_info
+              description: Sender name and email
+              component: text
+              props: '{"text": "HR <hr@acme.co>"}'
+            - name: pane_body
+              description: Full email body content
+              component: text
+              props: '{"text": "Welcome to the team! We are thrilled to have you..."}'
         - name: bulk_action_bar
           description: Archive, delete, mark read/unread, move, label — appears in selecting state
+          tags: [toolbar]
           events: [archive_selected, delete_selected]
           ambient:
             selected: "data(inbox, .selected)"
@@ -108,7 +236,6 @@ app:
         empty:
           fixture: inbox_empty
           regions: [category_tabs, email_list]
-
     - name: thread_view
       description: Full conversation view with chronological messages and inline reply
       context:
@@ -117,10 +244,30 @@ app:
       regions:
         - name: message_list
           description: Chronological message thread with expand/collapse per message
+          tags: [main]
           ambient:
             thread: "data(thread_view, .thread)"
+          regions:
+            - name: message_1
+              description: First message in thread
+              regions:
+                - name: msg1_sender
+                  description: Message sender
+                  component: text
+                  props: '{"text": "HR <hr@acme.co>", "variant": "bold"}'
+                - name: msg1_body
+                  description: Message body
+                  component: text
+                  props: '{"text": "Welcome to the team! Please find your onboarding packet attached."}'
+                - name: msg1_timestamp
+                  description: Sent time
+                  component: text
+                  props: '{"text": "Mar 19, 9:15 AM", "variant": "muted"}'
+            - name: message_2
+              description: Second message in thread — same structure as message_1
         - name: reply_composer
           description: Rich text reply editor embedded at the bottom of the thread
+          tags: [main]
           events:
             start_reply:
             send_reply(draft):
@@ -128,6 +275,19 @@ app:
           data:
             draft_body: string?
             draft_to: string[]?
+          regions:
+            - name: reply_editor
+              description: Reply text area
+              component: input
+              props: '{"type": "textarea", "placeholder": "Reply...", "rows": 6}'
+            - name: send_reply_button
+              description: Send reply action
+              component: button
+              props: '{"label": "Send", "variant": "primary"}'
+            - name: discard_reply_button
+              description: Discard reply action
+              component: button
+              props: '{"label": "Discard", "variant": "ghost"}'
           state_machine:
             collapsed:
               on:
@@ -147,11 +307,13 @@ app:
       regions:
         - name: general_settings
           description: Language, density, default text style, notifications
+          tags: [main]
         - name: labs_settings
           description: Experimental features opt-in
-          tags: [labs_enabled]
+          tags: [main, labs_enabled]
         - name: account_settings
           description: Connected accounts, POP/IMAP, delegation
+          tags: [main]
 
     - name: search_results
       description: Email results matching a search query with refinement filters
@@ -161,10 +323,12 @@ app:
       regions:
         - name: search_filters
           description: Refine by date, sender, has-attachment, label
+          tags: [toolbar]
           ambient:
             query: "data(search_results, .query)"
         - name: result_list
           description: Filtered email threads matching the search query
+          tags: [main]
           events:
             select_result(email):
           ambient:
@@ -184,6 +348,7 @@ app:
       regions:
         - name: label_email_list
           description: Thread list scoped to the selected label
+          tags: [main]
           events:
             select_email(email):
           ambient:
@@ -197,36 +362,39 @@ app:
     inbox_full:
       inbox:
         emails:
-          - { subject: "Welcome aboard", sender: { name: "HR", email: "hr@acme.co" }, read: false, date: "2026-03-19" }
-          - { subject: "Q1 Report", sender: { name: "Finance", email: "fin@acme.co" }, read: true, date: "2026-03-18" }
+          - { subject: "Welcome aboard", sender: { name: "HR Team", email: "hr@acme.co" }, read: false, starred: false, date: "2026-03-19" }
+          - { subject: "Q1 Report — Action Required", sender: { name: "Finance", email: "fin@acme.co" }, read: true, starred: false, date: "2026-03-18" }
+          - { subject: "Team Standup Notes", sender: { name: "Jess Park", email: "jess@acme.co" }, read: true, starred: true, date: "2026-03-17" }
+          - { subject: "Your flight confirmation", sender: { name: "Delta Airlines", email: "noreply@delta.com" }, read: false, date: "2026-03-16" }
+          - { subject: "Invoice #8291 from Figma", sender: { name: "Figma Billing", email: "billing@figma.com" }, read: true, date: "2026-03-15" }
         selected: []
         active_category: "primary"
-
     inbox_empty:
       inbox:
         emails: []
         selected: []
         active_category: "primary"
-
     inbox_selecting:
       extends: inbox_full
       inbox:
         selected:
-          - { subject: "Welcome aboard", sender: { name: "HR" }, read: false }
+          - { subject: "Welcome aboard", sender: { name: "HR Team", email: "hr@acme.co" }, read: false }
       inbox.bulk_action_bar:
         action_label: "Archive 1 item"
-
     thread_reading:
       thread_view:
         thread:
-          - { subject: "Welcome aboard", sender: { name: "HR" }, read: true, body: "Welcome to the team!" }
+          - { subject: "Welcome aboard", sender: { name: "HR Team", email: "hr@acme.co" }, read: true, date: "2026-03-19T09:15:00Z", body: "Welcome to the team! Please find your onboarding packet attached." }
+          - { subject: "Re: Welcome aboard", sender: { name: "You", email: "me@acme.co" }, read: true, date: "2026-03-19T10:02:00Z", body: "Thank you! Quick question — who should I reach out to for IT setup?" }
+          - { subject: "Re: Welcome aboard", sender: { name: "HR Team", email: "hr@acme.co" }, read: true, date: "2026-03-19T10:30:00Z", body: "Please email helpdesk@acme.co or drop by IT on the 3rd floor." }
         current_email:
           subject: "Welcome aboard"
-          sender: { name: "HR" }
-          body: "Welcome to the team!"
-
+          sender: { name: "HR Team", email: "hr@acme.co" }
+          body: "Welcome to the team! Please find your onboarding packet attached."
     search_with_results:
       search_results:
         query: "invoice"
         results:
-          - { subject: "Invoice #1234", sender: { name: "Billing" }, read: true }
+          - { subject: "Invoice #8291 from Figma", sender: { name: "Figma Billing", email: "billing@figma.com" }, read: true, date: "2026-03-15" }
+          - { subject: "Invoice #1234 — Acme Corp", sender: { name: "Billing Dept", email: "billing@acme.co" }, read: true, date: "2026-03-10" }
+          - { subject: "Re: Missing invoice for Feb", sender: { name: "Accounting", email: "accounting@acme.co" }, read: false, date: "2026-03-08" }

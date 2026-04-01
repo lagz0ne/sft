@@ -13,16 +13,39 @@ import (
 // --- Spec tree types (nested, not flat tables) ---
 
 type Spec struct {
-	App      App                    `json:"app"`
-	Screens  []Screen               `json:"screens"`
-	Fixtures []Fixture              `json:"fixtures,omitempty"`
-	Layouts  map[string][]string    `json:"layouts,omitempty"`
+	App         App                 `json:"app"`
+	Catalog     []CatalogEntry      `json:"catalog,omitempty"`
+	Screens     []Screen            `json:"screens"`
+	Fixtures    []Fixture           `json:"fixtures,omitempty"`
+	Layouts     map[string][]string `json:"layouts,omitempty"`
+	Entities    []Entity            `json:"entities,omitempty"`
+	Experiments []Experiment        `json:"experiments,omitempty"`
+}
+
+type CatalogEntry struct {
+	Name     string            `json:"name"`
+	Props    map[string]string `json:"props,omitempty"`
+	Template string            `json:"template"`
+}
+
+type Entity struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+	Data any    `json:"data"`
+}
+
+type Experiment struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Scope       string `json:"scope,omitempty"`
+	Overlay     any    `json:"overlay,omitempty"`
+	Status      string `json:"status"`
 }
 
 type Fixture struct {
-	Name    string      `json:"name"`
-	Extends string      `json:"extends,omitempty"`
-	Data    any `json:"data"`
+	Name    string `json:"name"`
+	Extends string `json:"extends,omitempty"`
+	Data    any    `json:"data"`
 }
 
 type App struct {
@@ -40,11 +63,12 @@ type Screen struct {
 	Ref            string              `json:"ref"`
 	Name           string              `json:"name"`
 	Description    string              `json:"description"`
+	Entry          bool                `json:"entry,omitempty"`
 	Tags           []string            `json:"tags,omitempty"`
 	Context        map[string]string   `json:"context,omitempty"`
 	Component      string              `json:"component,omitempty"`
-	ComponentProps string              `json:"component_props,omitempty"` // [F5]
-	ComponentOn    string              `json:"component_on,omitempty"`    // [F5]
+	ComponentProps string              `json:"component_props,omitempty"`   // [F5]
+	ComponentOn    string              `json:"component_on,omitempty"`      // [F5]
 	ComponentVis   string              `json:"component_visible,omitempty"` // [F5]
 	Regions        []Region            `json:"regions,omitempty"`
 	Transitions    []Transition        `json:"transitions,omitempty"`
@@ -61,8 +85,8 @@ type Region struct {
 	Description       string              `json:"description"`
 	Tags              []string            `json:"tags,omitempty"`
 	Component         string              `json:"component,omitempty"`
-	ComponentProps    string              `json:"component_props,omitempty"` // [F5]
-	ComponentOn       string              `json:"component_on,omitempty"`    // [F5]
+	ComponentProps    string              `json:"component_props,omitempty"`   // [F5]
+	ComponentOn       string              `json:"component_on,omitempty"`      // [F5]
 	ComponentVis      string              `json:"component_visible,omitempty"` // [F5]
 	DiscoveryLayout   []string            `json:"discovery_layout,omitempty"`
 	DeliveryClasses   []string            `json:"delivery_classes,omitempty"`
@@ -88,8 +112,8 @@ type Transition struct {
 // Enricher provides attachment and component data during spec loading.
 type Enricher interface {
 	AttachmentsFor(entity string) []string
-	ComponentFor(entityType string, entityID int64) string                    // type or ""
-	ComponentInfoFor(entityType string, entityID int64) *store.ComponentInfo  // full details
+	ComponentFor(entityType string, entityID int64) string                   // type or ""
+	ComponentInfoFor(entityType string, entityID int64) *store.ComponentInfo // full details
 }
 
 // --- Load from DB ---
@@ -107,6 +131,9 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 	if spec.App.DataTypes, err = loadDataTypes(db, appID); err != nil {
 		return nil, err
 	}
+	if spec.Catalog, err = loadCatalog(db, appID); err != nil {
+		return nil, err
+	}
 	if spec.App.Enums, err = loadEnums(db, appID); err != nil {
 		return nil, err
 	}
@@ -115,7 +142,7 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 	spec.App.Transitions = loadTransitions(db, "app", appID)
 
 	// Screens
-	rows, err := db.Query("SELECT id, name, description FROM screens ORDER BY id")
+	rows, err := db.Query("SELECT id, name, description, entry FROM screens ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -123,10 +150,12 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 	for rows.Next() {
 		var id int64
 		var s Screen
-		if err := rows.Scan(&id, &s.Name, &s.Description); err != nil {
+		var entry int
+		if err := rows.Scan(&id, &s.Name, &s.Description, &entry); err != nil {
 			return nil, fmt.Errorf("scan screen: %w", err)
 		}
 		s.ID = id
+		s.Entry = entry != 0
 		s.Ref = fmt.Sprintf("@s%d", id)
 		s.Tags = loadTags(db, "screen", id)
 		s.Context = loadContext(db, "screen", id)
@@ -155,6 +184,16 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 
 	// Layouts
 	spec.Layouts = loadLayouts(db, appID)
+
+	// Entities
+	if spec.Entities, err = loadEntities(db, appID); err != nil {
+		return nil, err
+	}
+
+	// Experiments
+	if spec.Experiments, err = loadExperiments(db, appID); err != nil {
+		return nil, err
+	}
 
 	return spec, nil
 }
@@ -306,6 +345,27 @@ func loadDataTypes(db *sql.DB, appID int64) (map[string]map[string]string, error
 		return nil, nil
 	}
 	return result, nil
+}
+
+func loadCatalog(db *sql.DB, appID int64) ([]CatalogEntry, error) {
+	rows, _ := db.Query("SELECT name, props, template FROM component_schemas WHERE app_id = ? ORDER BY name", appID)
+	if rows == nil {
+		return nil, nil
+	}
+	defer rows.Close()
+	var catalog []CatalogEntry
+	for rows.Next() {
+		var entry CatalogEntry
+		var propsJSON string
+		rows.Scan(&entry.Name, &propsJSON, &entry.Template)
+		if propsJSON != "" {
+			if err := json.Unmarshal([]byte(propsJSON), &entry.Props); err != nil {
+				return nil, fmt.Errorf("unmarshal props for catalog entry %s: %w", entry.Name, err)
+			}
+		}
+		catalog = append(catalog, entry)
+	}
+	return catalog, nil
 }
 
 func loadEnums(db *sql.DB, appID int64) (map[string][]string, error) {
@@ -461,6 +521,46 @@ func loadStateFixtures(db *sql.DB, ownerType string, ownerID int64) map[string]s
 		return nil
 	}
 	return result
+}
+
+func loadEntities(db *sql.DB, appID int64) ([]Entity, error) {
+	rows, _ := db.Query("SELECT name, type, data FROM entities WHERE app_id = ? ORDER BY name", appID)
+	if rows == nil {
+		return nil, nil
+	}
+	defer rows.Close()
+	var entities []Entity
+	for rows.Next() {
+		var e Entity
+		var dataJSON string
+		rows.Scan(&e.Name, &e.Type, &dataJSON)
+		if err := json.Unmarshal([]byte(dataJSON), &e.Data); err != nil {
+			return nil, fmt.Errorf("unmarshal data for entity %s: %w", e.Name, err)
+		}
+		entities = append(entities, e)
+	}
+	return entities, nil
+}
+
+func loadExperiments(db *sql.DB, appID int64) ([]Experiment, error) {
+	rows, _ := db.Query("SELECT name, description, scope, overlay, status FROM experiments WHERE app_id = ? ORDER BY name", appID)
+	if rows == nil {
+		return nil, nil
+	}
+	defer rows.Close()
+	var experiments []Experiment
+	for rows.Next() {
+		var e Experiment
+		var overlayJSON string
+		rows.Scan(&e.Name, &e.Description, &e.Scope, &overlayJSON, &e.Status)
+		if overlayJSON != "" {
+			if err := json.Unmarshal([]byte(overlayJSON), &e.Overlay); err != nil {
+				return nil, fmt.Errorf("unmarshal overlay for experiment %s: %w", e.Name, err)
+			}
+		}
+		experiments = append(experiments, e)
+	}
+	return experiments, nil
 }
 
 // --- Text rendering ---
