@@ -194,6 +194,7 @@ CREATE TABLE IF NOT EXISTS component_schemas (
   app_id  INTEGER NOT NULL REFERENCES apps(id),
   name    TEXT NOT NULL,
   props   TEXT NOT NULL DEFAULT '{}',
+  template TEXT NOT NULL DEFAULT '',
   UNIQUE(app_id, name)
 );
 

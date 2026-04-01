@@ -395,6 +395,49 @@ func TestLoad_Experiments(t *testing.T) {
 	}
 }
 
+func TestLoad_Catalog(t *testing.T) {
+	s := mustStore(t)
+	app := seedApp(t, s)
+
+	if err := s.InsertComponentSchema(&model.ComponentSchema{
+		AppID:    app.ID,
+		Name:     "author-badge",
+		Props:    `{"name":"string"}`,
+		Template: "<Badge>{name}</Badge>",
+	}); err != nil {
+		t.Fatalf("insert author-badge: %v", err)
+	}
+	if err := s.InsertComponentSchema(&model.ComponentSchema{
+		AppID:    app.ID,
+		Name:     "recipe-card",
+		Props:    `{"title":"string","image":"string"}`,
+		Template: "<Card>{title}</Card>",
+	}); err != nil {
+		t.Fatalf("insert recipe-card: %v", err)
+	}
+
+	spec, err := Load(s.DB, nil)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if len(spec.Catalog) != 2 {
+		t.Fatalf("expected 2 catalog entries, got %d", len(spec.Catalog))
+	}
+	if spec.Catalog[0].Name != "author-badge" {
+		t.Fatalf("catalog[0].Name = %q, want author-badge", spec.Catalog[0].Name)
+	}
+	if spec.Catalog[0].Template != "<Badge>{name}</Badge>" {
+		t.Fatalf("catalog[0].Template = %q, want badge template", spec.Catalog[0].Template)
+	}
+	if spec.Catalog[1].Name != "recipe-card" {
+		t.Fatalf("catalog[1].Name = %q, want recipe-card", spec.Catalog[1].Name)
+	}
+	if spec.Catalog[1].Props["title"] != "string" || spec.Catalog[1].Props["image"] != "string" {
+		t.Fatalf("catalog[1].Props = %#v", spec.Catalog[1].Props)
+	}
+}
+
 func TestLoad_ScreenEntry(t *testing.T) {
 	s := mustStore(t)
 	app := seedApp(t, s)

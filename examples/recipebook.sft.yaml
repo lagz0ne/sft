@@ -1,0 +1,765 @@
+app:
+  name: recipebook
+  description: Recipe sharing platform — browse, save, create recipes, review, follow cooks
+
+  enums:
+    difficulty: [easy, medium, hard]
+    meal_type: [breakfast, lunch, dinner, snack, dessert]
+
+  data:
+    author:
+      name: string
+      avatar_url: string
+      recipe_count: number
+    recipe:
+      title: string
+      cover_image: string
+      author: author
+      prep_time: number
+      cook_time: number
+      servings: number
+      difficulty: difficulty
+      ingredients: ingredient[]
+      steps: recipe_step[]
+      rating: number?
+      review_count: number
+    ingredient:
+      name: string
+      amount: string
+      note: string?
+    recipe_step:
+      number: number
+      instruction: string
+      image: string?
+      duration: string?
+    review:
+      author: author
+      rating: number
+      body: string
+      date: string
+
+  # App-specific components — compose shadcn primitives
+  # shadcn types (Card, Button, Input, Avatar, Badge, Tabs) are available without definition
+  catalog:
+    recipe-card:
+      props:
+        title: string
+        image: string
+        author_name: string
+        author_avatar: string
+        time: string
+        difficulty: string
+        rating: number?
+        save_button: component?
+      template: |
+        <Card className="overflow-hidden hover:shadow-md transition-shadow cursor-pointer group">
+          <div className="relative">
+            <img src={props.image} className="w-full aspect-[4/3] object-cover group-hover:scale-105 transition-transform duration-300" />
+            {props.save_button && <div className="absolute top-2 left-2">{props.save_button}</div>}
+            <Badge className="absolute top-2 right-2" variant="secondary">{props.difficulty}</Badge>
+          </div>
+          <CardContent className="p-3">
+            <h3 className="font-semibold text-sm line-clamp-2">{props.title}</h3>
+            <div className="flex items-center justify-between mt-2">
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Avatar className="w-5 h-5">
+                  <AvatarImage src={props.author_avatar} />
+                </Avatar>
+                <span>{props.author_name}</span>
+              </div>
+              <span className="text-xs text-muted-foreground">{props.time}</span>
+            </div>
+            {props.rating && <Badge variant="outline" className="mt-2">★ {props.rating}</Badge>}
+          </CardContent>
+        </Card>
+
+    recipe-step:
+      props:
+        number: number
+        instruction: string
+        image: string?
+        duration: string?
+      template: |
+        <div className="flex gap-4 py-4 border-b last:border-0">
+          <div className="w-8 h-8 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center font-bold text-sm shrink-0">
+            {props.number}
+          </div>
+          <div className="flex-1">
+            <p className="text-sm leading-relaxed">{props.instruction}</p>
+            {props.image && <img src={props.image} className="mt-2 rounded-lg w-full" />}
+            {props.duration && <Badge variant="outline" className="mt-2">{props.duration}</Badge>}
+          </div>
+        </div>
+
+    review-card:
+      props:
+        author_name: string
+        author_avatar: string
+        rating: number
+        body: string
+        date: string
+      template: |
+        <div className="py-4 border-b last:border-0">
+          <div className="flex items-center gap-2 mb-2">
+            <Avatar className="w-8 h-8">
+              <AvatarImage src={props.author_avatar} />
+            </Avatar>
+            <div>
+              <p className="text-sm font-medium">{props.author_name}</p>
+              <p className="text-xs text-muted-foreground">{props.date}</p>
+            </div>
+            <Badge className="ml-auto" variant="secondary">{"★".repeat(props.rating)}</Badge>
+          </div>
+          <p className="text-sm text-muted-foreground">{props.body}</p>
+        </div>
+
+  # Shared entities — define once, reference with $name
+  entities:
+    mai: { _type: author, name: "Mai Nguyen", avatar_url: "/avatars/mai.jpg", recipe_count: 87 }
+    sarah: { _type: author, name: "Sarah Chen", avatar_url: "/avatars/sarah.jpg", recipe_count: 42 }
+    yuki: { _type: author, name: "Yuki Tanaka", avatar_url: "/avatars/yuki.jpg", recipe_count: 63 }
+
+    pho_bones: { _type: ingredient, name: "beef marrow bones", amount: "2 kg" }
+    pho_noodles: { _type: ingredient, name: "rice noodles", amount: "500 g" }
+    pho_star_anise: { _type: ingredient, name: "star anise", amount: "4 whole" }
+    pho_ginger: { _type: ingredient, name: "ginger", amount: "1 whole", note: "charred" }
+    pho_fish_sauce: { _type: ingredient, name: "fish sauce", amount: "3 tbsp" }
+
+    pho_step_1:
+      _type: recipe_step
+      number: 1
+      instruction: Blanch bones in boiling water for 10 minutes, drain and rinse
+      duration: 15 min
+    pho_step_2:
+      _type: recipe_step
+      number: 2
+      instruction: Char ginger and onion directly over flame until blackened
+      image: /steps/pho-char.jpg
+      duration: 5 min
+    pho_step_3:
+      _type: recipe_step
+      number: 3
+      instruction: Simmer bones with spices for 6 hours, skimming foam
+      duration: 6 hrs
+    pho_step_4:
+      _type: recipe_step
+      number: 4
+      instruction: Strain broth, season with fish sauce and rock sugar
+      duration: 10 min
+    pho_step_5:
+      _type: recipe_step
+      number: 5
+      instruction: Cook noodles, assemble bowls with sliced beef, herbs, and hot broth
+      image: /steps/pho-assemble.jpg
+      duration: 10 min
+
+    pho_review_sarah:
+      _type: review
+      author: $sarah
+      rating: 5
+      body: Made this for Tet and my family said it was better than the restaurant. The 6-hour broth makes all the difference.
+      date: Mar 18
+    pho_review_yuki:
+      _type: review
+      author: $yuki
+      rating: 4
+      body: Incredible flavor but I wish there was a shortcut version. Not everyone has 6 hours.
+      date: Mar 20
+
+    pho:
+      _type: recipe
+      title: Pho Bo Hanoi
+      cover_image: /recipes/pho-bo.jpg
+      author: $mai
+      prep_time: 30
+      cook_time: 360
+      servings: 6
+      difficulty: hard
+      ingredients: [$pho_bones, $pho_noodles, $pho_star_anise, $pho_ginger, $pho_fish_sauce]
+      steps: [$pho_step_1, $pho_step_2, $pho_step_3, $pho_step_4, $pho_step_5]
+      rating: 4.8
+      review_count: 234
+
+    focaccia:
+      _type: recipe
+      title: Sourdough Focaccia with Rosemary
+      cover_image: /recipes/focaccia.jpg
+      author: $sarah
+      prep_time: 20
+      cook_time: 25
+      servings: 8
+      difficulty: medium
+      ingredients:
+        - { name: "sourdough starter", amount: "150 g", note: "active, bubbly" }
+        - { name: "bread flour", amount: "500 g" }
+        - { name: "olive oil", amount: "60 ml" }
+        - { name: "fresh rosemary", amount: "3 tbsp" }
+      steps:
+        - { number: 1, instruction: "Mix starter, flour, water, and salt. Stretch and fold every 30 min for 2 hours", duration: "2 hrs" }
+        - { number: 2, instruction: "Oil a sheet pan generously, transfer dough, dimple with fingers", image: "/steps/focaccia-dimple.jpg" }
+        - { number: 3, instruction: "Top with rosemary and flaky salt, bake at 220C until golden", duration: "25 min", image: "/steps/focaccia-baked.jpg" }
+      rating: 4.6
+      review_count: 156
+
+    miso_salmon:
+      _type: recipe
+      title: Miso Glazed Salmon
+      cover_image: /recipes/miso-salmon.jpg
+      author: $yuki
+      prep_time: 10
+      cook_time: 15
+      servings: 2
+      difficulty: easy
+      ingredients:
+        - { name: "salmon fillets", amount: "2 piece" }
+        - { name: "white miso paste", amount: "3 tbsp" }
+        - { name: "mirin", amount: "2 tbsp" }
+      steps:
+        - { number: 1, instruction: "Whisk miso, mirin, sake, and sugar. Marinate salmon 30 min to overnight" }
+        - { number: 2, instruction: "Broil on high 12-15 minutes until glaze caramelizes", image: "/steps/miso-broil.jpg", duration: "15 min" }
+      rating: 4.7
+      review_count: 89
+
+  fixtures:
+    home_popular:
+      home:
+        featured: [$pho, $focaccia, $miso_salmon]
+        trending_tags: [gluten_free, meal_prep, under_30_min]
+
+    detail_with_reviews:
+      recipe_detail:
+        recipe: $pho
+        reviews: [$pho_review_sarah, $pho_review_yuki]
+        is_saved: true
+
+    detail_no_reviews:
+      extends: detail_with_reviews
+      recipe_detail:
+        reviews: []
+        is_saved: false
+
+    profile_mai:
+      user_profile:
+        user: $mai
+        recipes: [$pho]
+
+  # App-level nav
+  regions:
+    - name: top_nav
+      tags: [header]
+      description: Top navigation bar
+      delivery:
+        classes: [sticky, top-0, z-50, bg-white, border-b, shadow-sm]
+      regions:
+        - name: logo
+          component: Button
+          props:
+            variant: ghost
+            children: "🍳 RecipeBook"
+        - name: search
+          component: Input
+          props:
+            placeholder: Search recipes, ingredients, cooks...
+            type: search
+            className: flex-1 max-w-md
+        - name: create_btn
+          component: Button
+          props:
+            children: Share Recipe
+            variant: default
+
+  screens:
+    # ── HOME ──
+    - name: home
+      entry: true
+      description: Recipe discovery feed
+      context:
+        featured: recipe[]
+        trending_tags: string[]
+      regions:
+        - name: feed
+          tags: [main]
+          description: Recipe card grid
+          delivery:
+            classes: [grid, grid-cols-1, "sm:grid-cols-2", "lg:grid-cols-3", gap-6, max-w-6xl, mx-auto, p-6]
+          regions:
+            - name: card_pho
+              component: recipe-card
+              props:
+                title: $pho.title
+                image: $pho.cover_image
+                author_name: $pho.author.name
+                author_avatar: $pho.author.avatar_url
+                time: 6h 30m
+                difficulty: $pho.difficulty
+                rating: $pho.rating
+                save_button:
+                  component: Button
+                  props:
+                    children: Save
+                    variant: secondary
+                    className: shadow-sm
+            - name: card_focaccia
+              component: recipe-card
+              props:
+                title: $focaccia.title
+                image: $focaccia.cover_image
+                author_name: $focaccia.author.name
+                author_avatar: $focaccia.author.avatar_url
+                time: 2h 45m
+                difficulty: $focaccia.difficulty
+                rating: $focaccia.rating
+                save_button:
+                  component: Button
+                  props:
+                    children: Saved
+                    variant: default
+                    className: shadow-sm
+            - name: card_salmon
+              component: recipe-card
+              props:
+                title: $miso_salmon.title
+                image: $miso_salmon.cover_image
+                author_name: $miso_salmon.author.name
+                author_avatar: $miso_salmon.author.avatar_url
+                time: 25m
+                difficulty: $miso_salmon.difficulty
+                rating: $miso_salmon.rating
+                save_button:
+                  component: Button
+                  props:
+                    children: Quick Save
+                    variant: outline
+                    className: bg-white/90
+      state_machine:
+        browsing:
+          fixture: home_popular
+          regions: [feed]
+          on:
+            select_recipe: navigate(recipe_detail)
+            search: navigate(search_results)
+
+    # ── RECIPE DETAIL ──
+    - name: recipe_detail
+      description: Full recipe view with steps and reviews
+      context:
+        recipe: recipe
+        reviews: review[]
+        is_saved: boolean
+      regions:
+        - name: hero
+          tags: [header]
+          description: Cover image with title overlay
+          delivery:
+            classes: [relative, "h-[300px]", overflow-hidden, bg-black]
+          regions:
+            - name: hero_image
+              component: img
+              props:
+                src: $pho.cover_image
+                alt: $pho.title
+                className: w-full h-full object-cover opacity-80
+            - name: hero_title
+              component: div
+              props:
+                className: absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/80
+              regions:
+                - name: title_text
+                  component: Heading
+                  props:
+                    level: 1
+                    className: text-white text-2xl font-bold
+                    children: $pho.title
+                - name: author_badge
+                  component: div
+                  props:
+                    className: flex items-center gap-2 mt-2 text-white/80 text-sm
+                  regions:
+                    - name: author_avatar
+                      component: Avatar
+                      props:
+                        src: $pho.author.avatar_url
+                        className: w-6 h-6
+                    - name: author_name
+                      component: span
+                      props:
+                        children: $pho.author.name
+                    - name: author_time_separator
+                      component: span
+                      props:
+                        children: "·"
+                    - name: author_time
+                      component: span
+                      props:
+                        children: 6h 30m
+                    - name: author_difficulty_separator
+                      component: span
+                      props:
+                        children: "·"
+                    - name: author_difficulty
+                      component: span
+                      props:
+                        children: $pho.difficulty
+
+        - name: meta_strip
+          tags: [main]
+          description: Prep time, cook time, servings, difficulty
+          delivery:
+            classes: [flex, gap-6, p-6, border-b]
+          regions:
+            - name: prep_time
+              component: Badge
+              props:
+                variant: outline
+                className: flex items-center gap-1
+              regions:
+                - name: prep_time_label
+                  component: span
+                  props:
+                    children: "Prep:"
+                - name: prep_time_value
+                  component: span
+                  props:
+                    children: $pho.prep_time
+                - name: prep_time_unit
+                  component: span
+                  props:
+                    children: min
+            - name: cook_time
+              component: Badge
+              props:
+                variant: outline
+                className: flex items-center gap-1
+              regions:
+                - name: cook_time_label
+                  component: span
+                  props:
+                    children: "Cook:"
+                - name: cook_time_value
+                  component: span
+                  props:
+                    children: $pho.cook_time
+                - name: cook_time_unit
+                  component: span
+                  props:
+                    children: min
+            - name: servings
+              component: Badge
+              props:
+                variant: outline
+                className: flex items-center gap-1
+              regions:
+                - name: servings_label
+                  component: span
+                  props:
+                    children: Serves
+                - name: servings_value
+                  component: span
+                  props:
+                    children: $pho.servings
+            - name: difficulty
+              component: Badge
+              props:
+                variant: outline
+                children: $pho.difficulty
+
+        - name: ingredients
+          tags: [main]
+          description: Ingredient checklist
+          delivery:
+            classes: [p-6, border-b]
+          regions:
+            - name: ingredients_heading
+              component: Heading
+              props:
+                level: 3
+                children: Ingredients
+                className: mb-3
+            - name: ingredient_1
+              component: div
+              props:
+                className: flex justify-between py-1.5 border-b border-dashed text-sm
+              regions:
+                - name: ing_name_1
+                  component: span
+                  props:
+                    children: $pho.ingredients[0].name
+                - name: ing_amount_1
+                  component: span
+                  props:
+                    className: text-muted-foreground
+                    children: $pho.ingredients[0].amount
+            - name: ingredient_2
+              component: div
+              props:
+                className: flex justify-between py-1.5 border-b border-dashed text-sm
+              regions:
+                - name: ing_name_2
+                  component: span
+                  props:
+                    children: $pho.ingredients[1].name
+                - name: ing_amount_2
+                  component: span
+                  props:
+                    className: text-muted-foreground
+                    children: $pho.ingredients[1].amount
+            - name: ingredient_3
+              component: div
+              props:
+                className: flex justify-between py-1.5 border-b border-dashed text-sm
+              regions:
+                - name: ing_name_3
+                  component: span
+                  props:
+                    children: $pho.ingredients[2].name
+                - name: ing_amount_3
+                  component: span
+                  props:
+                    className: text-muted-foreground
+                    children: $pho.ingredients[2].amount
+            - name: ingredient_4
+              component: div
+              props:
+                className: flex items-center justify-between gap-3 py-1.5 border-b border-dashed text-sm
+              regions:
+                - name: ing_label_4
+                  component: div
+                  props:
+                    className: flex items-center gap-2
+                  regions:
+                    - name: ing_name_4
+                      component: span
+                      props:
+                        children: $pho.ingredients[3].name
+                    - name: ing_note_4
+                      component: Badge
+                      props:
+                        variant: secondary
+                        children: $pho.ingredients[3].note
+                - name: ing_amount_4
+                  component: span
+                  props:
+                    className: text-muted-foreground
+                    children: $pho.ingredients[3].amount
+            - name: ingredient_5
+              component: div
+              props:
+                className: flex justify-between py-1.5 text-sm
+              regions:
+                - name: ing_name_5
+                  component: span
+                  props:
+                    children: $pho.ingredients[4].name
+                - name: ing_amount_5
+                  component: span
+                  props:
+                    className: text-muted-foreground
+                    children: $pho.ingredients[4].amount
+
+        - name: steps
+          tags: [main]
+          description: Step-by-step instructions
+          delivery:
+            classes: [p-6, border-b]
+          regions:
+            - name: steps_heading
+              component: Heading
+              props:
+                level: 3
+                children: Steps
+                className: mb-3
+            - name: step_1
+              component: recipe-step
+              props:
+                number: $pho.steps[0].number
+                instruction: $pho.steps[0].instruction
+                duration: $pho.steps[0].duration
+            - name: step_2
+              component: recipe-step
+              props:
+                number: $pho.steps[1].number
+                instruction: $pho.steps[1].instruction
+                image: $pho.steps[1].image
+                duration: $pho.steps[1].duration
+            - name: step_3
+              component: recipe-step
+              props:
+                number: $pho.steps[2].number
+                instruction: $pho.steps[2].instruction
+                duration: $pho.steps[2].duration
+            - name: step_4
+              component: recipe-step
+              props:
+                number: $pho.steps[3].number
+                instruction: $pho.steps[3].instruction
+                duration: $pho.steps[3].duration
+            - name: step_5
+              component: recipe-step
+              props:
+                number: $pho.steps[4].number
+                instruction: $pho.steps[4].instruction
+                image: $pho.steps[4].image
+                duration: $pho.steps[4].duration
+
+        - name: reviews
+          tags: [main]
+          description: User reviews
+          delivery:
+            classes: [p-6]
+          regions:
+            - name: reviews_header
+              component: div
+              props:
+                className: mb-3 flex items-center justify-between
+              regions:
+                - name: reviews_heading
+                  component: Heading
+                  props:
+                    level: 3
+                    children: Reviews
+                - name: reviews_count
+                  component: Badge
+                  props:
+                    variant: outline
+                    children: $pho.review_count
+            - name: review_1
+              component: review-card
+              props:
+                author_name: $pho_review_sarah.author.name
+                author_avatar: $pho_review_sarah.author.avatar_url
+                rating: $pho_review_sarah.rating
+                body: $pho_review_sarah.body
+                date: $pho_review_sarah.date
+            - name: review_2
+              component: review-card
+              props:
+                author_name: $pho_review_yuki.author.name
+                author_avatar: $pho_review_yuki.author.avatar_url
+                rating: $pho_review_yuki.rating
+                body: $pho_review_yuki.body
+                date: $pho_review_yuki.date
+
+        - name: action_bar
+          tags: [toolbar]
+          description: Save, share, print actions
+          delivery:
+            classes: [sticky, bottom-0, flex, gap-3, p-4, border-t, bg-white]
+          events: [save_toggle, share]
+          regions:
+            - name: save_button
+              component: Button
+              props:
+                children: Save Recipe
+                variant: default
+            - name: share_button
+              component: Button
+              props:
+                children: Share
+                variant: outline
+            - name: print_button
+              component: Button
+              props:
+                children: Print
+                variant: ghost
+
+      state_machine:
+        viewing:
+          fixture: detail_with_reviews
+          regions: [hero, meta_strip, ingredients, steps, reviews, action_bar]
+          on:
+            save_toggle: .
+            share: .
+        no_reviews:
+          fixture: detail_no_reviews
+          regions: [hero, meta_strip, ingredients, steps, reviews, action_bar]
+
+    # ── USER PROFILE ──
+    - name: user_profile
+      description: Cook's profile with their recipes
+      context:
+        user: author
+        recipes: recipe[]
+      regions:
+        - name: profile_header
+          tags: [header]
+          description: Avatar, name, recipe count
+          ambient:
+            user: "data(user_profile, .user)"
+        - name: user_recipes
+          tags: [main]
+          description: Grid of user's recipes
+          events:
+            select_recipe(recipe):
+          ambient:
+            recipes: "data(user_profile, .recipes)"
+      state_machine:
+        viewing:
+          fixture: profile_mai
+          regions: [profile_header, user_recipes]
+          on:
+            select_recipe: navigate(recipe_detail)
+
+    # ── SEARCH ──
+    - name: search_results
+      description: Search results page
+      state_machine:
+        browsing:
+          on:
+            select_recipe: navigate(recipe_detail)
+
+  # Experiments — catalog-level overlays
+  experiments:
+    horizontal_cards:
+      description: "Horizontal layout — image left, text right"
+      scope: catalog.recipe-card
+      overlay:
+        template: |
+          <Card className="relative flex gap-3 p-2 hover:shadow-md transition-shadow cursor-pointer">
+            {props.save_button && <div className="absolute top-2 right-2">{props.save_button}</div>}
+            <img src={props.image} className="w-28 h-28 rounded-lg object-cover shrink-0" />
+            <div className="flex flex-col justify-center min-w-0 py-1">
+              <h3 className="font-semibold text-sm line-clamp-2">{props.title}</h3>
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
+                <Avatar className="w-4 h-4"><AvatarImage src={props.author_avatar} /></Avatar>
+                <span>{props.author_name}</span>
+                <span>·</span>
+                <span>{props.time}</span>
+              </div>
+              <div className="flex gap-1.5 mt-1.5">
+                <Badge variant="outline" className="text-[10px]">{props.difficulty}</Badge>
+                {props.rating && <Badge variant="secondary" className="text-[10px]">★ {props.rating}</Badge>}
+              </div>
+            </div>
+          </Card>
+
+    minimal_theme:
+      description: "Text-only minimal — no images, pure content"
+      scope: catalog
+      overlay:
+        recipe-card:
+          template: |
+            <div className="py-2 border-b flex justify-between items-center gap-3 cursor-pointer hover:bg-muted/50">
+              <div>
+                <span className="font-medium text-sm">{props.title}</span>
+                <span className="text-muted-foreground text-xs ml-2">{props.author_name} · {props.time}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-[10px]">{props.difficulty}</Badge>
+                {props.rating && <Badge variant="secondary" className="text-[10px]">★ {props.rating}</Badge>}
+                {props.save_button}
+              </div>
+            </div>
+        recipe-step:
+          template: |
+            <div className="py-1.5 text-sm flex gap-2">
+              <span className="font-mono text-muted-foreground w-5 text-right shrink-0">{props.number}.</span>
+              <span>{props.instruction}</span>
+              {props.duration && <span className="text-muted-foreground ml-auto shrink-0">{props.duration}</span>}
+            </div>
+        review-card:
+          template: |
+            <div className="py-2 border-b text-sm">
+              <span className="font-medium">{props.author_name}</span>
+              <span className="text-muted-foreground"> · {"★".repeat(props.rating)} · {props.date}</span>
+              <p className="text-muted-foreground mt-0.5">{props.body}</p>
+            </div>

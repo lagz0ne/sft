@@ -127,7 +127,7 @@ type AmbientRef struct {
 	RegionID  int64  `json:"region_id"`
 	LocalName string `json:"local_name"`
 	Source    string `json:"source"`
-	Query    string `json:"query"`
+	Query     string `json:"query"`
 }
 
 type RegionData struct {
@@ -158,8 +158,9 @@ type Experiment struct {
 }
 
 type ComponentSchema struct {
-	ID    int64  `json:"id"`
-	AppID int64  `json:"app_id"`
-	Name  string `json:"name"`
-	Props string `json:"props"`
+	ID       int64  `json:"id"`
+	AppID    int64  `json:"app_id"`
+	Name     string `json:"name"`
+	Props    string `json:"props"`
+	Template string `json:"template"`
 }

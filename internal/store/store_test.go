@@ -593,7 +593,12 @@ func TestComponentSchemaCRUD(t *testing.T) {
 	a := seedApp(t, s)
 
 	// Insert
-	cs := &model.ComponentSchema{AppID: a.ID, Name: "DataTable", Props: `{"cols":"number","rows":"number"}`}
+	cs := &model.ComponentSchema{
+		AppID:    a.ID,
+		Name:     "DataTable",
+		Props:    `{"cols":"number","rows":"number"}`,
+		Template: "<Table rows={rows} cols={cols} />",
+	}
 	if err := s.InsertComponentSchema(cs); err != nil {
 		t.Fatal(err)
 	}
@@ -606,12 +611,17 @@ func TestComponentSchemaCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Name != "DataTable" || got.Props != `{"cols":"number","rows":"number"}` {
+	if got.Name != "DataTable" || got.Props != `{"cols":"number","rows":"number"}` || got.Template != "<Table rows={rows} cols={cols} />" {
 		t.Errorf("got %+v", got)
 	}
 
 	// List
-	cs2 := &model.ComponentSchema{AppID: a.ID, Name: "Avatar", Props: `{"src":"string"}`}
+	cs2 := &model.ComponentSchema{
+		AppID:    a.ID,
+		Name:     "Avatar",
+		Props:    `{"src":"string"}`,
+		Template: "<Avatar src={src} />",
+	}
 	if err := s.InsertComponentSchema(cs2); err != nil {
 		t.Fatal(err)
 	}
@@ -622,10 +632,68 @@ func TestComponentSchemaCRUD(t *testing.T) {
 	if len(list) != 2 {
 		t.Fatalf("got %d schemas, want 2", len(list))
 	}
+	if list[0].Name != "Avatar" || list[0].Template != "<Avatar src={src} />" {
+		t.Fatalf("unexpected first schema: %+v", list[0])
+	}
+	if list[1].Name != "DataTable" || list[1].Template != "<Table rows={rows} cols={cols} />" {
+		t.Fatalf("unexpected second schema: %+v", list[1])
+	}
 
 	// Duplicate name → error
-	dup := &model.ComponentSchema{AppID: a.ID, Name: "DataTable", Props: `{}`}
+	dup := &model.ComponentSchema{AppID: a.ID, Name: "DataTable", Props: `{}`, Template: ""}
 	if err := s.InsertComponentSchema(dup); err == nil {
 		t.Error("expected unique constraint error")
+	}
+}
+
+func TestOpenMigratesComponentSchemaTemplateColumn(t *testing.T) {
+	path := t.TempDir() + "/catalog.db"
+
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open legacy db: %v", err)
+	}
+	if _, err := db.Exec(`
+		CREATE TABLE apps (
+			id INTEGER PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			description TEXT NOT NULL
+		);
+		CREATE TABLE component_schemas (
+			id INTEGER PRIMARY KEY,
+			app_id INTEGER NOT NULL REFERENCES apps(id),
+			name TEXT NOT NULL,
+			props TEXT NOT NULL DEFAULT '{}',
+			UNIQUE(app_id, name)
+		);
+		INSERT INTO apps(id, name, description) VALUES (1, 'TestApp', 'test');
+		INSERT INTO component_schemas(app_id, name, props) VALUES (1, 'DataTable', '{"cols":"number"}');
+	`); err != nil {
+		t.Fatalf("seed legacy db: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close legacy db: %v", err)
+	}
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	var columnCount int
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('component_schemas') WHERE name = 'template'`).Scan(&columnCount); err != nil {
+		t.Fatalf("column lookup: %v", err)
+	}
+	if columnCount != 1 {
+		t.Fatalf("template column count = %d, want 1", columnCount)
+	}
+
+	got, err := s.GetComponentSchema(1, "DataTable")
+	if err != nil {
+		t.Fatalf("GetComponentSchema: %v", err)
+	}
+	if got.Template != "" {
+		t.Fatalf("Template = %q, want empty string after migration", got.Template)
 	}
 }

@@ -14,11 +14,18 @@ import (
 
 type Spec struct {
 	App         App                 `json:"app"`
+	Catalog     []CatalogEntry      `json:"catalog,omitempty"`
 	Screens     []Screen            `json:"screens"`
 	Fixtures    []Fixture           `json:"fixtures,omitempty"`
 	Layouts     map[string][]string `json:"layouts,omitempty"`
 	Entities    []Entity            `json:"entities,omitempty"`
 	Experiments []Experiment        `json:"experiments,omitempty"`
+}
+
+type CatalogEntry struct {
+	Name     string            `json:"name"`
+	Props    map[string]string `json:"props,omitempty"`
+	Template string            `json:"template"`
 }
 
 type Entity struct {
@@ -36,9 +43,9 @@ type Experiment struct {
 }
 
 type Fixture struct {
-	Name    string      `json:"name"`
-	Extends string      `json:"extends,omitempty"`
-	Data    any `json:"data"`
+	Name    string `json:"name"`
+	Extends string `json:"extends,omitempty"`
+	Data    any    `json:"data"`
 }
 
 type App struct {
@@ -60,8 +67,8 @@ type Screen struct {
 	Tags           []string            `json:"tags,omitempty"`
 	Context        map[string]string   `json:"context,omitempty"`
 	Component      string              `json:"component,omitempty"`
-	ComponentProps string              `json:"component_props,omitempty"` // [F5]
-	ComponentOn    string              `json:"component_on,omitempty"`    // [F5]
+	ComponentProps string              `json:"component_props,omitempty"`   // [F5]
+	ComponentOn    string              `json:"component_on,omitempty"`      // [F5]
 	ComponentVis   string              `json:"component_visible,omitempty"` // [F5]
 	Regions        []Region            `json:"regions,omitempty"`
 	Transitions    []Transition        `json:"transitions,omitempty"`
@@ -78,8 +85,8 @@ type Region struct {
 	Description       string              `json:"description"`
 	Tags              []string            `json:"tags,omitempty"`
 	Component         string              `json:"component,omitempty"`
-	ComponentProps    string              `json:"component_props,omitempty"` // [F5]
-	ComponentOn       string              `json:"component_on,omitempty"`    // [F5]
+	ComponentProps    string              `json:"component_props,omitempty"`   // [F5]
+	ComponentOn       string              `json:"component_on,omitempty"`      // [F5]
 	ComponentVis      string              `json:"component_visible,omitempty"` // [F5]
 	DiscoveryLayout   []string            `json:"discovery_layout,omitempty"`
 	DeliveryClasses   []string            `json:"delivery_classes,omitempty"`
@@ -105,8 +112,8 @@ type Transition struct {
 // Enricher provides attachment and component data during spec loading.
 type Enricher interface {
 	AttachmentsFor(entity string) []string
-	ComponentFor(entityType string, entityID int64) string                    // type or ""
-	ComponentInfoFor(entityType string, entityID int64) *store.ComponentInfo  // full details
+	ComponentFor(entityType string, entityID int64) string                   // type or ""
+	ComponentInfoFor(entityType string, entityID int64) *store.ComponentInfo // full details
 }
 
 // --- Load from DB ---
@@ -122,6 +129,9 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 	}
 	var err error
 	if spec.App.DataTypes, err = loadDataTypes(db, appID); err != nil {
+		return nil, err
+	}
+	if spec.Catalog, err = loadCatalog(db, appID); err != nil {
 		return nil, err
 	}
 	if spec.App.Enums, err = loadEnums(db, appID); err != nil {
@@ -335,6 +345,27 @@ func loadDataTypes(db *sql.DB, appID int64) (map[string]map[string]string, error
 		return nil, nil
 	}
 	return result, nil
+}
+
+func loadCatalog(db *sql.DB, appID int64) ([]CatalogEntry, error) {
+	rows, _ := db.Query("SELECT name, props, template FROM component_schemas WHERE app_id = ? ORDER BY name", appID)
+	if rows == nil {
+		return nil, nil
+	}
+	defer rows.Close()
+	var catalog []CatalogEntry
+	for rows.Next() {
+		var entry CatalogEntry
+		var propsJSON string
+		rows.Scan(&entry.Name, &propsJSON, &entry.Template)
+		if propsJSON != "" {
+			if err := json.Unmarshal([]byte(propsJSON), &entry.Props); err != nil {
+				return nil, fmt.Errorf("unmarshal props for catalog entry %s: %w", entry.Name, err)
+			}
+		}
+		catalog = append(catalog, entry)
+	}
+	return catalog, nil
 }
 
 func loadEnums(db *sql.DB, appID int64) (map[string][]string, error) {

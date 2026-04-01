@@ -109,6 +109,8 @@ func Open(path string) (*Store, error) {
 	db.Exec("ALTER TABLE regions ADD COLUMN discovery_layout TEXT")
 	db.Exec("ALTER TABLE regions ADD COLUMN delivery_classes TEXT")
 	db.Exec("ALTER TABLE regions ADD COLUMN delivery_component TEXT")
+	// Schema migration: add template column to component_schemas.
+	db.Exec("ALTER TABLE component_schemas ADD COLUMN template TEXT NOT NULL DEFAULT ''")
 	return s, nil
 }
 
@@ -863,8 +865,8 @@ func (s *Store) DeleteScreen(name string) error {
 	tx.Exec("DELETE FROM transitions WHERE owner_type = 'screen' AND owner_id = ?", id)
 	tx.Exec("DELETE FROM state_regions WHERE owner_type = 'screen' AND owner_id = ?", id)
 	tx.Exec("DELETE FROM state_fixtures WHERE owner_type = 'screen' AND owner_id = ?", id)
-	tx.Exec("DELETE FROM components WHERE entity_type = 'screen' AND entity_id = ?", id) // [H3]
-	tx.Exec("DELETE FROM attachments WHERE entity = ?", name)                             // [H2]
+	tx.Exec("DELETE FROM components WHERE entity_type = 'screen' AND entity_id = ?", id)                              // [H3]
+	tx.Exec("DELETE FROM attachments WHERE entity = ?", name)                                                         // [H2]
 	tx.Exec("DELETE FROM transitions WHERE action = ? OR action LIKE ?", "navigate("+name+")", "navigate("+name+",%") // [F2] cascade dangling navigate()
 	tx.Exec("DELETE FROM screens WHERE id = ?", id)
 
@@ -890,8 +892,8 @@ func (s *Store) DeleteRegion(name string, inParent ...string) error {
 	tx.Exec("DELETE FROM events WHERE region_id = ?", id)
 	tx.Exec("DELETE FROM tags WHERE entity_type = 'region' AND entity_id = ?", id)
 	tx.Exec("DELETE FROM transitions WHERE owner_type = 'region' AND owner_id = ?", id)
-	tx.Exec("DELETE FROM components WHERE entity_type = 'region' AND entity_id = ?", id) // [H3]
-	tx.Exec("DELETE FROM attachments WHERE entity = ?", name)                             // [H2]
+	tx.Exec("DELETE FROM components WHERE entity_type = 'region' AND entity_id = ?", id)                              // [H3]
+	tx.Exec("DELETE FROM attachments WHERE entity = ?", name)                                                         // [H2]
 	tx.Exec("DELETE FROM transitions WHERE action = ? OR action LIKE ?", "navigate("+name+")", "navigate("+name+",%") // [F2] cascade dangling navigate()
 	tx.Exec("DELETE FROM flow_steps WHERE type = 'region' AND name = ?", name)
 	tx.Exec("DELETE FROM regions WHERE id = ?", id)
@@ -1829,8 +1831,8 @@ func (s *Store) GetEntryScreen(appID int64) (string, error) {
 // --- v2: Component Schema CRUD ---
 
 func (s *Store) InsertComponentSchema(cs *model.ComponentSchema) error {
-	res, err := s.db().Exec("INSERT INTO component_schemas (app_id, name, props) VALUES (?, ?, ?)",
-		cs.AppID, cs.Name, cs.Props)
+	res, err := s.db().Exec("INSERT INTO component_schemas (app_id, name, props, template) VALUES (?, ?, ?, ?)",
+		cs.AppID, cs.Name, cs.Props, cs.Template)
 	if err != nil {
 		return err
 	}
@@ -1840,8 +1842,8 @@ func (s *Store) InsertComponentSchema(cs *model.ComponentSchema) error {
 
 func (s *Store) GetComponentSchema(appID int64, name string) (*model.ComponentSchema, error) {
 	var cs model.ComponentSchema
-	err := s.db().QueryRow("SELECT id, app_id, name, props FROM component_schemas WHERE app_id = ? AND name = ?", appID, name).
-		Scan(&cs.ID, &cs.AppID, &cs.Name, &cs.Props)
+	err := s.db().QueryRow("SELECT id, app_id, name, props, template FROM component_schemas WHERE app_id = ? AND name = ?", appID, name).
+		Scan(&cs.ID, &cs.AppID, &cs.Name, &cs.Props, &cs.Template)
 	if err != nil {
 		return nil, err
 	}
@@ -1849,7 +1851,7 @@ func (s *Store) GetComponentSchema(appID int64, name string) (*model.ComponentSc
 }
 
 func (s *Store) ListComponentSchemas(appID int64) ([]model.ComponentSchema, error) {
-	rows, err := s.db().Query("SELECT id, app_id, name, props FROM component_schemas WHERE app_id = ? ORDER BY name", appID)
+	rows, err := s.db().Query("SELECT id, app_id, name, props, template FROM component_schemas WHERE app_id = ? ORDER BY name", appID)
 	if err != nil {
 		return nil, err
 	}
@@ -1857,7 +1859,7 @@ func (s *Store) ListComponentSchemas(appID int64) ([]model.ComponentSchema, erro
 	var result []model.ComponentSchema
 	for rows.Next() {
 		var cs model.ComponentSchema
-		if err := rows.Scan(&cs.ID, &cs.AppID, &cs.Name, &cs.Props); err != nil {
+		if err := rows.Scan(&cs.ID, &cs.AppID, &cs.Name, &cs.Props, &cs.Template); err != nil {
 			return nil, err
 		}
 		result = append(result, cs)

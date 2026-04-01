@@ -26,6 +26,8 @@ type yamlApp struct {
 	Name           string                       `yaml:"name"`
 	Description    string                       `yaml:"description"`
 	Data           map[string]map[string]string `yaml:"data,omitempty"`
+	Catalog        yaml.Node                    `yaml:"catalog,omitempty"`
+	Components     yaml.Node                    `yaml:"components,omitempty"`
 	Enums          map[string][]string          `yaml:"enums,omitempty"`
 	Context        map[string]string            `yaml:"context,omitempty"`
 	StateTemplates yaml.Node                    `yaml:"state_templates,omitempty"`
@@ -43,7 +45,7 @@ type yamlScreen struct {
 	Tags         []string          `yaml:"tags,omitempty"`
 	Context      map[string]string `yaml:"context,omitempty"`
 	Component    string            `yaml:"component,omitempty"`
-	Props        string            `yaml:"props,omitempty"`
+	Props        yaml.Node         `yaml:"props,omitempty"`
 	OnActions    string            `yaml:"on_actions,omitempty"`
 	Visible      string            `yaml:"visible,omitempty"`
 	Regions      []yamlRegion      `yaml:"regions,omitempty"`
@@ -56,7 +58,7 @@ type yamlRegion struct {
 	Description  string            `yaml:"description"`
 	Tags         []string          `yaml:"tags,omitempty"`
 	Component    string            `yaml:"component,omitempty"`
-	Props        string            `yaml:"props,omitempty"`
+	Props        yaml.Node         `yaml:"props,omitempty"`
 	OnActions    string            `yaml:"on_actions,omitempty"`
 	Visible      string            `yaml:"visible,omitempty"`
 	Events       yaml.Node         `yaml:"events,omitempty"`
@@ -76,6 +78,11 @@ type yamlDiscovery struct {
 type yamlDelivery struct {
 	Classes   []string `yaml:"classes,omitempty"`
 	Component string   `yaml:"component,omitempty"`
+}
+
+type yamlCatalogEntry struct {
+	Props    yaml.Node `yaml:"props,omitempty"`
+	Template string    `yaml:"template,omitempty"`
 }
 
 var layoutPositions = map[string]bool{
@@ -210,9 +217,30 @@ func Load(s *store.Store, path string) error {
 		}
 	}
 
+	// Entities
+	var entityPool map[string]any
+	if app.Entities.Kind == yaml.MappingNode {
+		entityPool = make(map[string]any)
+		if err := loadEntities(s, a.ID, &app.Entities, entityPool); err != nil {
+			return err
+		}
+	}
+
+	// Catalog / component schemas
+	if app.Catalog.Kind == yaml.MappingNode {
+		if err := loadCatalog(s, a.ID, &app.Catalog, entityPool); err != nil {
+			return err
+		}
+	}
+	if app.Components.Kind == yaml.MappingNode {
+		if err := loadCatalog(s, a.ID, &app.Components, entityPool); err != nil {
+			return err
+		}
+	}
+
 	// App-level regions
 	for _, r := range app.Regions {
-		if err := insertRegion(s, a.ID, "app", a.ID, r); err != nil {
+		if err := insertRegion(s, a.ID, entityPool, "app", a.ID, r); err != nil {
 			return err
 		}
 	}
@@ -238,12 +266,16 @@ func Load(s *store.Store, path string) error {
 			}
 		}
 		if sc.Component != "" {
-			if err := s.SetComponent(sc.Name, sc.Component, sc.Props, sc.OnActions, sc.Visible); err != nil {
+			props, err := normalizePropsNode(&sc.Props, entityPool)
+			if err != nil {
+				return fmt.Errorf("props on screen %s: %w", sc.Name, err)
+			}
+			if err := s.SetComponent(sc.Name, sc.Component, props, sc.OnActions, sc.Visible); err != nil {
 				return fmt.Errorf("component on screen %s: %w", sc.Name, err)
 			}
 		}
 		for _, r := range sc.Regions {
-			if err := insertRegion(s, a.ID, "screen", screen.ID, r); err != nil {
+			if err := insertRegion(s, a.ID, entityPool, "screen", screen.ID, r); err != nil {
 				return err
 			}
 		}
@@ -257,15 +289,6 @@ func Load(s *store.Store, path string) error {
 		}
 	}
 
-	// Entities
-	var entityPool map[string]any
-	if app.Entities.Kind == yaml.MappingNode {
-		entityPool = make(map[string]any)
-		if err := loadEntities(s, a.ID, &app.Entities, entityPool); err != nil {
-			return err
-		}
-	}
-
 	// Fixtures
 	if app.Fixtures.Kind == yaml.MappingNode {
 		if err := loadFixtures(s, a.ID, &app.Fixtures, entityPool); err != nil {
@@ -275,6 +298,36 @@ func Load(s *store.Store, path string) error {
 
 	if err := s.CommitTx(); err != nil {
 		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+func loadCatalog(s *store.Store, appID int64, node *yaml.Node, entityPool map[string]any) error {
+	for i := 0; i < len(node.Content)-1; i += 2 {
+		name := node.Content[i].Value
+		def := node.Content[i+1]
+
+		var entry yamlCatalogEntry
+		if err := def.Decode(&entry); err != nil {
+			return fmt.Errorf("catalog %s: decode: %w", name, err)
+		}
+
+		propsJSON, err := normalizePropsNode(&entry.Props, entityPool)
+		if err != nil {
+			return fmt.Errorf("catalog %s: normalize props: %w", name, err)
+		}
+		if propsJSON == "" {
+			propsJSON = "{}"
+		}
+
+		if err := s.InsertComponentSchema(&model.ComponentSchema{
+			AppID:    appID,
+			Name:     name,
+			Props:    string(propsJSON),
+			Template: entry.Template,
+		}); err != nil {
+			return fmt.Errorf("catalog %s: %w", name, err)
+		}
 	}
 	return nil
 }
@@ -360,7 +413,7 @@ func loadEntities(s *store.Store, appID int64, node *yaml.Node, pool map[string]
 	return nil
 }
 
-func insertRegion(s *store.Store, appID int64, parentType string, parentID int64, r yamlRegion) error {
+func insertRegion(s *store.Store, appID int64, entityPool map[string]any, parentType string, parentID int64, r yamlRegion) error {
 	hasExplicitDiscovery := r.Discovery != nil && len(r.Discovery.Layout) > 0
 	var tagsToInsert []string
 	if hasExplicitDiscovery {
@@ -400,7 +453,11 @@ func insertRegion(s *store.Store, appID int64, parentType string, parentID int64
 		return fmt.Errorf("region %s: %w", r.Name, err)
 	}
 	if r.Component != "" {
-		if err := s.SetComponent(r.Name, r.Component, r.Props, r.OnActions, r.Visible); err != nil {
+		props, err := normalizePropsNode(&r.Props, entityPool)
+		if err != nil {
+			return fmt.Errorf("props on region %s: %w", r.Name, err)
+		}
+		if err := s.SetComponent(r.Name, r.Component, props, r.OnActions, r.Visible); err != nil {
 			return fmt.Errorf("component on region %s: %w", r.Name, err)
 		}
 	}
@@ -439,7 +496,7 @@ func insertRegion(s *store.Store, appID int64, parentType string, parentID int64
 		}
 	}
 	for _, child := range r.Regions {
-		if err := insertRegion(s, appID, "region", region.ID, child); err != nil {
+		if err := insertRegion(s, appID, entityPool, "region", region.ID, child); err != nil {
 			return err
 		}
 	}
@@ -741,7 +798,7 @@ func decodeFlatScreen(name string, node *yaml.Node) (yamlScreen, error) {
 		case "component":
 			sc.Component = val.Value
 		case "props":
-			sc.Props = encodePropsNode(val)
+			sc.Props = *val
 		case "on_actions":
 			sc.OnActions = val.Value
 		case "visible":
@@ -787,7 +844,7 @@ func decodeFlatRegion(name string, node *yaml.Node) (yamlRegion, error) {
 		case "component":
 			r.Component = val.Value
 		case "props":
-			r.Props = encodePropsNode(val)
+			r.Props = *val
 		case "on_actions":
 			r.OnActions = val.Value
 		case "visible":
@@ -854,20 +911,42 @@ func decodeFlatTransitions(node *yaml.Node) ([]yamlTransition, error) {
 	return transitions, nil
 }
 
-// encodePropsNode converts a YAML node (scalar or mapping) to a JSON string for storage.
-func encodePropsNode(node *yaml.Node) string {
-	if node.Kind == yaml.ScalarNode {
-		return node.Value
+func normalizePropsNode(node *yaml.Node, entityPool map[string]any) (string, error) {
+	if node == nil || node.Kind == 0 {
+		return "", nil
 	}
+	if node.Kind == yaml.ScalarNode {
+		return node.Value, nil
+	}
+
 	var val any
 	if err := node.Decode(&val); err != nil {
-		return "{}"
+		return "", err
 	}
+	if entityPool != nil {
+		resolved, err := resolveValue(val, entityPool, nil)
+		if err != nil {
+			return "", err
+		}
+		val = resolved
+	}
+
 	b, err := json.Marshal(val)
 	if err != nil {
-		return "{}"
+		return "", err
 	}
-	return string(b)
+	return string(b), nil
+}
+
+func propsStringNode(props string) yaml.Node {
+	if props == "" {
+		return yaml.Node{}
+	}
+	return yaml.Node{
+		Kind:  yaml.ScalarNode,
+		Tag:   "!!str",
+		Value: props,
+	}
 }
 
 // ParseDataRef parses "data(source, query)" into source and query parts.
@@ -933,8 +1012,8 @@ func validateTypeSuffix(fieldType string) error {
 
 // ExportFlat serializes a Spec to flat-format YAML (mapping-style screens/regions).
 func strNode(v string) *yaml.Node { return &yaml.Node{Kind: yaml.ScalarNode, Value: v, Tag: "!!str"} }
-func mapNode() *yaml.Node          { return &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"} }
-func seqNode() *yaml.Node          { return &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"} }
+func mapNode() *yaml.Node         { return &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"} }
+func seqNode() *yaml.Node         { return &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"} }
 
 func appendPair(n *yaml.Node, k, v string) {
 	n.Content = append(n.Content, strNode(k), strNode(v))
@@ -1069,6 +1148,7 @@ func Export(spec *show.Spec, w io.Writer) error {
 		Name:        spec.App.Name,
 		Description: spec.App.Description,
 		Data:        spec.App.DataTypes,
+		Catalog:     exportCatalog(spec.Catalog),
 		Enums:       spec.App.Enums,
 		Context:     spec.App.Context,
 		Layouts:     spec.Layouts,
@@ -1088,6 +1168,47 @@ func Export(spec *show.Spec, w io.Writer) error {
 	return enc.Close()
 }
 
+func exportCatalog(catalog []show.CatalogEntry) yaml.Node {
+	if len(catalog) == 0 {
+		return yaml.Node{}
+	}
+	root := yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	for _, entry := range catalog {
+		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Value: entry.Name, Tag: "!!str"}
+		valNode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+
+		propsNode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		propNames := make([]string, 0, len(entry.Props))
+		for name := range entry.Props {
+			propNames = append(propNames, name)
+		}
+		slices.Sort(propNames)
+		for _, name := range propNames {
+			typ := entry.Props[name]
+			propsNode.Content = append(propsNode.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Value: name, Tag: "!!str"},
+				&yaml.Node{Kind: yaml.ScalarNode, Value: typ, Tag: "!!str"},
+			)
+		}
+		valNode.Content = append(valNode.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: "props", Tag: "!!str"},
+			propsNode,
+		)
+
+		templateNode := &yaml.Node{Kind: yaml.ScalarNode, Value: entry.Template, Tag: "!!str"}
+		if strings.Contains(entry.Template, "\n") {
+			templateNode.Style = yaml.LiteralStyle
+		}
+		valNode.Content = append(valNode.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: "template", Tag: "!!str"},
+			templateNode,
+		)
+
+		root.Content = append(root.Content, keyNode, valNode)
+	}
+	return root
+}
+
 func exportScreens(screens []show.Screen) []yamlScreen {
 	if len(screens) == 0 {
 		return nil
@@ -1100,7 +1221,7 @@ func exportScreens(screens []show.Screen) []yamlScreen {
 			Tags:        s.Tags,
 			Context:     s.Context,
 			Component:   s.Component,
-			Props:       s.ComponentProps,
+			Props:       propsStringNode(s.ComponentProps),
 			OnActions:   s.ComponentOn,
 			Visible:     s.ComponentVis,
 			Regions:     exportRegions(s.Regions),
@@ -1122,7 +1243,7 @@ func exportRegions(regions []show.Region) []yamlRegion {
 			Description: r.Description,
 			Tags:        r.Tags,
 			Component:   r.Component,
-			Props:       r.ComponentProps,
+			Props:       propsStringNode(r.ComponentProps),
 			OnActions:   r.ComponentOn,
 			Visible:     r.ComponentVis,
 			Events:      exportEvents(r.Events),
@@ -1451,4 +1572,3 @@ func exportFixtures(fixtures []show.Fixture) yaml.Node {
 	}
 	return root
 }
-
