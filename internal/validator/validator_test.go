@@ -460,3 +460,471 @@ func TestOrphanFixture_ExtendedBase(t *testing.T) {
 		t.Errorf("unexpected orphan-fixture finding for base fixture used via extends: %v", matched)
 	}
 }
+
+// setupWithEntry creates an app with an entry screen.
+func setupWithEntry(t *testing.T) *store.Store {
+	t.Helper()
+	s, err := store.OpenMemory()
+	if err != nil {
+		t.Fatalf("OpenMemory: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	app := &model.App{Name: "TestApp", Description: "test app"}
+	if err := s.InsertApp(app); err != nil {
+		t.Fatalf("InsertApp: %v", err)
+	}
+
+	sc := &model.Screen{AppID: app.ID, Name: "Main", Description: "main screen"}
+	if err := s.InsertScreen(sc); err != nil {
+		t.Fatalf("InsertScreen: %v", err)
+	}
+
+	if err := s.SetEntryScreen(app.ID, "Main"); err != nil {
+		t.Fatalf("SetEntryScreen: %v", err)
+	}
+
+	return s
+}
+
+// --- Entry screen rules ---
+
+func TestEntryScreenMissing(t *testing.T) {
+	// setup() creates a screen without entry=true
+	s := setup(t)
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "entry-screen-missing")
+	if len(matched) == 0 {
+		t.Error("expected entry-screen-missing finding when no screen has entry=true")
+	}
+}
+
+func TestEntryScreenMissing_HasEntry(t *testing.T) {
+	s := setupWithEntry(t)
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "entry-screen-missing")
+	if len(matched) != 0 {
+		t.Errorf("unexpected entry-screen-missing finding when entry screen exists: %v", matched)
+	}
+}
+
+func TestEntryScreenMultiple(t *testing.T) {
+	s := setupWithEntry(t)
+	appID := int64(1)
+
+	// Add a second screen
+	s.InsertScreen(&model.Screen{AppID: appID, Name: "Other", Description: "other screen"})
+	// Set entry=1 directly via SQL since SetEntryScreen clears existing entry flags
+	s.DB.Exec("UPDATE screens SET entry = 1 WHERE name = 'Other'")
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "entry-screen-multiple")
+	if len(matched) == 0 {
+		t.Error("expected entry-screen-multiple finding when two screens have entry=true")
+	}
+}
+
+func TestEntryScreenMultiple_SingleEntry(t *testing.T) {
+	s := setupWithEntry(t)
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "entry-screen-multiple")
+	if len(matched) != 0 {
+		t.Errorf("unexpected entry-screen-multiple finding with single entry screen: %v", matched)
+	}
+}
+
+// --- Leaf region no content ---
+
+func TestLeafRegionNoContent(t *testing.T) {
+	s := setupWithEntry(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	// Create a leaf region with no component
+	s.InsertRegion(&model.Region{AppID: appID, ParentType: "screen", ParentID: screenID, Name: "empty_leaf", Description: "leaf"})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "leaf-region-no-content")
+	if len(matched) == 0 {
+		t.Error("expected leaf-region-no-content finding for region with no component")
+	}
+}
+
+func TestLeafRegionNoContent_HasComponent(t *testing.T) {
+	s := setupWithEntry(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	region := &model.Region{AppID: appID, ParentType: "screen", ParentID: screenID, Name: "with_comp", Description: "has comp"}
+	s.InsertRegion(region)
+
+	// Insert component directly via SQL
+	s.DB.Exec("INSERT INTO components (entity_type, entity_id, component, props) VALUES ('region', ?, 'card', '{}')", region.ID)
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "leaf-region-no-content")
+	if len(matched) != 0 {
+		t.Errorf("unexpected leaf-region-no-content for region with component: %v", matched)
+	}
+}
+
+func TestLeafRegionNoContent_HasChildren(t *testing.T) {
+	s := setupWithEntry(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	parent := &model.Region{AppID: appID, ParentType: "screen", ParentID: screenID, Name: "parent_reg", Description: "parent"}
+	s.InsertRegion(parent)
+	child := &model.Region{AppID: appID, ParentType: "region", ParentID: parent.ID, Name: "child_reg", Description: "child"}
+	s.InsertRegion(child)
+
+	// parent has children so is not a leaf — but child is a leaf with no component
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "leaf-region-no-content")
+	// parent_reg should not appear as the REGION being flagged (it may appear as a parent name).
+	// Only child_reg should be flagged as a leaf.
+	for _, f := range matched {
+		if contains(f.Message, `leaf region "parent_reg"`) {
+			t.Errorf("parent region with children should not be flagged as leaf: %v", f)
+		}
+	}
+	// child_reg should be flagged
+	foundChild := false
+	for _, f := range matched {
+		if contains(f.Message, `leaf region "child_reg"`) {
+			foundChild = true
+		}
+	}
+	if !foundChild {
+		t.Error("expected child_reg to be flagged as leaf with no component")
+	}
+}
+
+// --- Unreferenced data type ---
+
+func TestUnreferencedDataType(t *testing.T) {
+	s := setupWithEntry(t)
+	appID := int64(1)
+
+	// Create a data type not referenced anywhere
+	s.InsertDataType(&model.DataType{AppID: appID, Name: "orphan_type", Fields: `{"x": "string"}`})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "unreferenced-data-type")
+	if len(matched) == 0 {
+		t.Error("expected unreferenced-data-type finding")
+	}
+}
+
+func TestUnreferencedDataType_UsedInContext(t *testing.T) {
+	s := setupWithEntry(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	s.InsertDataType(&model.DataType{AppID: appID, Name: "used_type", Fields: `{"x": "string"}`})
+	s.InsertContextField(&model.ContextField{OwnerType: "screen", OwnerID: screenID, FieldName: "items", FieldType: "used_type[]"})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "unreferenced-data-type")
+	if len(matched) != 0 {
+		t.Errorf("unexpected unreferenced-data-type for type used in context: %v", matched)
+	}
+}
+
+// --- State-region no fixture ---
+
+func TestStateRegionNoFixture(t *testing.T) {
+	s := setupWithEntry(t)
+	screenID, _ := s.ResolveScreen("Main")
+
+	// State region without a corresponding state fixture
+	s.InsertStateRegion(&model.StateRegion{
+		OwnerType: "screen", OwnerID: screenID,
+		StateName: "active", RegionName: "sidebar",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "state-region-no-fixture")
+	if len(matched) == 0 {
+		t.Error("expected state-region-no-fixture finding")
+	}
+}
+
+func TestStateRegionNoFixture_HasFixture(t *testing.T) {
+	s := setupWithEntry(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	s.InsertStateRegion(&model.StateRegion{
+		OwnerType: "screen", OwnerID: screenID,
+		StateName: "active", RegionName: "sidebar",
+	})
+	s.InsertFixture(&model.Fixture{AppID: appID, Name: "active_data", Data: `{}`})
+	s.InsertStateFixture(&model.StateFixture{
+		OwnerType: "screen", OwnerID: screenID,
+		StateName: "active", FixtureName: "active_data",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "state-region-no-fixture")
+	if len(matched) != 0 {
+		t.Errorf("unexpected state-region-no-fixture when fixture exists: %v", matched)
+	}
+}
+
+// --- State without fixture (screen-level) ---
+
+func TestStateWithoutFixture(t *testing.T) {
+	s := setupWithEntry(t)
+	screenID, _ := s.ResolveScreen("Main")
+
+	// Add screen-level transitions defining states, but no fixtures
+	s.InsertTransition(&model.Transition{
+		OwnerType: "screen", OwnerID: screenID,
+		OnEvent: "init", FromState: "idle", ToState: "active",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "state-without-fixture")
+	if len(matched) == 0 {
+		t.Error("expected state-without-fixture finding for screen states without fixtures")
+	}
+}
+
+func TestStateWithoutFixture_HasFixture(t *testing.T) {
+	s := setupWithEntry(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	s.InsertTransition(&model.Transition{
+		OwnerType: "screen", OwnerID: screenID,
+		OnEvent: "init", FromState: "idle", ToState: "active",
+	})
+	s.InsertFixture(&model.Fixture{AppID: appID, Name: "idle_data", Data: `{}`})
+	s.InsertFixture(&model.Fixture{AppID: appID, Name: "active_data", Data: `{}`})
+	s.InsertStateFixture(&model.StateFixture{
+		OwnerType: "screen", OwnerID: screenID,
+		StateName: "idle", FixtureName: "idle_data",
+	})
+	s.InsertStateFixture(&model.StateFixture{
+		OwnerType: "screen", OwnerID: screenID,
+		StateName: "active", FixtureName: "active_data",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "state-without-fixture")
+	if len(matched) != 0 {
+		t.Errorf("unexpected state-without-fixture when all states have fixtures: %v", matched)
+	}
+}
+
+// --- Fixture extends cycle ---
+
+func TestFixtureExtendsCycle(t *testing.T) {
+	s := setupWithEntry(t)
+	appID := int64(1)
+
+	// Create a circular extends chain: a -> b -> a
+	s.InsertFixture(&model.Fixture{AppID: appID, Name: "fixture_a", Extends: "fixture_b", Data: `{}`})
+	s.InsertFixture(&model.Fixture{AppID: appID, Name: "fixture_b", Extends: "fixture_a", Data: `{}`})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "fixture-extends-cycle")
+	if len(matched) == 0 {
+		t.Error("expected fixture-extends-cycle finding for circular extends")
+	}
+}
+
+func TestFixtureExtendsCycle_NoCycle(t *testing.T) {
+	s := setupWithEntry(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	// Linear chain: child -> base (no cycle)
+	s.InsertFixture(&model.Fixture{AppID: appID, Name: "base", Data: `{"x": 1}`})
+	s.InsertFixture(&model.Fixture{AppID: appID, Name: "child", Extends: "base", Data: `{"y": 2}`})
+	// Reference child so it's not orphaned
+	s.InsertStateFixture(&model.StateFixture{
+		OwnerType: "screen", OwnerID: screenID,
+		StateName: "start", FixtureName: "child",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "fixture-extends-cycle")
+	if len(matched) != 0 {
+		t.Errorf("unexpected fixture-extends-cycle for linear chain: %v", matched)
+	}
+}
+
+// --- Screen unreachable ---
+
+func TestScreenUnreachable(t *testing.T) {
+	s := setupWithEntry(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	// Create a reachable screen via navigate
+	s.InsertScreen(&model.Screen{AppID: appID, Name: "Detail", Description: "detail screen"})
+	s.InsertTransition(&model.Transition{
+		OwnerType: "screen", OwnerID: screenID,
+		OnEvent: "click", Action: "navigate(Detail)",
+	})
+
+	// Create an unreachable screen (no navigate to it)
+	s.InsertScreen(&model.Screen{AppID: appID, Name: "Hidden", Description: "hidden screen"})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "screen-unreachable")
+	// Should flag Hidden but not Detail or Main
+	foundHidden := false
+	for _, f := range matched {
+		if contains(f.Message, `screen "Hidden"`) {
+			foundHidden = true
+		}
+		if contains(f.Message, `screen "Main" is not reachable`) {
+			t.Errorf("entry screen should not be flagged as unreachable: %v", f)
+		}
+		if contains(f.Message, `screen "Detail" is not reachable`) {
+			t.Errorf("reachable screen should not be flagged: %v", f)
+		}
+	}
+	if !foundHidden {
+		t.Error("expected screen-unreachable finding for Hidden screen")
+	}
+}
+
+func TestScreenUnreachable_AllReachable(t *testing.T) {
+	s := setupWithEntry(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	detailScreen := &model.Screen{AppID: appID, Name: "Detail", Description: "detail"}
+	s.InsertScreen(detailScreen)
+	s.InsertTransition(&model.Transition{
+		OwnerType: "screen", OwnerID: screenID,
+		OnEvent: "click", Action: "navigate(Detail)",
+	})
+	// Detail navigates back to Main
+	s.InsertTransition(&model.Transition{
+		OwnerType: "screen", OwnerID: detailScreen.ID,
+		OnEvent: "back", Action: "navigate(Main)",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "screen-unreachable")
+	if len(matched) != 0 {
+		t.Errorf("unexpected screen-unreachable when all screens are reachable: %v", matched)
+	}
+}
+
+func TestScreenUnreachable_NoEntryScreen(t *testing.T) {
+	// When no entry screen exists, screen-unreachable should not fire
+	s := setup(t) // setup() creates screen without entry=true
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "screen-unreachable")
+	if len(matched) != 0 {
+		t.Errorf("screen-unreachable should not fire when no entry screen: %v", matched)
+	}
+}
+
+// --- Helpers ---
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && searchString(s, substr)
+}
+
+func searchString(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+// Verify that the sql.DB field is accessible for fn-based rules
+func TestFnDispatch(t *testing.T) {
+	s := setupWithEntry(t)
+
+	// Validate should work with mixed SQL and fn rules without error
+	_, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate with fn rules: %v", err)
+	}
+}

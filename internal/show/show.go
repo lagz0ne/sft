@@ -13,10 +13,26 @@ import (
 // --- Spec tree types (nested, not flat tables) ---
 
 type Spec struct {
-	App      App                    `json:"app"`
-	Screens  []Screen               `json:"screens"`
-	Fixtures []Fixture              `json:"fixtures,omitempty"`
-	Layouts  map[string][]string    `json:"layouts,omitempty"`
+	App         App                 `json:"app"`
+	Screens     []Screen            `json:"screens"`
+	Fixtures    []Fixture           `json:"fixtures,omitempty"`
+	Layouts     map[string][]string `json:"layouts,omitempty"`
+	Entities    []Entity            `json:"entities,omitempty"`
+	Experiments []Experiment        `json:"experiments,omitempty"`
+}
+
+type Entity struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+	Data any    `json:"data"`
+}
+
+type Experiment struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Scope       string `json:"scope,omitempty"`
+	Overlay     any    `json:"overlay,omitempty"`
+	Status      string `json:"status"`
 }
 
 type Fixture struct {
@@ -40,6 +56,7 @@ type Screen struct {
 	Ref            string              `json:"ref"`
 	Name           string              `json:"name"`
 	Description    string              `json:"description"`
+	Entry          bool                `json:"entry,omitempty"`
 	Tags           []string            `json:"tags,omitempty"`
 	Context        map[string]string   `json:"context,omitempty"`
 	Component      string              `json:"component,omitempty"`
@@ -115,7 +132,7 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 	spec.App.Transitions = loadTransitions(db, "app", appID)
 
 	// Screens
-	rows, err := db.Query("SELECT id, name, description FROM screens ORDER BY id")
+	rows, err := db.Query("SELECT id, name, description, entry FROM screens ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -123,10 +140,12 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 	for rows.Next() {
 		var id int64
 		var s Screen
-		if err := rows.Scan(&id, &s.Name, &s.Description); err != nil {
+		var entry int
+		if err := rows.Scan(&id, &s.Name, &s.Description, &entry); err != nil {
 			return nil, fmt.Errorf("scan screen: %w", err)
 		}
 		s.ID = id
+		s.Entry = entry != 0
 		s.Ref = fmt.Sprintf("@s%d", id)
 		s.Tags = loadTags(db, "screen", id)
 		s.Context = loadContext(db, "screen", id)
@@ -155,6 +174,16 @@ func Load(db *sql.DB, al Enricher) (*Spec, error) {
 
 	// Layouts
 	spec.Layouts = loadLayouts(db, appID)
+
+	// Entities
+	if spec.Entities, err = loadEntities(db, appID); err != nil {
+		return nil, err
+	}
+
+	// Experiments
+	if spec.Experiments, err = loadExperiments(db, appID); err != nil {
+		return nil, err
+	}
 
 	return spec, nil
 }
@@ -461,6 +490,44 @@ func loadStateFixtures(db *sql.DB, ownerType string, ownerID int64) map[string]s
 		return nil
 	}
 	return result
+}
+
+func loadEntities(db *sql.DB, appID int64) ([]Entity, error) {
+	rows, _ := db.Query("SELECT name, type, data FROM entities WHERE app_id = ? ORDER BY name", appID)
+	if rows == nil {
+		return nil, nil
+	}
+	defer rows.Close()
+	var entities []Entity
+	for rows.Next() {
+		var e Entity
+		var dataJSON string
+		rows.Scan(&e.Name, &e.Type, &dataJSON)
+		if err := json.Unmarshal([]byte(dataJSON), &e.Data); err != nil {
+			return nil, fmt.Errorf("unmarshal data for entity %s: %w", e.Name, err)
+		}
+		entities = append(entities, e)
+	}
+	return entities, nil
+}
+
+func loadExperiments(db *sql.DB, appID int64) ([]Experiment, error) {
+	rows, _ := db.Query("SELECT name, description, scope, overlay, status FROM experiments WHERE app_id = ? ORDER BY name", appID)
+	if rows == nil {
+		return nil, nil
+	}
+	defer rows.Close()
+	var experiments []Experiment
+	for rows.Next() {
+		var e Experiment
+		var overlayJSON string
+		rows.Scan(&e.Name, &e.Description, &e.Scope, &overlayJSON, &e.Status)
+		if err := json.Unmarshal([]byte(overlayJSON), &e.Overlay); err != nil {
+			return nil, fmt.Errorf("unmarshal overlay for experiment %s: %w", e.Name, err)
+		}
+		experiments = append(experiments, e)
+	}
+	return experiments, nil
 }
 
 // --- Text rendering ---

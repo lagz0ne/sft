@@ -3,6 +3,7 @@ package validator
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 type Severity string
@@ -22,6 +23,7 @@ type rule struct {
 	id       string
 	severity Severity
 	query    string
+	fn       func(db *sql.DB) ([]Finding, error)
 	format   func(rows *sql.Rows) ([]Finding, error)
 }
 
@@ -595,6 +597,287 @@ var rules = []rule{
 			return findings, nil
 		},
 	},
+	// Entry screen missing — no screen has entry=1
+	{
+		id:       "entry-screen-missing",
+		severity: Warning,
+		query:    `SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM screens WHERE entry = 1)`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var findings []Finding
+			for rows.Next() {
+				var dummy int
+				if err := rows.Scan(&dummy); err != nil {
+					return nil, err
+				}
+				findings = append(findings, Finding{
+					Message: "no entry screen defined (set entry: true on one screen)",
+				})
+			}
+			return findings, nil
+		},
+	},
+	// Entry screen multiple — more than one screen has entry=1
+	{
+		id:       "entry-screen-multiple",
+		severity: Error,
+		query:    `SELECT name FROM screens WHERE entry = 1`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var names []string
+			for rows.Next() {
+				var name string
+				if err := rows.Scan(&name); err != nil {
+					return nil, err
+				}
+				names = append(names, name)
+			}
+			if len(names) > 1 {
+				return []Finding{{
+					Message: fmt.Sprintf("multiple entry screens: %s", strings.Join(names, ", ")),
+				}}, nil
+			}
+			return nil, nil
+		},
+	},
+	// Leaf region with no component — leaf regions (no child regions) should have a component
+	{
+		id:       "leaf-region-no-content",
+		severity: Warning,
+		query: `SELECT r.name,
+		          CASE r.parent_type
+		            WHEN 'screen' THEN (SELECT s.name FROM screens s WHERE s.id = r.parent_id)
+		            WHEN 'region' THEN (SELECT r2.name FROM regions r2 WHERE r2.id = r.parent_id)
+		            WHEN 'app'    THEN (SELECT a.name FROM apps a WHERE a.id = r.parent_id)
+		          END AS parent
+		        FROM regions r
+		        WHERE r.id NOT IN (SELECT r2.parent_id FROM regions r2 WHERE r2.parent_type = 'region')
+		          AND r.id NOT IN (SELECT c.entity_id FROM components c WHERE c.entity_type = 'region')`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var findings []Finding
+			for rows.Next() {
+				var name string
+				var parent sql.NullString
+				if err := rows.Scan(&name, &parent); err != nil {
+					return nil, err
+				}
+				findings = append(findings, Finding{
+					Message: fmt.Sprintf("leaf region %q in %s has no component", name, ns(parent)),
+				})
+			}
+			return findings, nil
+		},
+	},
+	// Unreferenced data type — data types not used in any context, region_data, or event annotation
+	{
+		id:       "unreferenced-data-type",
+		severity: Warning,
+		query: `SELECT dt.name FROM data_types dt
+		        WHERE dt.name NOT IN (
+		          SELECT REPLACE(REPLACE(c.field_type, '?', ''), '[]', '') FROM contexts c
+		          UNION SELECT REPLACE(REPLACE(rd.field_type, '?', ''), '[]', '') FROM region_data rd
+		          UNION SELECT REPLACE(REPLACE(e.annotation, '?', ''), '[]', '') FROM events e WHERE e.annotation IS NOT NULL
+		        )`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var findings []Finding
+			for rows.Next() {
+				var name string
+				if err := rows.Scan(&name); err != nil {
+					return nil, err
+				}
+				findings = append(findings, Finding{
+					Message: fmt.Sprintf("data type %q is not referenced by any context, region_data, or event annotation", name),
+				})
+			}
+			return findings, nil
+		},
+	},
+	// State-region without fixture — states with state_regions but no state_fixtures
+	{
+		id:       "state-region-no-fixture",
+		severity: Warning,
+		query: `SELECT DISTINCT sr.state_name,
+		          CASE sr.owner_type
+		            WHEN 'screen' THEN (SELECT s.name FROM screens s WHERE s.id = sr.owner_id)
+		            WHEN 'region' THEN (SELECT r.name FROM regions r WHERE r.id = sr.owner_id)
+		            WHEN 'app'    THEN (SELECT a.name FROM apps a WHERE a.id = sr.owner_id)
+		          END AS owner
+		        FROM state_regions sr
+		        WHERE NOT EXISTS (
+		          SELECT 1 FROM state_fixtures sf
+		          WHERE sf.owner_type = sr.owner_type AND sf.owner_id = sr.owner_id AND sf.state_name = sr.state_name
+		        )`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var findings []Finding
+			for rows.Next() {
+				var stateName string
+				var owner sql.NullString
+				if err := rows.Scan(&stateName, &owner); err != nil {
+					return nil, err
+				}
+				findings = append(findings, Finding{
+					Message: fmt.Sprintf("state %q in %s has state_regions but no fixture", stateName, ns(owner)),
+				})
+			}
+			return findings, nil
+		},
+	},
+	// State without fixture (screen-level) — screen states with no fixture
+	{
+		id:       "state-without-fixture",
+		severity: Warning,
+		query: `SELECT DISTINCT sub.state_name, sub.screen_name FROM (
+		          SELECT t.from_state AS state_name,
+		            (SELECT s.name FROM screens s WHERE s.id = t.owner_id) AS screen_name,
+		            t.owner_type, t.owner_id
+		          FROM transitions t
+		          WHERE t.owner_type = 'screen' AND t.from_state IS NOT NULL AND t.from_state != ''
+		          UNION
+		          SELECT t.to_state AS state_name,
+		            (SELECT s.name FROM screens s WHERE s.id = t.owner_id) AS screen_name,
+		            t.owner_type, t.owner_id
+		          FROM transitions t
+		          WHERE t.owner_type = 'screen' AND t.to_state IS NOT NULL AND t.to_state != ''
+		        ) sub
+		        WHERE NOT EXISTS (
+		          SELECT 1 FROM state_fixtures sf
+		          WHERE sf.owner_type = sub.owner_type AND sf.owner_id = sub.owner_id AND sf.state_name = sub.state_name
+		        )`,
+		format: func(rows *sql.Rows) ([]Finding, error) {
+			var findings []Finding
+			for rows.Next() {
+				var stateName, screenName string
+				if err := rows.Scan(&stateName, &screenName); err != nil {
+					return nil, err
+				}
+				findings = append(findings, Finding{
+					Message: fmt.Sprintf("screen %q state %q has no fixture", screenName, stateName),
+				})
+			}
+			return findings, nil
+		},
+	},
+	// Fixture extends cycle — circular extends chain in fixtures (Go-level DFS)
+	{
+		id:       "fixture-extends-cycle",
+		severity: Error,
+		fn: func(db *sql.DB) ([]Finding, error) {
+			rows, err := db.Query("SELECT name, extends FROM fixtures WHERE extends IS NOT NULL AND extends != ''")
+			if err != nil {
+				return nil, err
+			}
+			defer rows.Close()
+			graph := map[string]string{}
+			for rows.Next() {
+				var name, ext string
+				if err := rows.Scan(&name, &ext); err != nil {
+					return nil, err
+				}
+				graph[name] = ext
+			}
+			var findings []Finding
+			for start := range graph {
+				visited := map[string]bool{}
+				cur := start
+				for cur != "" {
+					if visited[cur] {
+						findings = append(findings, Finding{
+							Message: fmt.Sprintf("fixture %q has circular extends chain", start),
+						})
+						break
+					}
+					visited[cur] = true
+					cur = graph[cur]
+				}
+			}
+			return findings, nil
+		},
+	},
+	// Screen unreachable — screens not reachable from entry screen via navigate() actions (Go-level BFS)
+	{
+		id:       "screen-unreachable",
+		severity: Warning,
+		fn: func(db *sql.DB) ([]Finding, error) {
+			// 1. Get entry screen name
+			var entryName string
+			err := db.QueryRow("SELECT name FROM screens WHERE entry = 1").Scan(&entryName)
+			if err != nil {
+				// No entry screen — entry-screen-missing rule handles that
+				return nil, nil
+			}
+
+			// 2. Get all screen names
+			srows, err := db.Query("SELECT name FROM screens")
+			if err != nil {
+				return nil, err
+			}
+			allScreens := map[string]bool{}
+			for srows.Next() {
+				var name string
+				if err := srows.Scan(&name); err != nil {
+					srows.Close()
+					return nil, err
+				}
+				allScreens[name] = true
+			}
+			srows.Close()
+
+			// 3. Build adjacency: screen -> navigate() targets
+			trows, err := db.Query("SELECT action, owner_type, owner_id FROM transitions WHERE action LIKE 'navigate(%'")
+			if err != nil {
+				return nil, err
+			}
+			// Map owner (screen) to navigate targets
+			edges := map[string][]string{}
+			for trows.Next() {
+				var action, ownerType string
+				var ownerID int64
+				if err := trows.Scan(&action, &ownerType, &ownerID); err != nil {
+					trows.Close()
+					return nil, err
+				}
+				target := parseNavigateTarget(action)
+				if target == "" {
+					continue
+				}
+				// Resolve owner to screen name (could be nested region)
+				var ownerScreen string
+				if ownerType == "screen" {
+					db.QueryRow("SELECT name FROM screens WHERE id = ?", ownerID).Scan(&ownerScreen)
+				} else {
+					// Walk up region tree to find owning screen
+					ownerScreen = resolveOwnerScreen(db, ownerType, ownerID)
+				}
+				if ownerScreen != "" {
+					edges[ownerScreen] = append(edges[ownerScreen], target)
+				}
+			}
+			trows.Close()
+
+			// 4. BFS from entry screen
+			visited := map[string]bool{entryName: true}
+			queue := []string{entryName}
+			for len(queue) > 0 {
+				cur := queue[0]
+				queue = queue[1:]
+				for _, next := range edges[cur] {
+					if !visited[next] && allScreens[next] {
+						visited[next] = true
+						queue = append(queue, next)
+					}
+				}
+			}
+
+			// 5. Report unreachable
+			var findings []Finding
+			for name := range allScreens {
+				if !visited[name] {
+					findings = append(findings, Finding{
+						Message: fmt.Sprintf("screen %q is not reachable from entry screen %q", name, entryName),
+					})
+				}
+			}
+			return findings, nil
+		},
+	},
 }
 
 func ns(s sql.NullString) string {
@@ -604,17 +887,61 @@ func ns(s sql.NullString) string {
 	return "?"
 }
 
+// parseNavigateTarget extracts the screen name from navigate(target) or navigate(target, ...).
+func parseNavigateTarget(action string) string {
+	if !strings.HasPrefix(action, "navigate(") {
+		return ""
+	}
+	inner := action[9:] // after "navigate("
+	// Find end: either comma or closing paren
+	end := strings.IndexAny(inner, ",)")
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(inner[:end])
+}
+
+// resolveOwnerScreen walks up the region tree to find the owning screen name.
+func resolveOwnerScreen(db *sql.DB, ownerType string, ownerID int64) string {
+	for ownerType == "region" {
+		var pType string
+		var pID int64
+		err := db.QueryRow("SELECT parent_type, parent_id FROM regions WHERE id = ?", ownerID).Scan(&pType, &pID)
+		if err != nil {
+			return ""
+		}
+		ownerType = pType
+		ownerID = pID
+	}
+	if ownerType == "screen" {
+		var name string
+		db.QueryRow("SELECT name FROM screens WHERE id = ?", ownerID).Scan(&name)
+		return name
+	}
+	return ""
+}
+
 func Validate(db *sql.DB) ([]Finding, error) {
 	var all []Finding
 	for _, r := range rules {
-		rows, err := db.Query(r.query)
+		var findings []Finding
+		var err error
+		if r.fn != nil {
+			findings, err = r.fn(db)
+		} else {
+			rows, qerr := db.Query(r.query)
+			if qerr != nil {
+				return nil, fmt.Errorf("rule %s: %w", r.id, qerr)
+			}
+			findings, err = r.format(rows)
+			rows.Close()
+		}
 		if err != nil {
 			return nil, fmt.Errorf("rule %s: %w", r.id, err)
 		}
-		findings, err := r.format(rows)
-		rows.Close()
-		if err != nil {
-			return nil, fmt.Errorf("rule %s: %w", r.id, err)
+		for i := range findings {
+			findings[i].Rule = r.id
+			findings[i].Severity = r.severity
 		}
 		all = append(all, findings...)
 	}
