@@ -903,6 +903,299 @@ func TestScreenUnreachable_NoEntryScreen(t *testing.T) {
 	}
 }
 
+// --- Component prop unknown ---
+
+func TestComponentPropUnknown(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	// Create a schema for "button" with known props
+	s.InsertComponentSchema(&model.ComponentSchema{
+		AppID: appID, Name: "button",
+		Props: `{"label": "string", "variant": "string?"}`,
+	})
+
+	// Create a region and bind a component with an unknown prop
+	region := &model.Region{AppID: appID, ParentType: "screen", ParentID: screenID, Name: "cta", Description: "cta"}
+	s.InsertRegion(region)
+	s.DB.Exec("INSERT INTO components (entity_type, entity_id, component, props) VALUES ('region', ?, 'button', ?)",
+		region.ID, `{"label": "ok", "unknown_key": "bad"}`)
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "component-prop-unknown")
+	if len(matched) == 0 {
+		t.Error("expected component-prop-unknown finding for unknown prop key")
+	}
+	// Should flag "unknown_key" but not "label"
+	foundUnknown := false
+	for _, f := range matched {
+		if contains(f.Message, "unknown_key") {
+			foundUnknown = true
+		}
+		if contains(f.Message, `"label"`) {
+			t.Errorf("valid prop 'label' should not be flagged: %v", f)
+		}
+	}
+	if !foundUnknown {
+		t.Error("expected finding to mention 'unknown_key'")
+	}
+}
+
+func TestComponentPropUnknown_NoSchema(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	// No schemas defined — should not trigger
+	region := &model.Region{AppID: appID, ParentType: "screen", ParentID: screenID, Name: "cta", Description: "cta"}
+	s.InsertRegion(region)
+	s.DB.Exec("INSERT INTO components (entity_type, entity_id, component, props) VALUES ('region', ?, 'button', ?)",
+		region.ID, `{"label": "ok", "unknown": "fine"}`)
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "component-prop-unknown")
+	if len(matched) != 0 {
+		t.Errorf("expected no component-prop-unknown when no schemas defined: %v", matched)
+	}
+}
+
+func TestComponentPropUnknown_AllValid(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	s.InsertComponentSchema(&model.ComponentSchema{
+		AppID: appID, Name: "button",
+		Props: `{"label": "string", "variant": "string?"}`,
+	})
+
+	region := &model.Region{AppID: appID, ParentType: "screen", ParentID: screenID, Name: "cta", Description: "cta"}
+	s.InsertRegion(region)
+	s.DB.Exec("INSERT INTO components (entity_type, entity_id, component, props) VALUES ('region', ?, 'button', ?)",
+		region.ID, `{"label": "ok", "variant": "primary"}`)
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "component-prop-unknown")
+	if len(matched) != 0 {
+		t.Errorf("expected no component-prop-unknown when all props valid: %v", matched)
+	}
+}
+
+// --- Fixture keys mismatch ---
+
+func TestFixtureKeysMismatch(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	// Screen context expects "emails"
+	s.InsertContextField(&model.ContextField{OwnerType: "screen", OwnerID: screenID, FieldName: "emails", FieldType: "string[]"})
+
+	// Fixture uses "email" (missing 's') — keyed by screen name
+	s.InsertFixture(&model.Fixture{AppID: appID, Name: "main_data", Data: `{"Main": {"email": ["a@b.com"]}}`})
+	s.InsertStateFixture(&model.StateFixture{
+		OwnerType: "screen", OwnerID: screenID,
+		StateName: "start", FixtureName: "main_data",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "fixture-keys-mismatch")
+	if len(matched) == 0 {
+		t.Error("expected fixture-keys-mismatch finding for wrong key")
+	}
+}
+
+func TestFixtureKeysMismatch_Valid(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	s.InsertContextField(&model.ContextField{OwnerType: "screen", OwnerID: screenID, FieldName: "emails", FieldType: "string[]"})
+
+	// Correct key "emails" matching the context field
+	s.InsertFixture(&model.Fixture{AppID: appID, Name: "main_data", Data: `{"Main": {"emails": ["a@b.com"]}}`})
+	s.InsertStateFixture(&model.StateFixture{
+		OwnerType: "screen", OwnerID: screenID,
+		StateName: "start", FixtureName: "main_data",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "fixture-keys-mismatch")
+	if len(matched) != 0 {
+		t.Errorf("unexpected fixture-keys-mismatch for valid fixture: %v", matched)
+	}
+}
+
+// --- Entity type mismatch ---
+
+func TestEntityTypeMismatch(t *testing.T) {
+	s := setup(t)
+	appID := int64(1)
+
+	// Entity references a type that doesn't exist
+	s.InsertEntity(&model.Entity{AppID: appID, Name: "my_entity", Type: "nonexistent", Data: `{}`})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "entity-type-mismatch")
+	if len(matched) == 0 {
+		t.Error("expected entity-type-mismatch finding for undeclared type")
+	}
+}
+
+func TestEntityTypeMismatch_Valid(t *testing.T) {
+	s := setup(t)
+	appID := int64(1)
+
+	// Define the type, then reference it
+	s.InsertDataType(&model.DataType{AppID: appID, Name: "order", Fields: `{"id": "number"}`})
+	s.InsertEntity(&model.Entity{AppID: appID, Name: "my_order", Type: "order", Data: `{}`})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "entity-type-mismatch")
+	if len(matched) != 0 {
+		t.Errorf("unexpected entity-type-mismatch for declared type: %v", matched)
+	}
+}
+
+// --- Experiment scope invalid ---
+
+func TestExperimentScopeInvalid(t *testing.T) {
+	s := setup(t)
+	appID := int64(1)
+
+	// Experiment with scope referencing a nonexistent screen
+	s.InsertExperiment(&model.Experiment{
+		AppID: appID, Name: "test_exp",
+		Scope: "nonexistent.region", Overlay: `{}`, Status: "active",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "experiment-scope-invalid")
+	if len(matched) == 0 {
+		t.Error("expected experiment-scope-invalid finding for bad scope")
+	}
+}
+
+func TestExperimentScopeInvalid_BadRegion(t *testing.T) {
+	s := setup(t)
+	appID := int64(1)
+
+	// Screen exists but region does not
+	s.InsertExperiment(&model.Experiment{
+		AppID: appID, Name: "region_exp",
+		Scope: "Main.nonexistent_region", Overlay: `{}`, Status: "active",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "experiment-scope-invalid")
+	if len(matched) == 0 {
+		t.Error("expected experiment-scope-invalid finding for nonexistent region")
+	}
+}
+
+func TestExperimentScopeInvalid_ValidScreen(t *testing.T) {
+	s := setup(t)
+	appID := int64(1)
+
+	// Scope just a screen name — screen exists
+	s.InsertExperiment(&model.Experiment{
+		AppID: appID, Name: "valid_exp",
+		Scope: "Main", Overlay: `{}`, Status: "active",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "experiment-scope-invalid")
+	if len(matched) != 0 {
+		t.Errorf("unexpected experiment-scope-invalid for valid screen scope: %v", matched)
+	}
+}
+
+func TestExperimentScopeInvalid_ValidScreenAndRegion(t *testing.T) {
+	s := setup(t)
+	screenID, _ := s.ResolveScreen("Main")
+	appID := int64(1)
+
+	// Create a region under Main
+	s.InsertRegion(&model.Region{AppID: appID, ParentType: "screen", ParentID: screenID, Name: "sidebar", Description: "side"})
+
+	s.InsertExperiment(&model.Experiment{
+		AppID: appID, Name: "valid_exp",
+		Scope: "Main.sidebar", Overlay: `{}`, Status: "active",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "experiment-scope-invalid")
+	if len(matched) != 0 {
+		t.Errorf("unexpected experiment-scope-invalid for valid scope: %v", matched)
+	}
+}
+
+func TestExperimentScopeInvalid_CommittedIgnored(t *testing.T) {
+	s := setup(t)
+	appID := int64(1)
+
+	// Committed experiment with bad scope — should not be flagged
+	s.InsertExperiment(&model.Experiment{
+		AppID: appID, Name: "old_exp",
+		Scope: "nonexistent", Overlay: `{}`, Status: "committed",
+	})
+
+	findings, err := Validate(s.DB)
+	if err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+
+	matched := findRule(findings, "experiment-scope-invalid")
+	if len(matched) != 0 {
+		t.Errorf("committed experiment should not be validated: %v", matched)
+	}
+}
+
 // --- Helpers ---
 
 func contains(s, substr string) bool {

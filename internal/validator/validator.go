@@ -2,6 +2,7 @@ package validator
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -873,6 +874,248 @@ var rules = []rule{
 					findings = append(findings, Finding{
 						Message: fmt.Sprintf("screen %q is not reachable from entry screen %q", name, entryName),
 					})
+				}
+			}
+			return findings, nil
+		},
+	},
+	// Component prop unknown — component props contain keys not declared in schema
+	{
+		id:       "component-prop-unknown",
+		severity: Warning,
+		fn: func(db *sql.DB) ([]Finding, error) {
+			// 1. Load schemas
+			srows, err := db.Query("SELECT name, props FROM component_schemas")
+			if err != nil {
+				return nil, err
+			}
+			schemas := map[string]map[string]string{} // schema name -> prop name -> type
+			for srows.Next() {
+				var name, propsJSON string
+				if err := srows.Scan(&name, &propsJSON); err != nil {
+					srows.Close()
+					return nil, err
+				}
+				var props map[string]string
+				if err := json.Unmarshal([]byte(propsJSON), &props); err != nil {
+					srows.Close()
+					return nil, err
+				}
+				schemas[name] = props
+			}
+			srows.Close()
+			if len(schemas) == 0 {
+				return nil, nil
+			}
+
+			// 2. Check component props against schemas
+			crows, err := db.Query("SELECT entity_type, entity_id, component, props FROM components")
+			if err != nil {
+				return nil, err
+			}
+			defer crows.Close()
+			var findings []Finding
+			for crows.Next() {
+				var entType string
+				var entID int64
+				var comp, propsJSON string
+				if err := crows.Scan(&entType, &entID, &comp, &propsJSON); err != nil {
+					return nil, err
+				}
+				schema, ok := schemas[comp]
+				if !ok {
+					continue
+				}
+				var props map[string]any
+				if err := json.Unmarshal([]byte(propsJSON), &props); err != nil {
+					continue
+				}
+				for key := range props {
+					if _, declared := schema[key]; !declared {
+						findings = append(findings, Finding{
+							Message: fmt.Sprintf("component %q on %s has unknown prop %q", comp, entType, key),
+						})
+					}
+				}
+			}
+			return findings, nil
+		},
+	},
+	// Fixture keys mismatch — fixture data keys don't match context fields
+	{
+		id:       "fixture-keys-mismatch",
+		severity: Warning,
+		fn: func(db *sql.DB) ([]Finding, error) {
+			// 1. Get screen-level state_fixture bindings
+			rows, err := db.Query(`SELECT sf.fixture_name, sf.state_name, s.name AS screen_name, sf.owner_id
+				FROM state_fixtures sf
+				JOIN screens s ON sf.owner_type = 'screen' AND sf.owner_id = s.id`)
+			if err != nil {
+				return nil, err
+			}
+			type binding struct {
+				fixtureName string
+				stateName   string
+				screenName  string
+				ownerID     int64
+			}
+			var bindings []binding
+			for rows.Next() {
+				var b binding
+				if err := rows.Scan(&b.fixtureName, &b.stateName, &b.screenName, &b.ownerID); err != nil {
+					rows.Close()
+					return nil, err
+				}
+				bindings = append(bindings, b)
+			}
+			rows.Close()
+
+			// 2. Load fixtures
+			frows, err := db.Query("SELECT name, data FROM fixtures")
+			if err != nil {
+				return nil, err
+			}
+			fixtures := map[string]string{} // name -> data JSON
+			for frows.Next() {
+				var name, data string
+				if err := frows.Scan(&name, &data); err != nil {
+					frows.Close()
+					return nil, err
+				}
+				fixtures[name] = data
+			}
+			frows.Close()
+
+			var findings []Finding
+			for _, b := range bindings {
+				data, ok := fixtures[b.fixtureName]
+				if !ok {
+					continue // fixture-not-found handles this
+				}
+				// Parse fixture data
+				var fixtureData map[string]any
+				if err := json.Unmarshal([]byte(data), &fixtureData); err != nil {
+					continue
+				}
+				// Get the screen section from fixture data
+				screenData, ok := fixtureData[b.screenName]
+				if !ok {
+					continue // fixture may not have a section for this screen
+				}
+				screenMap, ok := screenData.(map[string]any)
+				if !ok {
+					continue
+				}
+				// Get context fields for this screen
+				cfrows, err := db.Query("SELECT field_name FROM contexts WHERE owner_type='screen' AND owner_id=?", b.ownerID)
+				if err != nil {
+					return nil, err
+				}
+				contextFields := map[string]bool{}
+				for cfrows.Next() {
+					var fieldName string
+					if err := cfrows.Scan(&fieldName); err != nil {
+						cfrows.Close()
+						return nil, err
+					}
+					contextFields[fieldName] = true
+				}
+				cfrows.Close()
+				if len(contextFields) == 0 {
+					continue
+				}
+				// Check each fixture key
+				for key := range screenMap {
+					if !contextFields[key] {
+						findings = append(findings, Finding{
+							Message: fmt.Sprintf("fixture %q for screen %q state %q has key %q not in context fields", b.fixtureName, b.screenName, b.stateName, key),
+						})
+					}
+				}
+			}
+			return findings, nil
+		},
+	},
+	// Entity type mismatch — entity type references a non-existent data type
+	{
+		id:       "entity-type-mismatch",
+		severity: Warning,
+		fn: func(db *sql.DB) ([]Finding, error) {
+			// 1. Get all data type names
+			dtrows, err := db.Query("SELECT name FROM data_types")
+			if err != nil {
+				return nil, err
+			}
+			dataTypes := map[string]bool{}
+			for dtrows.Next() {
+				var name string
+				if err := dtrows.Scan(&name); err != nil {
+					dtrows.Close()
+					return nil, err
+				}
+				dataTypes[name] = true
+			}
+			dtrows.Close()
+
+			// 2. Check entities
+			erows, err := db.Query("SELECT name, type FROM entities")
+			if err != nil {
+				return nil, err
+			}
+			defer erows.Close()
+			var findings []Finding
+			for erows.Next() {
+				var name, typ string
+				if err := erows.Scan(&name, &typ); err != nil {
+					return nil, err
+				}
+				if !dataTypes[typ] {
+					findings = append(findings, Finding{
+						Message: fmt.Sprintf("entity %q has type %q which is not a declared data type", name, typ),
+					})
+				}
+			}
+			return findings, nil
+		},
+	},
+	// Experiment scope invalid — scope does not resolve to an existing screen/region
+	{
+		id:       "experiment-scope-invalid",
+		severity: Warning,
+		fn: func(db *sql.DB) ([]Finding, error) {
+			rows, err := db.Query("SELECT name, scope FROM experiments WHERE status = 'active'")
+			if err != nil {
+				return nil, err
+			}
+			defer rows.Close()
+
+			var findings []Finding
+			for rows.Next() {
+				var name, scope string
+				if err := rows.Scan(&name, &scope); err != nil {
+					return nil, err
+				}
+				parts := strings.SplitN(scope, ".", 2)
+				screenName := parts[0]
+				// Check screen exists
+				var screenID int64
+				err := db.QueryRow("SELECT id FROM screens WHERE name = ?", screenName).Scan(&screenID)
+				if err != nil {
+					findings = append(findings, Finding{
+						Message: fmt.Sprintf("experiment %q scope %q references unknown screen %q", name, scope, screenName),
+					})
+					continue
+				}
+				// If region specified, check it exists under that screen
+				if len(parts) == 2 {
+					regionName := parts[1]
+					var regionID int64
+					err := db.QueryRow("SELECT id FROM regions WHERE name = ? AND parent_type = 'screen' AND parent_id = ?", regionName, screenID).Scan(&regionID)
+					if err != nil {
+						findings = append(findings, Finding{
+							Message: fmt.Sprintf("experiment %q scope %q references unknown region %q in screen %q", name, scope, regionName, screenName),
+						})
+					}
 				}
 			}
 			return findings, nil
