@@ -522,8 +522,10 @@ func loadExperiments(db *sql.DB, appID int64) ([]Experiment, error) {
 		var e Experiment
 		var overlayJSON string
 		rows.Scan(&e.Name, &e.Description, &e.Scope, &overlayJSON, &e.Status)
-		if err := json.Unmarshal([]byte(overlayJSON), &e.Overlay); err != nil {
-			return nil, fmt.Errorf("unmarshal overlay for experiment %s: %w", e.Name, err)
+		if overlayJSON != "" {
+			if err := json.Unmarshal([]byte(overlayJSON), &e.Overlay); err != nil {
+				return nil, fmt.Errorf("unmarshal overlay for experiment %s: %w", e.Name, err)
+			}
 		}
 		experiments = append(experiments, e)
 	}
