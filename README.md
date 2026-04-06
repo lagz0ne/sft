@@ -29,7 +29,7 @@ sft query states Home      # transitions for a screen
 sft validate               # check for orphans, dead events, cycles
 
 # Round-trip
-sft export spec.yaml       # serialize back to YAML
+sft export spec.yaml       # serialize current DB state back to YAML
 sft diff examples/linear.sft.yaml   # compare current vs a file
 ```
 
@@ -86,6 +86,11 @@ sft import spec.yaml          # load YAML into fresh DB
 sft export [file.yaml]        # serialize to YAML (stdout if no file)
 sft diff spec.yaml            # compare current spec vs YAML file
 ```
+
+### Browser View
+
+`sft view` only works when the frontend bundle is embedded in the current build.
+If the binary prints that the frontend is not bundled, use a release build or rebuild the embedded web assets first.
 
 ### Attachments
 

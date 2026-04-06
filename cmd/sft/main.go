@@ -37,6 +37,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if os.Args[1] == "help" || os.Args[1] == "-h" || os.Args[1] == "--help" {
+		fmt.Println(usage)
+		return
+	}
+
 	if os.Args[1] == "version" || os.Args[1] == "--version" {
 		fmt.Printf("sft %s\n", version)
 		return
@@ -62,6 +67,8 @@ func main() {
 		runInit(s, rest)
 	case "import":
 		runInit(s, rest) // legacy alias
+	case "export":
+		runExport(s, rest)
 	case "diff":
 		runDiff(s, rest)
 	case "add":
@@ -113,7 +120,7 @@ Workflow:
   sft show                       # full spec tree with @refs
   sft query screens              # list screens, regions, events
   sft validate                   # check for issues
-  sft view                       # open in browser
+  sft view                       # open in browser when frontend assets are bundled
 
 Reading:
   show                             full spec tree with @refs (text or --json)
@@ -188,7 +195,7 @@ Diagrams:
   diagram nav                     navigation graph
 
 View:
-  view [--port N]                 open spec in browser
+  view [--port N]                 open spec in browser when frontend assets are bundled
 
 Version:
   version                         show sft version
@@ -585,6 +592,31 @@ func runInit(s *store.Store, args []string) {
 		die("import: %v", err)
 	}
 	ok("imported %s", args[0])
+}
+
+func runExport(s *store.Store, args []string) {
+	spec, err := show.Load(s.DB, s)
+	if err != nil {
+		die("%v", err)
+	}
+
+	if len(args) == 0 {
+		if err := loader.Export(spec, os.Stdout); err != nil {
+			die("export: %v", err)
+		}
+		return
+	}
+
+	f, err := os.Create(args[0])
+	if err != nil {
+		die("export: %v", err)
+	}
+	defer f.Close()
+
+	if err := loader.Export(spec, f); err != nil {
+		die("export: %v", err)
+	}
+	ok("exported %s", args[0])
 }
 
 
@@ -1014,7 +1046,7 @@ func runCat(s *store.Store, args []string) {
 // --- view ---
 
 func runView(s *store.Store, args []string) {
-	fmt.Fprintln(os.Stderr, "viewer not available — rebuild in progress")
+	fmt.Fprintln(os.Stderr, "viewer frontend is not bundled in this build; rebuild/embed web assets before using `sft view`")
 	os.Exit(1)
 }
 

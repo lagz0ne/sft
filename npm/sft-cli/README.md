@@ -18,10 +18,13 @@ sft makes implicit UI structure explicit. Describe screens, regions, events, sta
 sft init spec.yaml       # bootstrap from YAML
 sft show                  # full spec tree with @refs
 sft validate              # check for issues
+sft export spec.yaml      # serialize DB state back to YAML
 sft query screens         # list screens
 sft query attachments     # attachments with content tracking
-sft view                  # open in browser
+sft view                  # open in browser when the frontend bundle is embedded
 ```
+
+If `sft view` reports that the frontend is not bundled, use a build that includes embedded web assets.
 
 ## Platforms
 
